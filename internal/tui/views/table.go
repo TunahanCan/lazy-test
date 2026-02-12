@@ -30,6 +30,7 @@ func GenericTable(g *gocui.Gui, x0, y0, x1, y1 int, headers []string, rows [][]s
 			return err
 		}
 		v.Frame = true
+		v.Title = " ✧ Signal Board "
 		v.FgColor = styles.ViewFg
 		v.BgColor = styles.ViewBg
 		v.Highlight = true
@@ -65,7 +66,7 @@ func GenericTable(g *gocui.Gui, x0, y0, x1, y1 int, headers []string, rows [][]s
 	for i, h := range headers {
 		headerLine += pad(h, widths[i])
 	}
-	fmt.Fprintln(v, headerLine)
+	fmt.Fprintln(v, " "+headerLine)
 	fmt.Fprintln(v, strings.Repeat("─", w))
 	for _, row := range rows {
 		var line string

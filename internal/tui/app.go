@@ -17,7 +17,7 @@ import (
 const (
 	leftNavW   = 28
 	statusBarH = 1
-	logoH      = 8
+	logoH      = 10
 )
 
 // Run starts the TUI with the given state. It blocks until the user quits.

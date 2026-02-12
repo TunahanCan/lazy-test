@@ -33,11 +33,12 @@ func RenderDetail(g *gocui.Gui, x0, y0, x1, y1 int, content *DetailContent) erro
 		v.FgColor = styles.ViewFg
 		v.BgColor = styles.ViewBg
 		v.Wrap = true
+		v.Title = " ✦ Insight Panel "
 	}
 	v, _ := g.View(detailViewName)
 	v.Clear()
 	if content == nil {
-		fmt.Fprint(v, "Select an item and press Enter. r run • A run suite • o drift • C compare • e env • p auth • s save")
+		fmt.Fprint(v, "Select a row to inspect rich details. Use Enter for contextual actions.")
 		return nil
 	}
 	if content.Title != "" {

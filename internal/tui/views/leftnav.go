@@ -11,16 +11,16 @@ import (
 const leftNavViewName = "leftNav"
 const leftNavWidth = 28
 
-func LeftNavName() string { return leftNavViewName }
+func LeftNavName() string    { return leftNavViewName }
 func LeftNavItems() []string { return leftNavItems }
 
 var leftNavItems = []string{
-	"1) Endpoint Explorer",
-	"2) Test Suites",
-	"3) Load Tests (LT)",
-	"4) Live Metrics",
-	"5) Contract Drift",
-	"6) Environments & Settings",
+	"◈ Endpoint Explorer",
+	"⚙ Test Suites",
+	"≈ Load Tests (LT)",
+	"◉ Live Metrics",
+	"∆ Contract Drift",
+	"☰ Environments & Settings",
 }
 
 func RenderLeftNav(g *gocui.Gui, x0, y0, x1, y1 int, selectedIdx int) error {
@@ -37,15 +37,17 @@ func RenderLeftNav(g *gocui.Gui, x0, y0, x1, y1 int, selectedIdx int) error {
 	}
 	v, _ := g.View(leftNavViewName)
 	v.Clear()
-	v.Title = " Menu "
+	v.Title = " ✦ Control Deck "
 	w := x1 - x0 - 4
 	if w < 2 {
 		w = 2
 	}
+	fmt.Fprintln(v, "  Navigate with ↑ ↓ and Enter")
+	fmt.Fprintln(v, "")
 	for i, item := range leftNavItems {
 		prefix := "  "
 		if i == selectedIdx {
-			prefix = "▸ "
+			prefix = "❯ "
 		}
 		line := prefix + runewidth.Truncate(item, w, "…")
 		fmt.Fprintln(v, line)
