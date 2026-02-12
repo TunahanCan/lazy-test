@@ -5,22 +5,22 @@ import (
 	"github.com/jroimartin/gocui"
 )
 
-// Colors: dark background, yellow frame, status colors.
+// Colors for a high-contrast, premium dark theme.
 const (
-	FrameFg     = gocui.ColorYellow
-	FrameBg     = gocui.ColorDefault
-	ViewBg      = gocui.ColorDefault
-	ViewFg      = gocui.ColorWhite
-	SelBg       = gocui.ColorCyan
-	SelFg       = gocui.ColorBlack
-	StatusOK    = gocui.ColorGreen
-	StatusFail  = gocui.ColorRed
-	StatusDrift = gocui.ColorYellow
-	StatusInProgress = gocui.ColorGreen
-	ErrorFg     = gocui.ColorRed
+	FrameFg          = gocui.ColorMagenta
+	FrameBg          = gocui.ColorDefault
+	ViewBg           = gocui.ColorDefault
+	ViewFg           = gocui.ColorWhite
+	SelBg            = gocui.ColorBlue
+	SelFg            = gocui.ColorWhite
+	StatusOK         = gocui.ColorGreen
+	StatusFail       = gocui.ColorRed
+	StatusDrift      = gocui.ColorYellow
+	StatusInProgress = gocui.ColorCyan
+	ErrorFg          = gocui.ColorRed
 )
 
-// Frame returns frame color attributes for a view (yellow border).
+// Frame returns frame color attributes for a view.
 func Frame() (fg, bg gocui.Attribute) {
 	return FrameFg, FrameBg
 }

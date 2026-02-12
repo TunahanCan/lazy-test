@@ -10,7 +10,7 @@ import (
 const statusBarViewName = "statusBar"
 
 // Help text for the status bar.
-const statusHelp = "q quit • r run • A run suite • L load • o drift • C compare • e env • p auth • s save"
+const statusHelp = "⌨ q quit | ↹ switch focus | r run | A suite | L load | o drift | C compare | e env | p auth | s save"
 
 // RenderStatusBar draws the bottom status bar.
 func RenderStatusBar(g *gocui.Gui, x0, y0, x1, y1 int) error {
