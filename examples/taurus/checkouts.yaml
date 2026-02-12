@@ -1,0 +1,41 @@
+# Taurus-compatible load test plan (single-node LT mode)
+# execution: concurrency (VUs), ramp-up, hold-for, scenario
+# scenarios: base-url, headers, think-time, requests (method/url/body, extract-jsonpath, assertions)
+# data-sources: CSV for variables (e.g. user.name, user.pass)
+
+execution:
+  - executor: http
+    concurrency: 25
+    ramp-up: 45s
+    hold-for: 4m
+    scenario: checkout-core
+
+scenarios:
+  checkout-core:
+    base-url: https://test.api.local
+    headers:
+      Authorization: Bearer ${token}
+    think-time:
+      constant: 300ms
+    requests:
+      - label: login
+        method: POST
+        url: /login
+        body: '{"user":"${user.name}","pass":"${user.pass}"}'
+        extract-jsonpath:
+          - jsonpath: $.token
+            variable: token
+        assertions:
+          - status-code: 200
+      - label: listOrders
+        method: GET
+        url: /orders?limit=10
+        assertions:
+          - status-code: 200
+          - p95-time-ms: 300
+
+# Optional: CSV data per VU (variable "user" -> ${user.name}, ${user.pass})
+# data-sources:
+#   - path: data/users.csv
+#     delimiter: ","
+#     variable: user

@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="lazytest" tests="0" failures="0" time="0.000">
+  <testsuite name="lazytest-smoke" tests="0" failures="0" time="0.000"></testsuite>
+</testsuites>

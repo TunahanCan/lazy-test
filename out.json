@@ -1,0 +1,35 @@
+{
+  "generated": "2026-02-10T18:38:39+03:00",
+  "duration_seconds": "601.628917ms",
+  "smoke": {
+    "total": 3,
+    "passed": 0,
+    "failed": 3,
+    "results": [
+      {
+        "Path": "/users",
+        "Method": "GET",
+        "StatusCode": 0,
+        "LatencyMS": 0,
+        "Err": "Get \"http://127.0.0.1:9999/users\": dial tcp 127.0.0.1:9999: connect: connection refused",
+        "OK": false
+      },
+      {
+        "Path": "/users",
+        "Method": "POST",
+        "StatusCode": 0,
+        "LatencyMS": 0,
+        "Err": "Post \"http://127.0.0.1:9999/users\": dial tcp 127.0.0.1:9999: connect: connection refused",
+        "OK": false
+      },
+      {
+        "Path": "/health",
+        "Method": "GET",
+        "StatusCode": 0,
+        "LatencyMS": 0,
+        "Err": "Get \"http://127.0.0.1:9999/health\": dial tcp 127.0.0.1:9999: connect: connection refused",
+        "OK": false
+      }
+    ]
+  }
+}

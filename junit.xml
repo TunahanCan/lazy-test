@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="lazytest" tests="3" failures="3" time="0.602">
+  <testsuite name="lazytest-smoke" tests="3" failures="3" time="0.602">
+    <testcase name="GET /users" classname="lazytest.smoke" time="0.000">
+      <failure message="Get &#34;http://127.0.0.1:9999/users&#34;: dial tcp 127.0.0.1:9999: connect: connection refused" type="SmokeTestFailure">status=0 err=Get &#34;http://127.0.0.1:9999/users&#34;: dial tcp 127.0.0.1:9999: connect: connection refused</failure>
+    </testcase>
+    <testcase name="POST /users" classname="lazytest.smoke" time="0.000">
+      <failure message="Post &#34;http://127.0.0.1:9999/users&#34;: dial tcp 127.0.0.1:9999: connect: connection refused" type="SmokeTestFailure">status=0 err=Post &#34;http://127.0.0.1:9999/users&#34;: dial tcp 127.0.0.1:9999: connect: connection refused</failure>
+    </testcase>
+    <testcase name="GET /health" classname="lazytest.smoke" time="0.000">
+      <failure message="Get &#34;http://127.0.0.1:9999/health&#34;: dial tcp 127.0.0.1:9999: connect: connection refused" type="SmokeTestFailure">status=0 err=Get &#34;http://127.0.0.1:9999/health&#34;: dial tcp 127.0.0.1:9999: connect: connection refused</failure>
+    </testcase>
+  </testsuite>
+</testsuites>

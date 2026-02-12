@@ -1,0 +1,10 @@
+{
+  "generated": "2026-02-11T08:13:01+03:00",
+  "duration_seconds": "0s",
+  "smoke": {
+    "total": 0,
+    "passed": 0,
+    "failed": 0,
+    "results": null
+  }
+}

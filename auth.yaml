@@ -1,0 +1,8 @@
+profiles:
+  - name: default-jwt
+    type: jwt
+    token: "<paste-token>"
+  - name: payments-key
+    type: apikey
+    header: "X-API-Key"
+    key: "<apikey>"
