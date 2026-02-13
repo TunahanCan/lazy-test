@@ -15,9 +15,9 @@ import (
 )
 
 const (
-	leftNavW   = 28
+	leftNavW   = 34
 	statusBarH = 1
-	logoH      = 10
+	logoH      = 8
 )
 
 // Run starts the TUI with the given state. It blocks until the user quits.
@@ -58,7 +58,7 @@ func Run(ctx context.Context, state *AppState) error {
 		if err := views.RenderStatusBar(g, 0, maxY-statusBarH-logoH, maxX, maxY-logoH); err != nil {
 			return err
 		}
-		if err := views.RenderLogo(g, 0, maxY-logoH, leftNavW, maxY); err != nil {
+		if err := views.RenderLogo(g, 0, maxY-logoH, maxX, maxY); err != nil {
 			return err
 		}
 		return nil
@@ -68,10 +68,14 @@ func Run(ctx context.Context, state *AppState) error {
 	if err := g.SetKeybinding("", gocui.KeyTab, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
 		if state.FocusView == "leftNav" {
 			state.FocusView = "mainTable"
-			g.SetCurrentView(views.MainTableName())
+			if _, err := g.SetCurrentView(views.MainTableName()); err != nil {
+				return err
+			}
 		} else {
 			state.FocusView = "leftNav"
-			g.SetCurrentView(views.LeftNavName())
+			if _, err := g.SetCurrentView(views.LeftNavName()); err != nil {
+				return err
+			}
 		}
 		return nil
 	}); err != nil {
@@ -147,7 +151,9 @@ func Run(ctx context.Context, state *AppState) error {
 		return err
 	}
 
-	g.SetCurrentView(views.LeftNavName())
+	if _, err := g.SetCurrentView(views.LeftNavName()); err != nil {
+		return err
+	}
 	state.FocusView = "leftNav"
 	return g.MainLoop()
 }
@@ -198,6 +204,11 @@ func arrowUpTable(state *AppState) func(*gocui.Gui, *gocui.View) error {
 
 func enterLeftNav(state *AppState, g *gocui.Gui) func(*gocui.Gui, *gocui.View) error {
 	return func(_ *gocui.Gui, _ *gocui.View) error {
+		state.FocusView = "mainTable"
+		if _, err := g.SetCurrentView(views.MainTableName()); err != nil {
+			return err
+		}
+		views.SetTableCursor(g, state.TableIdx)
 		g.Update(func(*gocui.Gui) error { return nil })
 		return nil
 	}
