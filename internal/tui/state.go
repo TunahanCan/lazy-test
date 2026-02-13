@@ -105,43 +105,52 @@ type AppState struct {
 	FocusView   string
 
 	// OpenAPI & endpoints
-	LoadedSpecs   []LoadedSpec
-	CurrentSpec   *LoadedSpec
-	Endpoints     []core.Endpoint
-	SmokeResults  []core.SmokeResult
-	DriftResult   *core.DriftResult
+	LoadedSpecs    []LoadedSpec
+	CurrentSpec    *LoadedSpec
+	Endpoints      []core.Endpoint
+	SmokeResults   []core.SmokeResult
+	DriftResult    *core.DriftResult
 	DriftSummaries []DriftSummaryRow
-	ABResult      *core.ABCompareResult
-	RunHistory   []RunHistoryEntry
+	ABResult       *core.ABCompareResult
+	RunHistory     []RunHistoryEntry
 
 	// Load Tests (LT mode)
-	LTPlans        []LTPlanEntry
-	LTRunning      bool
-	LTWarmUpOn     bool
-	LTErrorBudget  struct {
+	LTPlans       []LTPlanEntry
+	LTRunning     bool
+	LTWarmUpOn    bool
+	LTErrorBudget struct {
 		MaxErrorPct float64
 		MaxP95Ms    int64
 	}
-	LTMetrics      *lt.Metrics
+	LTMetrics *lt.Metrics
 
 	// Live Metrics (last run snapshot)
 	LiveMetricsSnapshot lt.Snapshot
 	LiveMetricsHidden   bool
 
 	// Environment & auth (under Env & Settings)
-	EnvName      string
-	EnvConfig    *config.EnvConfig
-	AuthConfig   *config.AuthConfig
-	AuthProfile  string
-	BaseURL      string
-	Headers      map[string]string
-	AuthHeader   map[string]string
-	RateLimitRPS int
-	Timeout      time.Duration
-	Retries      int
-	Proxy        string
-	CACert       string
+	EnvName         string
+	EnvConfig       *config.EnvConfig
+	AuthConfig      *config.AuthConfig
+	AuthProfile     string
+	BaseURL         string
+	Headers         map[string]string
+	AuthHeader      map[string]string
+	RateLimitRPS    int
+	Timeout         time.Duration
+	Retries         int
+	Proxy           string
+	CACert          string
 	LastRunDuration time.Duration
+
+	// Quick actions
+	LastQuickAction string
+
+	// Inline prompt modal
+	PromptActive bool
+	PromptKind   string
+	PromptTitle  string
+	PromptValue  string
 }
 
 type TableData struct {
