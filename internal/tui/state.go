@@ -9,6 +9,7 @@ import (
 	"lazytest/internal/config"
 	"lazytest/internal/core"
 	"lazytest/internal/lt"
+	"lazytest/internal/tcp"
 	"lazytest/internal/tui/views"
 )
 
@@ -95,6 +96,15 @@ type LTPlanEntry struct {
 	Plan *lt.Plan
 }
 
+// TCPPlanEntry is a loaded TCP plan file for the TCP plans menu.
+type TCPPlanEntry struct {
+	Path     string
+	Scenario *tcp.Scenario
+	LastRun  *tcp.Result
+	Valid    bool
+	LastErr  string
+}
+
 // AppState holds TUI state: 6 nav items, endpoints, smoke, drift, LT, Live Metrics, env/settings.
 type AppState struct {
 	mu sync.RWMutex
@@ -116,6 +126,7 @@ type AppState struct {
 
 	// Load Tests (LT mode)
 	LTPlans       []LTPlanEntry
+	TCPPlans      []TCPPlanEntry
 	LTRunning     bool
 	LTWarmUpOn    bool
 	LTErrorBudget struct {
@@ -220,27 +231,31 @@ func (s *AppState) tableTestSuites() TableData {
 }
 
 func (s *AppState) tableLoadTests() TableData {
-	h := []string{"PLAN", "SCENARIOS", "REQUESTS", "ASSERTIONS"}
+	h := []string{"TYPE", "PLAN", "SCENARIOS/STEPS", "LAST"}
 	rows := make([][]string, 0)
 	for _, e := range s.LTPlans {
-		if e.Plan == nil {
-			rows = append(rows, []string{trunc(e.Path, 30), "0", "0", "0"})
-			continue
+		count := 0
+		if e.Plan != nil {
+			count = len(e.Plan.Scenarios)
 		}
-		reqCount := 0
-		assertCount := 0
-		for _, sc := range e.Plan.Scenarios {
-			reqCount += len(sc.Requests)
-			for _, r := range sc.Requests {
-				assertCount += len(r.Assertions)
+		rows = append(rows, []string{"LT", trunc(e.Path, 30), itoa(count), "-"})
+	}
+	for _, e := range s.TCPPlans {
+		steps := 0
+		last := "idle"
+		if e.Scenario != nil {
+			steps = len(e.Scenario.Steps)
+		}
+		if !e.Valid {
+			last = "invalid"
+		} else if e.LastRun != nil {
+			if e.LastRun.OK {
+				last = "ok"
+			} else {
+				last = "fail"
 			}
 		}
-		rows = append(rows, []string{
-			trunc(e.Path, 30),
-			itoa(len(e.Plan.Scenarios)),
-			itoa(reqCount),
-			itoa(assertCount),
-		})
+		rows = append(rows, []string{"TCP", trunc(e.Path, 30), itoa(steps), last})
 	}
 	return TableData{Headers: h, Rows: rows}
 }

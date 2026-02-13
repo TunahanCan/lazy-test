@@ -1,0 +1,15 @@
+kind: tcp
+name: echo-scenario
+host: 127.0.0.1
+port: 9000
+options:
+  dial_timeout_ms: 500
+  timeout_ms: 500
+  retry: { max_attempts: 1, strategy: none }
+steps:
+  - kind: connect
+  - kind: write
+    write: { bytes: [80,73,78,71,10] }
+  - kind: read
+    read: { until: "\n", assert: { regex: "PING", len_range: { min: 1, max: 16 } } }
+  - kind: close

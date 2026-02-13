@@ -11,7 +11,9 @@ import (
 	"github.com/jroimartin/gocui"
 	"lazytest/internal/core"
 	"lazytest/internal/lt"
+	"lazytest/internal/plan"
 	"lazytest/internal/report"
+	"lazytest/internal/tcp"
 	"lazytest/internal/tui/views"
 )
 
@@ -289,6 +291,9 @@ func enterTable(state *AppState, g *gocui.Gui) func(*gocui.Gui, *gocui.View) err
 
 func runSmokeSelected(state *AppState, g *gocui.Gui) func(*gocui.Gui, *gocui.View) error {
 	return func(_ *gocui.Gui, _ *gocui.View) error {
+		if NavMode(state.NavIndex) == NavLoadTests {
+			return runLT(state, g)(nil, nil)
+		}
 		rows := state.FilteredRows()
 		if state.TableIdx >= len(rows) || state.BaseURL == "" {
 			return nil
@@ -435,6 +440,16 @@ func runABCompare(state *AppState, g *gocui.Gui) func(*gocui.Gui, *gocui.View) e
 }
 func saveReports(state *AppState, g *gocui.Gui) func(*gocui.Gui, *gocui.View) error {
 	return func(_ *gocui.Gui, _ *gocui.View) error {
+		if NavMode(state.NavIndex) == NavLoadTests && state.TableIdx >= len(state.LTPlans) {
+			tcpIdx := state.TableIdx - len(state.LTPlans)
+			if tcpIdx >= 0 && tcpIdx < len(state.TCPPlans) && state.TCPPlans[tcpIdx].LastRun != nil {
+				_ = report.WriteJUnitTCP("junit.xml", *state.TCPPlans[tcpIdx].LastRun)
+				rep := report.TCPReportFromResult(*state.TCPPlans[tcpIdx].LastRun, state.TCPPlans[tcpIdx].LastRun.Duration)
+				_ = report.WriteJSON("out.json", rep)
+				g.Update(func(*gocui.Gui) error { return nil })
+				return nil
+			}
+		}
 		_ = report.WriteJUnitSmoke("junit.xml", state.SmokeResults, state.LastRunDuration)
 		rep := report.SmokeReportFromResults(state.SmokeResults, state.LastRunDuration)
 		_ = report.WriteJSON("out.json", rep)
@@ -444,6 +459,22 @@ func saveReports(state *AppState, g *gocui.Gui) func(*gocui.Gui, *gocui.View) er
 }
 func cycleEnv(state *AppState, g *gocui.Gui) func(*gocui.Gui, *gocui.View) error {
 	return func(_ *gocui.Gui, _ *gocui.View) error {
+		if NavMode(state.NavIndex) == NavLoadTests && state.TableIdx >= len(state.LTPlans) {
+			tcpIdx := state.TableIdx - len(state.LTPlans)
+			if tcpIdx >= 0 && tcpIdx < len(state.TCPPlans) {
+				_ = plan.Edit(state.TCPPlans[tcpIdx].Path)
+				if sc, err := tcp.LoadScenario(state.TCPPlans[tcpIdx].Path); err == nil {
+					state.TCPPlans[tcpIdx].Scenario = &sc
+					state.TCPPlans[tcpIdx].Valid = true
+					state.TCPPlans[tcpIdx].LastErr = ""
+				} else {
+					state.TCPPlans[tcpIdx].Valid = false
+					state.TCPPlans[tcpIdx].LastErr = err.Error()
+				}
+				g.Update(func(*gocui.Gui) error { return nil })
+				return nil
+			}
+		}
 		if state.EnvConfig == nil || len(state.EnvConfig.Environments) == 0 {
 			return nil
 		}
@@ -496,34 +527,51 @@ func cycleAuthProfile(state *AppState, g *gocui.Gui) func(*gocui.Gui, *gocui.Vie
 
 func runLT(state *AppState, g *gocui.Gui) func(*gocui.Gui, *gocui.View) error {
 	return func(_ *gocui.Gui, _ *gocui.View) error {
-		if NavMode(state.NavIndex) != NavLoadTests || state.TableIdx >= len(state.LTPlans) {
+		if NavMode(state.NavIndex) != NavLoadTests {
 			return nil
 		}
-		entry := state.LTPlans[state.TableIdx]
-		if entry.Plan == nil {
+		if state.TableIdx < len(state.LTPlans) {
+			entry := state.LTPlans[state.TableIdx]
+			if entry.Plan == nil || state.LTRunning {
+				return nil
+			}
+			state.LTRunning = true
+			warmUp := 30 * time.Second
+			if !state.LTWarmUpOn {
+				warmUp = 0
+			}
+			cfg := lt.DefaultRunConfig()
+			cfg.WarmUpDuration = warmUp
+			cfg.MaxErrorPct = state.LTErrorBudget.MaxErrorPct
+			cfg.MaxP95Ms = state.LTErrorBudget.MaxP95Ms
+			runner := &lt.Runner{Plan: entry.Plan, Config: cfg}
+			runner.Metrics = lt.NewMetrics(warmUp)
+			state.LTMetrics = runner.Metrics
+			go func() {
+				_ = runner.Run(context.Background())
+				state.mu.Lock()
+				state.LTRunning = false
+				state.LiveMetricsSnapshot = runner.Metrics.Snapshot()
+				state.mu.Unlock()
+				g.Update(func(*gocui.Gui) error { return nil })
+			}()
 			return nil
 		}
-		if state.LTRunning {
+		tcpIdx := state.TableIdx - len(state.LTPlans)
+		if tcpIdx < 0 || tcpIdx >= len(state.TCPPlans) {
 			return nil
 		}
-		state.LTRunning = true
-		warmUp := 30 * time.Second
-		if !state.LTWarmUpOn {
-			warmUp = 0
+		entry := state.TCPPlans[tcpIdx]
+		if entry.Scenario == nil {
+			return nil
 		}
-		cfg := lt.DefaultRunConfig()
-		cfg.WarmUpDuration = warmUp
-		cfg.MaxErrorPct = state.LTErrorBudget.MaxErrorPct
-		cfg.MaxP95Ms = state.LTErrorBudget.MaxP95Ms
-		runner := &lt.Runner{Plan: entry.Plan, Config: cfg}
-		runner.Metrics = lt.NewMetrics(warmUp)
-		state.LTMetrics = runner.Metrics
 		go func() {
-			ctx := context.Background()
-			_ = runner.Run(ctx)
+			res, err := tcp.Run(context.Background(), *entry.Scenario)
 			state.mu.Lock()
-			state.LTRunning = false
-			state.LiveMetricsSnapshot = runner.Metrics.Snapshot()
+			state.TCPPlans[tcpIdx].LastRun = &res
+			if err != nil {
+				state.TCPPlans[tcpIdx].LastErr = err.Error()
+			}
 			state.mu.Unlock()
 			g.Update(func(*gocui.Gui) error { return nil })
 		}()
@@ -704,6 +752,13 @@ func loadYAMLByPath(state *AppState, path string) {
 		state.mu.Lock()
 		state.LTPlans = append(state.LTPlans, LTPlanEntry{Path: path, Plan: p})
 		state.LastQuickAction = "LT YAML eklendi: " + path
+		state.mu.Unlock()
+		return
+	}
+	if sc, err := tcp.LoadScenario(path); err == nil && sc.Name != "" {
+		state.mu.Lock()
+		state.TCPPlans = append(state.TCPPlans, TCPPlanEntry{Path: path, Scenario: &sc, Valid: true})
+		state.LastQuickAction = "TCP YAML eklendi: " + path
 		state.mu.Unlock()
 		return
 	}

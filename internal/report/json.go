@@ -6,38 +6,46 @@ import (
 	"time"
 
 	"lazytest/internal/core"
+	"lazytest/internal/tcp"
 )
 
 // JSONReport is the root structure for JSON output.
 type JSONReport struct {
-	Generated string          `json:"generated"`
-	Duration  string          `json:"duration_seconds"`
-	Smoke     *SmokeSummary   `json:"smoke,omitempty"`
-	Drift     *DriftSummary   `json:"drift,omitempty"`
-	AB        *ABSummary      `json:"ab_compare,omitempty"`
+	Generated string        `json:"generated"`
+	Duration  string        `json:"duration_seconds"`
+	Smoke     *SmokeSummary `json:"smoke,omitempty"`
+	Drift     *DriftSummary `json:"drift,omitempty"`
+	AB        *ABSummary    `json:"ab_compare,omitempty"`
+	TCP       *TCPSummary   `json:"tcp,omitempty"`
 }
 
 // SmokeSummary summarizes smoke test results.
 type SmokeSummary struct {
-	Total   int                  `json:"total"`
-	Passed  int                  `json:"passed"`
-	Failed  int                  `json:"failed"`
-	Results []core.SmokeResult   `json:"results"`
+	Total   int                `json:"total"`
+	Passed  int                `json:"passed"`
+	Failed  int                `json:"failed"`
+	Results []core.SmokeResult `json:"results"`
 }
 
 // DriftSummary summarizes drift results.
 type DriftSummary struct {
-	Total   int                  `json:"total"`
-	OK      int                  `json:"ok"`
-	Drifted int                  `json:"drifted"`
-	Results []core.DriftResult   `json:"results"`
+	Total   int                `json:"total"`
+	OK      int                `json:"ok"`
+	Drifted int                `json:"drifted"`
+	Results []core.DriftResult `json:"results"`
+}
+
+// TCPSummary summarizes tcp run results.
+type TCPSummary struct {
+	Plan   string     `json:"plan"`
+	Result tcp.Result `json:"result"`
 }
 
 // ABSummary summarizes A/B compare results.
 type ABSummary struct {
-	Path     string                 `json:"path"`
-	Method   string                 `json:"method"`
-	Result   core.ABCompareResult   `json:"result"`
+	Path   string               `json:"path"`
+	Method string               `json:"method"`
+	Result core.ABCompareResult `json:"result"`
 }
 
 // WriteJSON writes a JSON report to path.
@@ -87,8 +95,16 @@ func DriftReportFromResults(results []core.DriftResult, duration time.Duration) 
 		Drift: &DriftSummary{
 			Total:   len(results),
 			OK:      ok,
-			Drifted:  drifted,
+			Drifted: drifted,
 			Results: results,
 		},
+	}
+}
+
+func TCPReportFromResult(result tcp.Result, duration time.Duration) *JSONReport {
+	return &JSONReport{
+		Generated: time.Now().Format(time.RFC3339),
+		Duration:  duration.String(),
+		TCP:       &TCPSummary{Plan: result.PlanName, Result: result},
 	}
 }
