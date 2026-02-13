@@ -223,6 +223,56 @@ make clean   # bin klasörünü temizler
 
 ---
 
+## Testler nasıl çalışıyor? (animasyonlu akış)
+
+Detaylı, tek tek test anlatımı için: **`examples/testlerin-nasil-calistigi.md`**
+
+### 1) `TestRunSuccess` akışı
+
+```mermaid
+sequenceDiagram
+    participant T as Test
+    participant S as Dummy TCP Server
+    T->>S: connect
+    S-->>T: BANNER\n
+    T->>S: PING\n
+    S-->>T: PING\n (echo)
+    T->>T: assert contains/regex
+    T->>S: close
+```
+
+### 2) `TestEvaluateAssertJSON` akışı
+
+```mermaid
+flowchart LR
+    A[JSON body] --> B[JSONPath kontrolü]
+    B --> C[JMESPath kontrolü]
+    C --> D[LenRange kontrolü]
+    D --> E[Not contains kontrolü]
+    E --> F[Test PASS]
+```
+
+### 3) `TestDialTimeout` akışı
+
+```mermaid
+flowchart LR
+    A[Ulaşılamaz host:port] --> B[Kısa dial timeout]
+    B --> C[connect başarısız]
+    C --> D[hata beklenir]
+    D --> E[Test PASS]
+```
+
+### 4) `TestBreaker` akışı
+
+```mermaid
+flowchart LR
+    A[Breaker: failures=1] --> B[Record timeout error]
+    B --> C[state closed değil]
+    C --> D[Test PASS]
+```
+
+---
+
 ## Mimari dokümantasyonu
 
 Proje mimarisi ve modül sorumlulukları için: **`help.md`**
