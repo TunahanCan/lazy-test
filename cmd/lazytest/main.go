@@ -8,10 +8,13 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 	"lazytest/internal/config"
 	"lazytest/internal/core"
 	"lazytest/internal/lt"
+	"lazytest/internal/plan"
 	"lazytest/internal/report"
+	"lazytest/internal/tcp"
 	"lazytest/internal/tui"
 )
 
@@ -29,6 +32,7 @@ var (
 	methodFlag  string
 	envA        string
 	envB        string
+	verbose     bool
 )
 
 func main() {
@@ -41,6 +45,7 @@ func main() {
 	root.PersistentFlags().StringVar(&baseURL, "base", "", "Base URL (overrides env config)")
 	root.PersistentFlags().StringVar(&envFile, "env-config", "env.yaml", "env.yaml path")
 	root.PersistentFlags().StringVar(&authFile, "auth-config", "auth.yaml", "auth.yaml path")
+	root.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Verbose logs")
 
 	loadCmd := &cobra.Command{
 		Use:   "load",
@@ -73,6 +78,11 @@ func main() {
 	driftCmd.Flags().StringVar(&pathFlag, "path", "", "Path to check (e.g. /customers)")
 	driftCmd.Flags().StringVar(&methodFlag, "method", "GET", "HTTP method")
 	runCmd.AddCommand(driftCmd)
+	tcpCmd := &cobra.Command{Use: "tcp", Short: "Run TCP plan", RunE: runTCP}
+	tcpCmd.Flags().StringVar(&openAPIPath, "plan", "plans/tcp.yaml", "TCP plan YAML path")
+	tcpCmd.Flags().StringVar(&reportPath, "report", "junit.xml", "JUnit XML output path")
+	tcpCmd.Flags().StringVar(&jsonPath, "json", "out.json", "JSON report output path")
+	runCmd.AddCommand(tcpCmd)
 
 	compareCmd := &cobra.Command{
 		Use:   "compare",
@@ -90,7 +100,14 @@ func main() {
 		RunE:  runLT,
 	}
 	ltCmd.Flags().StringVarP(&openAPIPath, "file", "f", "", "Taurus plan YAML")
-	root.AddCommand(loadCmd, runCmd, compareCmd, ltCmd)
+	planCmd := &cobra.Command{Use: "plan", Short: "Plan utilities"}
+	planNewCmd := &cobra.Command{Use: "new", Short: "Create new plan", RunE: runPlanNew}
+	planNewCmd.Flags().String("kind", "tcp", "Plan kind")
+	planNewCmd.Flags().String("out", "plans/tcp.yaml", "Output path")
+	planEditCmd := &cobra.Command{Use: "edit <path>", Short: "Edit plan with $EDITOR", Args: cobra.ExactArgs(1), RunE: runPlanEdit}
+	planCmd.AddCommand(planNewCmd, planEditCmd)
+
+	root.AddCommand(loadCmd, runCmd, compareCmd, ltCmd, planCmd)
 
 	// Default: no subcommand -> run TUI (optionally with -f to load spec)
 	root.RunE = runTUI
@@ -151,6 +168,9 @@ func runTUI(cmd *cobra.Command, args []string) error {
 	// Default LT plan if present
 	if plan, err := lt.ParseFile("examples/taurus/checkouts.yaml"); err == nil {
 		state.LTPlans = append(state.LTPlans, tui.LTPlanEntry{Path: "examples/taurus/checkouts.yaml", Plan: plan})
+	}
+	if sc, err := tcp.LoadScenario("plans/tcp.yaml"); err == nil {
+		state.TCPPlans = append(state.TCPPlans, tui.TCPPlanEntry{Path: "plans/tcp.yaml", Scenario: &sc, Valid: true})
 	}
 	return tui.Run(context.Background(), state)
 }
@@ -220,12 +240,12 @@ func runSmoke(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("set --base or env config baseURL")
 	}
 	cfg := core.SmokeConfig{
-		BaseURL:       state.BaseURL,
-		Headers:       state.Headers,
+		BaseURL:      state.BaseURL,
+		Headers:      state.Headers,
 		AuthHeader:   state.AuthHeader,
-		Timeout:       5 * time.Second,
-		Workers:       workers,
-		RateLimitRPS:  state.RateLimitRPS,
+		Timeout:      5 * time.Second,
+		Workers:      workers,
+		RateLimitRPS: state.RateLimitRPS,
 	}
 	start := time.Now()
 	results := core.RunSmokeBulk(context.Background(), cfg, endpoints)
@@ -349,5 +369,73 @@ func runCompare(cmd *cobra.Command, args []string) error {
 	for _, d := range res.BodyStructureDiff {
 		fmt.Println("  [struct]", d)
 	}
+	return nil
+}
+
+func runPlanNew(cmd *cobra.Command, args []string) error {
+	kind, _ := cmd.Flags().GetString("kind")
+	out, _ := cmd.Flags().GetString("out")
+	var sample string
+	switch kind {
+	case "tcp":
+		sample = `kind: tcp
+name: redis-banner
+host: 127.0.0.1
+port: 6379
+options:
+  dial_timeout_ms: 2000
+  timeout_ms: 1500
+  keepalive_ms: 30000
+  nodelay: true
+  retry: { max_attempts: 3, strategy: exponential, base_ms: 100, max_ms: 2000 }
+  breaker: { window_sec: 60, failures: 5, half_open: 2 }
+steps:
+  - kind: connect
+  - kind: read
+    read: { until: "\n", assert: { contains: "REDIS" } }
+  - kind: close
+`
+	default:
+		sample = "kind: " + kind + "\n"
+	}
+	if err := os.WriteFile(out, []byte(sample), 0644); err != nil {
+		return err
+	}
+	fmt.Println("created:", out)
+	return nil
+}
+
+func runPlanEdit(cmd *cobra.Command, args []string) error {
+	return plan.Edit(args[0])
+}
+
+func runTCP(cmd *cobra.Command, args []string) error {
+	b, err := os.ReadFile(openAPIPath)
+	if err != nil {
+		return err
+	}
+	if err := plan.ValidateCUE(plan.KindTCP, b); err != nil {
+		return err
+	}
+	var s tcp.Scenario
+	if err := yaml.Unmarshal(b, &s); err != nil {
+		return err
+	}
+	res, err := tcp.Run(context.Background(), s)
+	if verbose {
+		for _, st := range res.Steps {
+			fmt.Printf("step=%d kind=%s bytes(w/r)=%d/%d latency=%s err=%s breaker=%s\n", st.Index, st.Kind, st.BytesWrite, st.BytesRead, st.Latency, st.Err, res.BreakerState)
+		}
+	}
+	if e := report.WriteJUnitTCP(reportPath, res); e != nil {
+		fmt.Fprintln(os.Stderr, "write junit:", e)
+	}
+	if e := report.WriteJSON(jsonPath, report.TCPReportFromResult(res, res.Duration)); e != nil {
+		fmt.Fprintln(os.Stderr, "write json:", e)
+	}
+	if err != nil {
+		return err
+	}
+	fmt.Printf("TCP %s: ok=%v attempts=%d duration=%s\n", s.Name, res.OK, res.Attempts, res.Duration)
 	return nil
 }

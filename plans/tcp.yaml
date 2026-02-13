@@ -1,0 +1,16 @@
+kind: tcp
+name: redis-banner
+host: 127.0.0.1
+port: 6379
+options:
+  dial_timeout_ms: 2000
+  timeout_ms: 1500
+  keepalive_ms: 30000
+  nodelay: true
+  retry: { max_attempts: 3, strategy: exponential, base_ms: 100, max_ms: 2000 }
+  breaker: { window_sec: 60, failures: 5, half_open: 2 }
+steps:
+  - kind: connect
+  - kind: read
+    read: { until: "\n", assert: { contains: "REDIS" } }
+  - kind: close

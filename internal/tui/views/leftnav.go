@@ -17,7 +17,7 @@ func LeftNavItems() []string { return leftNavItems }
 var leftNavItems = []string{
 	"◈ Endpoint Explorer",
 	"⚙ Test Suites",
-	"≈ Load Tests (LT)",
+	"≈ TCP Plans",
 	"◉ Live Metrics",
 	"∆ Contract Drift",
 	"☰ Environments & Settings",

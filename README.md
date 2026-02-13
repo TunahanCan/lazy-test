@@ -226,3 +226,18 @@ make clean   # bin klasörünü temizler
 ## Mimari dokümantasyonu
 
 Proje mimarisi ve modül sorumlulukları için: **`help.md`**
+
+## TCP Planları (MVP, TLS yok)
+
+Yeni TCP domain’i ham soket senaryoları için eklendi:
+
+```bash
+lazytest plan new --kind tcp --out plans/tcp.yaml
+lazytest plan edit plans/tcp.yaml
+lazytest run tcp --plan plans/tcp.yaml --report junit.xml --json out.json -v
+```
+
+- Assertion türleri: `contains`, `regex`, `not`, `len_range`, `jsonpath` (basit), `jmespath`.
+- Retry/backoff: `none|constant|exponential`.
+- Circuit breaker: `window_sec`, `failures`, `half_open`.
+- Kısıt: TLS yok, `read.until` tek byte delimiter.
