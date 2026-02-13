@@ -61,6 +61,19 @@ make build
 
 ## Hızlı başlangıç
 
+### Terminalden testleri başlat
+
+```bash
+# Tüm testler
+make test
+
+# Headless smoke koşumu
+./bin/lazytest run smoke -f openapi.sample.yaml -e dev --base http://localhost:8080
+
+# Tek endpoint drift kontrolü
+./bin/lazytest run drift -f openapi.sample.yaml --path /health --method GET -e dev --base http://localhost:8080
+```
+
 ### TUI başlat (OpenAPI + environment)
 
 ```bash

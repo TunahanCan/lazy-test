@@ -42,7 +42,7 @@ func RenderLeftNav(g *gocui.Gui, x0, y0, x1, y1 int, selectedIdx int) error {
 	if w < 2 {
 		w = 2
 	}
-	fmt.Fprintln(v, "  Navigate with ↑ ↓ and Enter")
+	fmt.Fprintln(v, "  Navigate: ↑ ↓  •  Enter: open  •  Tab: switch")
 	fmt.Fprintln(v, "")
 	for i, item := range leftNavItems {
 		prefix := "  "
@@ -62,7 +62,7 @@ func LeftNavSelectedIndex(g *gocui.Gui) int {
 	}
 	_, oy := v.Origin()
 	_, cy := v.Cursor()
-	idx := oy + cy
+	idx := oy + cy - 2
 	if idx < 0 || idx >= len(leftNavItems) {
 		return 0
 	}
@@ -81,5 +81,5 @@ func SetLeftNavCursor(g *gocui.Gui, idx int) {
 	if idx >= len(leftNavItems) {
 		idx = len(leftNavItems) - 1
 	}
-	v.SetCursor(0, idx)
+	v.SetCursor(0, idx+2)
 }
