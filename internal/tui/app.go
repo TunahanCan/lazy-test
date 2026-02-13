@@ -61,6 +61,12 @@ func Run(ctx context.Context, state *AppState) error {
 		if err := views.RenderLogo(g, 0, maxY-logoH, maxX, maxY); err != nil {
 			return err
 		}
+		if state.FocusView == "" {
+			if _, err := g.SetCurrentView(views.LeftNavName()); err != nil && err != gocui.ErrUnknownView {
+				return err
+			}
+			state.FocusView = "leftNav"
+		}
 		return nil
 	}
 	g.SetManagerFunc(layout)
@@ -151,10 +157,6 @@ func Run(ctx context.Context, state *AppState) error {
 		return err
 	}
 
-	if _, err := g.SetCurrentView(views.LeftNavName()); err != nil {
-		return err
-	}
-	state.FocusView = "leftNav"
 	return g.MainLoop()
 }
 
