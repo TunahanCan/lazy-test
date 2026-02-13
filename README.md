@@ -2,34 +2,79 @@
 
 > REST mikroservisleri için **OpenAPI tabanlı kalite doğrulama** + **Taurus uyumlu yük testi** yapan CLI/TUI aracı.
 
-![terminal demo gif](https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExM3o3ZG5xOHV5djRtNmh0djM4NXN6N2pqd3B0eW5rNTI4OHh4eDhxNSZlcD12MV9naWZzX3NlYXJjaCZjdD1n/coxQHKASG60HrHtvkt/giphy.gif)
+<p align="center">
+  <img src="https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExM3o3ZG5xOHV5djRtNmh0djM4NXN6N2pqd3B0eW5rNTI4OHh4eDhxNSZlcD12MV9naWZzX3NlYXJjaCZjdD1n/coxQHKASG60HrHtvkt/giphy.gif" alt="lazytest terminal demo" width="820" />
+</p>
+
+<p align="center">
+  <em>OpenAPI içeri al → Smoke/Drift doğrula → A/B kıyasla → LT ile yük altında gözlemle → Raporla.</em>
+</p>
 
 ---
 
-## 🎯 lazytest neyi çözüyor?
+## 🎯 Neden lazytest?
 
-Klasik süreçte smoke test, contract kontrolü ve load test farklı araçlara dağılır.
-`lazytest` bunları **tek akışta** birleştirir:
+Klasik test zinciri çoğu ekipte parçalıdır:
 
-- ✅ OpenAPI'dan endpoint keşfi
+- smoke test başka araçta,
+- contract kontrolü başka script’te,
+- load test bambaşka bir pipeline’da.
+
+`lazytest` bu parçaları tek akışta toplar:
+
+- ✅ OpenAPI’dan endpoint keşfi
 - ✅ Paralel smoke test
 - ✅ Contract drift analizi
 - ✅ A/B environment karşılaştırması
 - ✅ Taurus planı ile load test
-- ✅ Canlı TUI metrik ekranı
+- ✅ Canlı TUI metrik takibi
 
 ---
 
-## 🧩 Özellikler
+## 🎬 Ürün hikayesi (animasyonlu akış)
+
+### 1) Endpoint’leri keşfet
+
+```mermaid
+flowchart LR
+  A[OpenAPI yükle] --> B[Endpoint Explorer]
+  B --> C[Tag / path / method filtrele]
+  C --> D[Hedef endpoint seç]
+```
+
+### 2) Tek tuşla doğrula
+
+```mermaid
+flowchart LR
+  E[Smoke run] --> F[HTTP durum + erişilebilirlik]
+  E --> G[Temel response kontrolleri]
+  H[Drift run] --> I[missing / extra]
+  H --> J[type_mismatch / enum_violation]
+```
+
+### 3) Ortamları kıyasla, yük altında doğrula
+
+```mermaid
+flowchart LR
+  K[A/B Compare] --> L[status/header/body farkları]
+  M[LT Mode] --> N[Taurus execution/scenario]
+  N --> O[p95 + RPS + error rate]
+```
+
+<p align="center">
+  <img src="https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExc3h5M2h6dWZmMHF0M3N2ajByMHo2M2s2aHhnNmQ4b2M4M2hoYnU3MCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/l0MYt5jPR6QX5pnqM/giphy.gif" alt="live metrics animation" width="820" />
+</p>
+
+---
+
+## 🧩 Özellik seti
 
 - **Smoke test:** Endpoint erişilebilirliği ve temel davranış kontrolü
 - **Contract drift:** `missing`, `extra`, `type_mismatch`, `enum_violation` tespiti
 - **A/B compare:** status / header / body fark analizi
 - **LT mode:** Taurus YAML planlarını tek node’da çalıştırma
 - **Raporlama:** JUnit XML + JSON
-- **TUI ekranı:** p50/p90/p95/p99, RPS, error rate
-
-![metrics gif](https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExc3h5M2h6dWZmMHF0M3N2ajByMHo2M2s2aHhnNmQ4b2M4M2hoYnU3MCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/l0MYt5jPR6QX5pnqM/giphy.gif)
+- **TUI metrik ekranı:** p50/p90/p95/p99, RPS, error rate
 
 ---
 
@@ -57,9 +102,9 @@ make build
 
 ---
 
-## ⚡ Hızlı Başlangıç
+## ⚡ Hızlı başlangıç
 
-### Tüm testleri çalıştır
+### Testleri çalıştır
 
 ```bash
 make test
@@ -121,7 +166,7 @@ Drift/A-B için ek:
 
 ---
 
-## 🖥️ TUI bölümleri
+## 🖥️ TUI ekran haritası
 
 1. **Endpoint Explorer** → Tek endpoint smoke (`r`) ve drift (`o`)
 2. **Test Suites** → Toplu suite koşumu (`A`)
@@ -179,10 +224,12 @@ make lt      # örnek LT planı ile çalıştırma
 
 ---
 
-## 🎬 Mini akış özeti (animasyon mantığı)
+## ✅ Demo fikri: repo içine lokal animasyon ekleme
 
-```text
-OpenAPI yükle → Endpoint seç → Smoke/Drift çalıştır → Compare/LT ile derinleş → Raporla
-```
+Dış linke bağlı kalmadan uzun ömürlü bir README için:
 
-İstersen bir sonraki adımda repo içine gerçek demo GIF’lerini (`docs/gifs/*.gif`) ekleyip README’de dış bağlantı yerine lokal dosya kullanabiliriz.
+- `docs/gifs/tui-overview.gif`
+- `docs/gifs/drift-check.gif`
+- `docs/gifs/lt-metrics.gif`
+
+Bu üç GIF’i eklediğinizde README tamamen self-contained olur ve ürün demosu çok daha profesyonel görünür.
