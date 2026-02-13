@@ -2,9 +2,6 @@
 
 > REST mikroservisleri için **OpenAPI tabanlı kalite doğrulama** + **Taurus uyumlu yük testi** yapan CLI/TUI aracı.
 
-<p align="center">
-  <img src="https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExM3o3ZG5xOHV5djRtNmh0djM4NXN6N2pqd3B0eW5rNTI4OHh4eDhxNSZlcD12MV9naWZzX3NlYXJjaCZjdD1n/coxQHKASG60HrHtvkt/giphy.gif" alt="lazytest terminal demo" width="820" />
-</p>
 
 <p align="center">
   <em>OpenAPI içeri al → Smoke/Drift doğrula → A/B kıyasla → LT ile yük altında gözlemle → Raporla.</em>
