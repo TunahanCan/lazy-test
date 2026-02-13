@@ -4,6 +4,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -61,6 +62,7 @@ func Run(ctx context.Context, state *AppState) error {
 		if err := views.RenderLogo(g, 0, maxY-logoH, maxX, maxY); err != nil {
 			return err
 		}
+		renderPrompt(g, state)
 		if state.FocusView == "" {
 			if _, err := g.SetCurrentView(views.LeftNavName()); err != nil && err != gocui.ErrUnknownView {
 				return err
@@ -117,6 +119,12 @@ func Run(ctx context.Context, state *AppState) error {
 	if err := g.SetKeybinding("", 'r', gocui.ModNone, runSmokeSelected(state, g)); err != nil {
 		return err
 	}
+	if err := g.SetKeybinding("", 'u', gocui.ModNone, openURLPrompt(state, g)); err != nil {
+		return err
+	}
+	if err := g.SetKeybinding("", 'y', gocui.ModNone, openYAMLPrompt(state, g)); err != nil {
+		return err
+	}
 	if err := g.SetKeybinding("", 'A', gocui.ModNone, runSuite(state, g)); err != nil {
 		return err
 	}
@@ -154,6 +162,12 @@ func Run(ctx context.Context, state *AppState) error {
 		return err
 	}
 	if err := g.SetKeybinding("", 'H', gocui.ModNone, toggleMetricsHidden(state, g)); err != nil {
+		return err
+	}
+	if err := g.SetKeybinding("quickPrompt", gocui.KeyEnter, gocui.ModNone, submitPrompt(state, g)); err != nil {
+		return err
+	}
+	if err := g.SetKeybinding("quickPrompt", gocui.KeyEsc, gocui.ModNone, cancelPrompt(state, g)); err != nil {
 		return err
 	}
 
@@ -562,6 +576,187 @@ func toggleMetricsHidden(state *AppState, g *gocui.Gui) func(*gocui.Gui, *gocui.
 	}
 }
 
+func openURLPrompt(state *AppState, g *gocui.Gui) func(*gocui.Gui, *gocui.View) error {
+	return func(_ *gocui.Gui, _ *gocui.View) error {
+		state.mu.Lock()
+		state.PromptActive = true
+		state.PromptKind = "url"
+		state.PromptTitle = "URL Test (METHOD URL)"
+		state.PromptValue = "GET "
+		state.mu.Unlock()
+		g.Update(func(*gocui.Gui) error { return nil })
+		return nil
+	}
+}
+
+func openYAMLPrompt(state *AppState, g *gocui.Gui) func(*gocui.Gui, *gocui.View) error {
+	return func(_ *gocui.Gui, _ *gocui.View) error {
+		state.mu.Lock()
+		state.PromptActive = true
+		state.PromptKind = "yaml"
+		state.PromptTitle = "YAML path (OpenAPI or Taurus)"
+		state.PromptValue = ""
+		state.mu.Unlock()
+		g.Update(func(*gocui.Gui) error { return nil })
+		return nil
+	}
+}
+
+func cancelPrompt(state *AppState, g *gocui.Gui) func(*gocui.Gui, *gocui.View) error {
+	return func(_ *gocui.Gui, _ *gocui.View) error {
+		state.mu.Lock()
+		state.PromptActive = false
+		state.PromptValue = ""
+		state.mu.Unlock()
+		g.DeleteView("quickPrompt")
+		if state.FocusView == "leftNav" {
+			_, _ = g.SetCurrentView(views.LeftNavName())
+		} else {
+			_, _ = g.SetCurrentView(views.MainTableName())
+		}
+		return nil
+	}
+}
+
+func submitPrompt(state *AppState, g *gocui.Gui) func(*gocui.Gui, *gocui.View) error {
+	return func(_ *gocui.Gui, v *gocui.View) error {
+		if v == nil {
+			return nil
+		}
+		input := strings.TrimSpace(v.Buffer())
+		kind := state.PromptKind
+		state.PromptActive = false
+		state.PromptValue = ""
+		g.DeleteView("quickPrompt")
+		if state.FocusView == "leftNav" {
+			_, _ = g.SetCurrentView(views.LeftNavName())
+		} else {
+			_, _ = g.SetCurrentView(views.MainTableName())
+		}
+		switch kind {
+		case "url":
+			go runQuickURLTest(state, g, input)
+		case "yaml":
+			loadYAMLByPath(state, input)
+			g.Update(func(*gocui.Gui) error { return nil })
+		}
+		return nil
+	}
+}
+
+func runQuickURLTest(state *AppState, g *gocui.Gui, input string) {
+	method := "GET"
+	urlText := input
+	parts := strings.Fields(input)
+	if len(parts) >= 2 {
+		method = strings.ToUpper(parts[0])
+		urlText = parts[1]
+	}
+	req, err := http.NewRequest(method, urlText, nil)
+	if err != nil {
+		state.mu.Lock()
+		state.LastQuickAction = "URL test error: " + err.Error()
+		state.mu.Unlock()
+		g.Update(func(*gocui.Gui) error { return nil })
+		return
+	}
+	for k, v := range state.Headers {
+		req.Header.Set(k, v)
+	}
+	for k, v := range state.AuthHeader {
+		req.Header.Set(k, v)
+	}
+	tm := 5 * time.Second
+	if state.Timeout > 0 {
+		tm = state.Timeout
+	}
+	client := &http.Client{Timeout: tm}
+	start := time.Now()
+	resp, err := client.Do(req)
+	lat := time.Since(start).Milliseconds()
+	if err != nil {
+		state.mu.Lock()
+		state.LastQuickAction = fmt.Sprintf("URL test fail: %s", err.Error())
+		state.mu.Unlock()
+		g.Update(func(*gocui.Gui) error { return nil })
+		return
+	}
+	_ = resp.Body.Close()
+	pathVal := req.URL.Path
+	if req.URL.RawQuery != "" {
+		pathVal += "?" + req.URL.RawQuery
+	}
+	statusOK := (resp.StatusCode >= 200 && resp.StatusCode < 300) || (resp.StatusCode >= 400 && resp.StatusCode < 500)
+	r := core.SmokeResult{Path: pathVal, Method: method, StatusCode: resp.StatusCode, LatencyMS: lat, OK: statusOK}
+	state.mu.Lock()
+	state.RunHistory = appendRunHistory(state.RunHistory, state.EnvName, req.URL.Host+pathVal, method, r)
+	state.LastQuickAction = fmt.Sprintf("URL test: %s %s -> %d (%dms)", method, urlText, resp.StatusCode, lat)
+	state.mu.Unlock()
+	g.Update(func(*gocui.Gui) error { return nil })
+}
+
+func loadYAMLByPath(state *AppState, path string) {
+	if strings.TrimSpace(path) == "" {
+		state.LastQuickAction = "YAML path boş"
+		return
+	}
+	if p, err := lt.ParseFile(path); err == nil && len(p.Execution) > 0 {
+		state.mu.Lock()
+		state.LTPlans = append(state.LTPlans, LTPlanEntry{Path: path, Plan: p})
+		state.LastQuickAction = "LT YAML eklendi: " + path
+		state.mu.Unlock()
+		return
+	}
+	endpoints, doc, err := core.LoadOpenAPI(path)
+	if err != nil {
+		state.mu.Lock()
+		state.LastQuickAction = "YAML yüklenemedi: " + err.Error()
+		state.mu.Unlock()
+		return
+	}
+	title, version := "", ""
+	if doc != nil && doc.Info != nil {
+		title = doc.Info.Title
+		version = doc.Info.Version
+	}
+	state.AddLoadedSpec(LoadedSpec{Path: path, Title: title, Version: version, Endpoints: endpoints, Tags: UniqueTagsFromEndpoints(endpoints)})
+	state.mu.Lock()
+	state.LastQuickAction = fmt.Sprintf("OpenAPI yüklendi: %s (%d endpoint)", path, len(endpoints))
+	state.mu.Unlock()
+}
+
+func renderPrompt(g *gocui.Gui, state *AppState) {
+	state.mu.RLock()
+	active := state.PromptActive
+	title := state.PromptTitle
+	initial := state.PromptValue
+	state.mu.RUnlock()
+	if !active {
+		_ = g.DeleteView("quickPrompt")
+		return
+	}
+	mx, my := g.Size()
+	w, h := 70, 4
+	x0 := (mx - w) / 2
+	y0 := (my - h) / 2
+	x1 := x0 + w
+	y1 := y0 + h
+	v, err := g.SetView("quickPrompt", x0, y0, x1, y1)
+	if err != nil && err != gocui.ErrUnknownView {
+		return
+	}
+	v.Title = " " + title + " "
+	v.Editable = true
+	v.Wrap = false
+	v.Editor = gocui.DefaultEditor
+	if err == gocui.ErrUnknownView {
+		v.Clear()
+		fmt.Fprint(v, initial)
+		_, _ = g.SetCurrentView("quickPrompt")
+		_ = v.SetCursor(len(initial), 0)
+	}
+}
+
 func appendRunHistory(h []RunHistoryEntry, env, path, method string, r core.SmokeResult) []RunHistoryEntry {
 	status := "Fail"
 	if r.OK {
@@ -595,7 +790,7 @@ func buildDetailContent(state *AppState) *views.DetailContent {
 		r := rows[state.TableIdx]
 		content := &views.DetailContent{
 			Title:   r.Endpoint.Method + " " + r.Endpoint.Path,
-			Summary: fmt.Sprintf("Summary: %s\nLast status: %s  P95: %d ms", r.Endpoint.Summary, r.Status, r.P95),
+			Summary: fmt.Sprintf("Summary: %s\nLast status: %s  P95: %d ms\nSon aksiyon: %s", r.Endpoint.Summary, r.Status, r.P95, state.LastQuickAction),
 		}
 		if state.DriftResult != nil && state.DriftResult.Path == r.Endpoint.Path && state.DriftResult.Method == r.Endpoint.Method {
 			content.Findings = state.DriftResult.Findings
@@ -644,7 +839,7 @@ func buildDetailContent(state *AppState) *views.DetailContent {
 				return &views.DetailContent{Title: row[1], Summary: row[2]}
 			}
 		}
-		return &views.DetailContent{Title: "Environments & Settings", Summary: "e env, p auth. Enter to apply."}
+		return &views.DetailContent{Title: "Environments & Settings", Summary: "e env, p auth. Enter to apply.\ny: YAML yükle, u: URL quick test\nSon aksiyon: " + state.LastQuickAction}
 	}
 	td := state.FilteredTableData()
 	if state.TableIdx < len(td.Rows) {
