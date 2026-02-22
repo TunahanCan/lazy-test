@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/jroimartin/gocui"
+	"github.com/mattn/go-runewidth"
 	"lazytest/internal/styles"
 )
 
@@ -32,8 +33,25 @@ func RenderLogo(g *gocui.Gui, x0, y0, x1, y1 int) error {
 	}
 	v, _ := g.View(logoViewName)
 	v.Clear()
-	lines := strings.TrimSpace(logoText)
-	fmt.Fprintln(v, lines)
-	fmt.Fprint(v, "\n Keyboard-first API Quality Console  •  Tab/Enter ile hızlı gezinme")
+	lines := strings.Split(strings.TrimSpace(logoText), "\n")
+	contentW := x1 - x0 - 2
+	if contentW < 10 {
+		contentW = 10
+	}
+	for _, line := range lines {
+		if runewidth.StringWidth(line) > contentW {
+			fmt.Fprintln(v, runewidth.Truncate(line, contentW, "…"))
+			continue
+		}
+		pad := (contentW - runewidth.StringWidth(line)) / 2
+		fmt.Fprintln(v, strings.Repeat(" ", pad)+line)
+	}
+	fmt.Fprintln(v)
+	tagline := "API Quality Console  •  keyboard-first workflow"
+	if runewidth.StringWidth(tagline) > contentW {
+		tagline = runewidth.Truncate(tagline, contentW, "…")
+	}
+	pad := (contentW - runewidth.StringWidth(tagline)) / 2
+	fmt.Fprint(v, strings.Repeat(" ", max(0, pad))+tagline)
 	return nil
 }

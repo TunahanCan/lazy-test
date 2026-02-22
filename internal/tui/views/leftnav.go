@@ -2,6 +2,7 @@ package views
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/jroimartin/gocui"
 	"github.com/mattn/go-runewidth"
@@ -37,21 +38,25 @@ func RenderLeftNav(g *gocui.Gui, x0, y0, x1, y1 int, selectedIdx int) error {
 	}
 	v, _ := g.View(leftNavViewName)
 	v.Clear()
-	v.Title = " ✦ Control Deck "
+	v.Title = " ◈ Control Deck "
 	w := x1 - x0 - 4
 	if w < 2 {
 		w = 2
 	}
-	fmt.Fprintln(v, "  Navigate: ↑ ↓  •  Enter: open  •  Tab: switch")
-	fmt.Fprintln(v, "")
+	fmt.Fprintln(v, "  ↑/↓ move   Enter open   Tab switch")
+	fmt.Fprintln(v, "  "+strings.Repeat("─", max(2, w-2)))
 	for i, item := range leftNavItems {
 		prefix := "  "
 		if i == selectedIdx {
-			prefix = "❯ "
+			prefix = "▸ "
 		}
 		line := prefix + runewidth.Truncate(item, w, "…")
 		fmt.Fprintln(v, line)
 	}
+	fmt.Fprintln(v, "")
+	fmt.Fprintln(v, "  Quick")
+	fmt.Fprintln(v, "  r smoke  |  o drift")
+	fmt.Fprintln(v, "  c compare|  s save")
 	return nil
 }
 

@@ -38,7 +38,13 @@ func RenderDetail(g *gocui.Gui, x0, y0, x1, y1 int, content *DetailContent) erro
 	v, _ := g.View(detailViewName)
 	v.Clear()
 	if content == nil {
-		fmt.Fprint(v, "Select a row to inspect rich details. Use Enter for contextual actions.")
+		fmt.Fprintln(v, "Select a row to inspect details.")
+		fmt.Fprintln(v, "")
+		fmt.Fprintln(v, "Tips")
+		fmt.Fprintln(v, "  Enter  contextual action")
+		fmt.Fprintln(v, "  r      smoke test")
+		fmt.Fprintln(v, "  o      contract drift")
+		fmt.Fprintln(v, "  c      A/B compare")
 		return nil
 	}
 	if content.Title != "" {
@@ -50,12 +56,15 @@ func RenderDetail(g *gocui.Gui, x0, y0, x1, y1 int, content *DetailContent) erro
 		}
 	}
 	if content.Summary != "" {
+		fmt.Fprintln(v, "Summary")
+		fmt.Fprintln(v, strings.Repeat("─", 24))
 		for _, line := range strings.Split(content.Summary, "\n") {
 			fmt.Fprintln(v, runewidth.Truncate(line, x1-x0-2, "…"))
 		}
 	}
 	if len(content.Findings) > 0 {
-		fmt.Fprintln(v, "\n--- Contract drift ---")
+		fmt.Fprintln(v, "\nContract Drift")
+		fmt.Fprintln(v, strings.Repeat("─", 24))
 		for _, f := range content.Findings {
 			switch f.Type {
 			case core.DriftMissing:
@@ -72,7 +81,8 @@ func RenderDetail(g *gocui.Gui, x0, y0, x1, y1 int, content *DetailContent) erro
 		}
 	}
 	if content.ABDiff != nil {
-		fmt.Fprintln(v, "\n--- A/B Compare ---")
+		fmt.Fprintln(v, "\nA/B Compare")
+		fmt.Fprintln(v, strings.Repeat("─", 24))
 		fmt.Fprintf(v, "  Status A: %d  B: %d  Match: %v\n", content.ABDiff.StatusA, content.ABDiff.StatusB, content.ABDiff.StatusMatch)
 		for _, d := range content.ABDiff.HeadersDiff {
 			fmt.Fprintln(v, "  "+d)
@@ -82,7 +92,8 @@ func RenderDetail(g *gocui.Gui, x0, y0, x1, y1 int, content *DetailContent) erro
 		}
 	}
 	if content.JSON != "" {
-		fmt.Fprintln(v, "\n--- JSON ---")
+		fmt.Fprintln(v, "\nJSON")
+		fmt.Fprintln(v, strings.Repeat("─", 24))
 		var compact map[string]interface{}
 		if json.Unmarshal([]byte(content.JSON), &compact) == nil {
 			b, _ := json.MarshalIndent(compact, "  ", "  ")

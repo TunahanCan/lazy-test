@@ -5,14 +5,14 @@ import (
 	"github.com/jroimartin/gocui"
 )
 
-// Colors for a high-contrast, premium dark theme.
+// Colors for a high-contrast terminal theme with calmer accents.
 const (
-	FrameFg          = gocui.ColorMagenta
+	FrameFg          = gocui.ColorCyan
 	FrameBg          = gocui.ColorDefault
 	ViewBg           = gocui.ColorDefault
 	ViewFg           = gocui.ColorWhite
-	SelBg            = gocui.ColorBlue
-	SelFg            = gocui.ColorWhite
+	SelBg            = gocui.ColorGreen
+	SelFg            = gocui.ColorBlack
 	StatusOK         = gocui.ColorGreen
 	StatusFail       = gocui.ColorRed
 	StatusDrift      = gocui.ColorYellow

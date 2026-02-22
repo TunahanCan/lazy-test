@@ -39,6 +39,7 @@ func GenericTable(g *gocui.Gui, x0, y0, x1, y1 int, headers []string, rows [][]s
 	}
 	v, _ := g.View(mainTableViewName)
 	v.Clear()
+	v.Title = fmt.Sprintf(" ✧ Signal Board  (%d rows) ", len(rows))
 	w := x1 - x0 - 2
 	if w < 10 {
 		w = 10
@@ -62,12 +63,20 @@ func GenericTable(g *gocui.Gui, x0, y0, x1, y1 int, headers []string, rows [][]s
 			widths[0] = 36
 		}
 	}
+	if len(headers) == 0 {
+		fmt.Fprintln(v, " No data")
+		return nil
+	}
 	var headerLine string
 	for i, h := range headers {
 		headerLine += pad(h, widths[i])
 	}
-	fmt.Fprintln(v, " "+headerLine)
+	fmt.Fprintln(v, " "+strings.ToUpper(headerLine))
 	fmt.Fprintln(v, strings.Repeat("─", w))
+	if len(rows) == 0 {
+		fmt.Fprintln(v, " No rows yet. Run a smoke test (`r`) or load a plan (`L`).")
+		return nil
+	}
 	for _, row := range rows {
 		var line string
 		for j, cell := range row {

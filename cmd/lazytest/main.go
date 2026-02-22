@@ -7,8 +7,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 	"lazytest/internal/config"
 	"lazytest/internal/core"
 	"lazytest/internal/lt"
@@ -16,6 +14,9 @@ import (
 	"lazytest/internal/report"
 	"lazytest/internal/tcp"
 	"lazytest/internal/tui"
+
+	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 )
 
 var (
