@@ -20,6 +20,7 @@ import (
 )
 
 var navItems = []string{
+	"Dashboard",
 	"Workspace",
 	"Explorer",
 	"Smoke",
@@ -31,7 +32,8 @@ var navItems = []string{
 }
 
 const (
-	rightWorkspace = iota
+	rightDashboard = iota
+	rightWorkspace
 	rightExplorer
 	rightSmoke
 	rightDrift
@@ -56,6 +58,9 @@ type fyneUI struct {
 	currentRunLabel *widget.Label
 	summaryLabel    *widget.Label
 	errorLabel      *widget.Label
+	dashboardLabel  *widget.Label
+	specMetaLabel   *widget.Label
+	endpointMetaLbl *widget.Label
 
 	specPathEntry *widget.Entry
 	envPathEntry  *widget.Entry
@@ -106,6 +111,7 @@ type fyneUI struct {
 	middleStack   *fyne.Container
 	rightStack    *fyne.Container
 
+	dashboardView   fyne.CanvasObject
 	workspaceView   fyne.CanvasObject
 	explorerView    fyne.CanvasObject
 	smokeView       fyne.CanvasObject
@@ -147,6 +153,12 @@ func newFyneUI(appSvc *App, win fyne.Window) *fyneUI {
 	ui.summaryLabel = widget.NewLabel("No spec loaded")
 	ui.errorLabel = widget.NewLabel("")
 	ui.errorLabel.Hide()
+	ui.dashboardLabel = widget.NewLabel("Workspace is empty. Configure files and load a spec.")
+	ui.dashboardLabel.Wrapping = fyne.TextWrapWord
+	ui.specMetaLabel = widget.NewLabel("No spec loaded yet")
+	ui.specMetaLabel.Wrapping = fyne.TextWrapWord
+	ui.endpointMetaLbl = widget.NewLabel("No endpoint selected")
+	ui.endpointMetaLbl.Wrapping = fyne.TextWrapWord
 
 	ui.specPathEntry = widget.NewEntry()
 	ui.envPathEntry = widget.NewEntry()
@@ -248,9 +260,10 @@ func (ui *fyneUI) initState() {
 func (ui *fyneUI) build() fyne.CanvasObject {
 	leftNav := ui.buildLeftNav()
 	ui.endpointPanel = ui.buildEndpointPanel()
-	placeholderMiddle := container.NewCenter(widget.NewLabel("This screen is planned for next phase."))
+	placeholderMiddle := container.NewCenter(widget.NewLabel("Dashboard mode: endpoint list hidden"))
 	ui.middleStack = container.NewStack(ui.endpointPanel, placeholderMiddle)
 
+	ui.dashboardView = ui.buildDashboardView()
 	ui.workspaceView = ui.buildWorkspaceView()
 	ui.explorerView = ui.buildExplorerView()
 	ui.smokeView = ui.buildSmokeView()
@@ -259,6 +272,7 @@ func (ui *fyneUI) build() fyne.CanvasObject {
 	ui.reportsView = ui.buildReportsView()
 	ui.placeholderView = container.NewCenter(widget.NewLabel("Screen will be implemented in next phase."))
 	ui.rightStack = container.NewStack(
+		ui.dashboardView,
 		ui.workspaceView,
 		ui.explorerView,
 		ui.smokeView,
@@ -267,7 +281,7 @@ func (ui *fyneUI) build() fyne.CanvasObject {
 		ui.reportsView,
 		ui.placeholderView,
 	)
-	ui.showWorkspace()
+	ui.showDashboard()
 
 	centerSplit := container.NewHSplit(ui.middleStack, ui.rightStack)
 	centerSplit.Offset = 0.42
@@ -275,8 +289,9 @@ func (ui *fyneUI) build() fyne.CanvasObject {
 	rootSplit.Offset = 0.16
 
 	statusBar := container.NewBorder(nil, nil,
-		widget.NewLabel("lazytest-desktop / Fyne / Phase 2"),
+		widget.NewLabel("lazytest-desktop / native desktop"),
 		container.NewHBox(
+			widget.NewButton("Dashboard", ui.showDashboard),
 			widget.NewButtonWithIcon("Refresh Endpoints", theme.ViewRefreshIcon(), func() { ui.reloadEndpoints() }),
 			widget.NewButtonWithIcon("Cancel Run", theme.CancelIcon(), ui.cancelActiveRun),
 		),
@@ -296,16 +311,18 @@ func (ui *fyneUI) buildLeftNav() fyne.CanvasObject {
 		ui.navIndex = id
 		switch id {
 		case 0:
-			ui.showWorkspace()
+			ui.showDashboard()
 		case 1:
-			ui.showExplorer()
+			ui.showWorkspace()
 		case 2:
-			ui.showSmoke()
+			ui.showExplorer()
 		case 3:
-			ui.showDrift()
+			ui.showSmoke()
 		case 4:
+			ui.showDrift()
+		case 5:
 			ui.showCompare()
-		case 6:
+		case 7:
 			ui.showReports()
 		default:
 			ui.showPlaceholder()
@@ -315,6 +332,47 @@ func (ui *fyneUI) buildLeftNav() fyne.CanvasObject {
 
 	title := widget.NewLabel("Navigation")
 	return container.NewBorder(title, nil, nil, nil, list)
+}
+
+func (ui *fyneUI) buildDashboardView() fyne.CanvasObject {
+	title := widget.NewLabel("lazytest Desktop")
+	subtitle := widget.NewLabel("Terminal degil, native masaustu test paneli")
+	subtitle.Wrapping = fyne.TextWrapWord
+
+	quickActions := container.NewGridWithColumns(3,
+		widget.NewButton("Workspace", ui.showWorkspace),
+		widget.NewButton("Load Spec", func() {
+			ui.showWorkspace()
+			ui.loadSpecAndEndpoints()
+		}),
+		widget.NewButton("Explorer", ui.showExplorer),
+		widget.NewButton("Run Smoke (All)", func() {
+			ui.showSmoke()
+			ui.runSmoke(true)
+		}),
+		widget.NewButton("Reports", func() {
+			ui.showReports()
+			ui.refreshReports()
+		}),
+		widget.NewButton("Refresh", ui.refreshDashboard),
+	)
+
+	wsCard := widget.NewCard("Workspace", "Current active profile", ui.dashboardLabel)
+	specCard := widget.NewCard("Spec", "OpenAPI status", ui.specMetaLabel)
+	endpointsCard := widget.NewCard("Endpoints", "Selection summary", ui.endpointMetaLbl)
+
+	content := container.NewVBox(
+		title,
+		subtitle,
+		widget.NewSeparator(),
+		widget.NewLabel("Quick Actions"),
+		quickActions,
+		widget.NewSeparator(),
+		wsCard,
+		specCard,
+		endpointsCard,
+	)
+	return container.NewVScroll(content)
 }
 
 func (ui *fyneUI) buildEndpointPanel() fyne.CanvasObject {
@@ -510,6 +568,10 @@ func (ui *fyneUI) buildReportsView() fyne.CanvasObject {
 	)
 }
 
+func (ui *fyneUI) showDashboard() {
+	ui.refreshDashboard()
+	ui.showRight(rightDashboard, false)
+}
 func (ui *fyneUI) showWorkspace()   { ui.showRight(rightWorkspace, true) }
 func (ui *fyneUI) showExplorer()    { ui.showRight(rightExplorer, true) }
 func (ui *fyneUI) showSmoke()       { ui.showRight(rightSmoke, true) }
@@ -550,6 +612,7 @@ func (ui *fyneUI) refreshWorkspaceWidgets() {
 	ui.envNameEntry.SetText(ui.workspace.EnvName)
 	ui.authProfEntry.SetText(ui.workspace.AuthProfile)
 	ui.baseURLEntry.SetText(ui.workspace.BaseURL)
+	ui.refreshDashboard()
 }
 
 func (ui *fyneUI) collectWorkspaceFromWidgets() appsvc.Workspace {
@@ -582,6 +645,7 @@ func (ui *fyneUI) saveWorkspaceInternal(showDialogOnErr bool) bool {
 	ui.workspace = ws
 	ui.setError(nil, false)
 	ui.setStatus("Workspace saved")
+	ui.refreshDashboard()
 	return true
 }
 
@@ -595,6 +659,7 @@ func (ui *fyneUI) loadWorkspaceFromDisk() {
 	ui.refreshWorkspaceWidgets()
 	ui.setError(nil, false)
 	ui.setStatus("Workspace loaded")
+	ui.refreshDashboard()
 }
 
 func (ui *fyneUI) tryAutoLoadSpec() {
@@ -621,6 +686,7 @@ func (ui *fyneUI) loadSpecAndEndpoints() {
 	ui.summary = &sum
 	ui.updateSummaryLabel()
 	ui.reloadEndpoints()
+	ui.refreshDashboard()
 	ui.showExplorer()
 	ui.setStatus(fmt.Sprintf("Loaded spec: %d endpoints", sum.EndpointCount))
 }
@@ -632,6 +698,7 @@ func (ui *fyneUI) reloadEndpoints() {
 	if len(ui.endpoints) == 0 {
 		ui.selected = nil
 		ui.refreshSelectedLabels()
+		ui.refreshDashboard()
 		ui.setStatus("No endpoints matched filter")
 		return
 	}
@@ -642,10 +709,12 @@ func (ui *fyneUI) reloadEndpoints() {
 	for i := range ui.endpoints {
 		if ui.endpoints[i].ID == ui.selected.ID {
 			ui.endpointList.Select(i)
+			ui.refreshDashboard()
 			return
 		}
 	}
 	ui.endpointList.Select(0)
+	ui.refreshDashboard()
 }
 
 func (ui *fyneUI) updateSummaryLabel() {
@@ -664,8 +733,41 @@ func (ui *fyneUI) onEndpointSelected(id widget.ListItemID) {
 	ep := ui.endpoints[id]
 	ui.selected = &ep
 	ui.refreshSelectedLabels()
+	ui.refreshDashboard()
 	ui.setStatus("Selected endpoint: " + ep.Method + " " + ep.Path)
 	ui.setError(nil, false)
+}
+
+func (ui *fyneUI) refreshDashboard() {
+	if ui.dashboardLabel != nil {
+		specPath := strings.TrimSpace(ui.workspace.SpecPath)
+		if specPath == "" {
+			specPath = "not set"
+		}
+		envName := strings.TrimSpace(ui.workspace.EnvName)
+		if envName == "" {
+			envName = "dev"
+		}
+		authProfile := strings.TrimSpace(ui.workspace.AuthProfile)
+		if authProfile == "" {
+			authProfile = "default-jwt"
+		}
+		ui.dashboardLabel.SetText(fmt.Sprintf("Spec path: %s\nEnv: %s\nAuth profile: %s", specPath, envName, authProfile))
+	}
+	if ui.specMetaLabel != nil {
+		if ui.summary == nil {
+			ui.specMetaLabel.SetText("No spec loaded. Use Workspace > Load Spec.")
+		} else {
+			ui.specMetaLabel.SetText(fmt.Sprintf("%s v%s\nEndpoints: %d  Tags: %d", ui.summary.Title, ui.summary.Version, ui.summary.EndpointCount, ui.summary.TagCount))
+		}
+	}
+	if ui.endpointMetaLbl != nil {
+		selected := "none"
+		if ui.selected != nil {
+			selected = strings.ToUpper(ui.selected.Method) + " " + ui.selected.Path
+		}
+		ui.endpointMetaLbl.SetText(fmt.Sprintf("Visible endpoints: %d\nSelected: %s", len(ui.endpoints), selected))
+	}
 }
 
 func (ui *fyneUI) refreshSelectedLabels() {

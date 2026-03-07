@@ -56,3 +56,7 @@ func (a *App) Progress(e appsvc.RunProgressEvent) {}
 func (a *App) Metrics(e appsvc.RunMetricsEvent)   {}
 func (a *App) Log(e appsvc.RunLogEvent)           {}
 func (a *App) Done(e appsvc.RunDoneEvent)         {}
+
+func Run() error {
+	return errors.New("desktop build tag required")
+}

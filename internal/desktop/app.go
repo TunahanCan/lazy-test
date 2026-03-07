@@ -141,7 +141,11 @@ func (a *App) Done(e appsvc.RunDoneEvent) {
 }
 
 func Run() error {
-	return runFyneUI(NewApp(defaultWorkspacePath()))
+	// Use new modular UI
+	return RunNewUI(NewApp(defaultWorkspacePath()))
+
+	// Old UI (commented out for now)
+	// return runFyneUI(NewApp(defaultWorkspacePath()))
 }
 
 func defaultWorkspacePath() string {

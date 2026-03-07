@@ -1,6 +1,6 @@
 # 🚀 lazytest
 
-> REST mikroservisleri için **OpenAPI tabanlı kalite doğrulama** + **Taurus uyumlu yük testi** yapan CLI/TUI aracı.
+> REST mikroservisleri için **OpenAPI tabanlı kalite doğrulama** + **Taurus uyumlu yük testi** yapan CLI/Desktop aracı.
 
 
 <p align="center">
@@ -24,7 +24,7 @@ Klasik test zinciri çoğu ekipte parçalıdır:
 - ✅ Contract drift analizi
 - ✅ A/B environment karşılaştırması
 - ✅ Taurus planı ile load test
-- ✅ Canlı TUI metrik takibi
+- ✅ Native Desktop (Fyne) ile canlı metrik takibi
 
 ---
 
@@ -71,7 +71,7 @@ flowchart LR
 - **A/B compare:** status / header / body fark analizi
 - **LT mode:** Taurus YAML planlarını tek node’da çalıştırma
 - **Raporlama:** JUnit XML + JSON
-- **TUI metrik ekranı:** p50/p90/p95/p99, RPS, error rate
+- **Desktop metrik ekranı:** p50/p90/p95/p99, RPS, error rate
 
 ---
 
@@ -150,12 +150,13 @@ make test
 
 | Komut | Açıklama |
 |---|---|
-| `lazytest` | Varsayılan olarak TUI açar |
-| `lazytest load -f <openapi>` | OpenAPI yükler ve TUI’ye geçer |
+| `lazytest` | Komut yardımını gösterir |
+| `lazytest load -f <openapi>` | OpenAPI yükler ve özet bilgiyi yazdırır |
 | `lazytest run smoke ...` | Headless smoke test çalıştırır |
 | `lazytest run drift ...` | Tek endpoint için drift kontrolü yapar |
 | `lazytest compare ...` | İki environment arasında A/B karşılaştırma yapar |
-| `lazytest lt -f <taurus.yaml>` | LT planını yükleyip TUI açar |
+| `lazytest lt -f <taurus.yaml>` | LT planını headless çalıştırır |
+| `lazytest desktop` | Native masaüstü arayüzünü açar (`-tags desktop` ile) |
 
 ### Sık kullanılan flag’ler
 
@@ -173,17 +174,6 @@ Smoke için ek:
 Drift/A-B için ek:
 - `--path`
 - `--method`
-
----
-
-## 🖥️ TUI ekran haritası
-
-1. **Endpoint Explorer** → Tek endpoint smoke (`r`) ve drift (`o`)
-2. **Test Suites** → Toplu suite koşumu (`A`)
-3. **Load Tests (LT)** → Plan çalıştırma (`L`), warm-up (`W`), error budget (`E`)
-4. **Live Metrics** → p50/p90/p95/p99, RPS, error rate (`R`, `H`)
-5. **Contract Drift** → Endpoint bazlı drift özeti
-6. **Environments & Settings** → Env/baseURL/header/auth ve çalışma parametreleri
 
 ---
 
@@ -218,7 +208,7 @@ Desteklenen alanlar:
 
 - **JUnit XML:** CI/CD test raporu
 - **JSON:** Programatik analiz / arşivleme
-- TUI’de `s` ile hızlı rapor kaydetme
+- Desktop panelinden export ile hızlı rapor kaydetme
 
 ---
 
@@ -229,7 +219,7 @@ make build   # bin/lazytest üretir
 make build-desktop # bin/lazytest-desktop üretir (native desktop)
 make test    # go test ./...
 make lint    # go vet + golangci-lint (varsa)
-make run     # örnek TUI çalıştırma
+make run     # örnek smoke çalıştırma
 make run-desktop # native desktop uygulamayı açar
 make lt      # örnek LT planı ile çalıştırma
 ```
@@ -240,7 +230,7 @@ make lt      # örnek LT planı ile çalıştırma
 
 Dış linke bağlı kalmadan uzun ömürlü bir README için:
 
-- `docs/gifs/tui-overview.gif`
+- `docs/gifs/desktop-overview.gif`
 - `docs/gifs/drift-check.gif`
 - `docs/gifs/lt-metrics.gif`
 
