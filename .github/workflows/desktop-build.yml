@@ -16,9 +16,12 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: '1.24.x'
-      - name: Install Wails CLI
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+      - name: Install desktop build dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1-mesa-dev xorg-dev
       - name: Unit tests
         run: go test ./...
       - name: Build desktop binary
-        run: wails build -clean -s
+        run: go build -tags desktop -o bin/lazytest-desktop ./cmd/lazytest-desktop

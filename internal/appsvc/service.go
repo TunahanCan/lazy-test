@@ -63,7 +63,7 @@ type runState struct {
 func NewService(workspaceFile string, sink RunEventSink) *Service {
 	if workspaceFile == "" {
 		home, _ := os.UserHomeDir()
-		workspaceFile = filepath.Join(home, ".lazytest-desktop.workspace.json")
+		workspaceFile = filepath.Join(home, ".lazytest", "workspace.json")
 	}
 	return &Service{wsPath: workspaceFile, sink: sink, clk: realClock{}, byID: map[string]core.Endpoint{}, runs: map[string]*runState{}}
 }
@@ -95,7 +95,14 @@ func (s *Service) LoadSpec(filePath string) (SpecSummary, error) {
 		s.docTitle = doc.Info.Title
 		s.docVer = doc.Info.Version
 	}
-	return SpecSummary{Title: s.docTitle, Version: s.docVer, EndpointCount: len(eps), TagCount: len(tagList), Tags: tagList}, nil
+	return SpecSummary{
+		Title:          s.docTitle,
+		Version:        s.docVer,
+		EndpointCount:  len(eps),
+		EndpointsCount: len(eps),
+		TagCount:       len(tagList),
+		Tags:           tagList,
+	}, nil
 }
 
 func endpointID(ep core.Endpoint) string {
@@ -210,10 +217,15 @@ func (s *Service) SendRequest(req RequestDTO) (ResponseDTO, error) {
 	for k, v := range req.Headers {
 		hreq.Header.Set(k, v)
 	}
-	client := &http.Client{Timeout: 15 * time.Second}
+	timeout := 15 * time.Second
+	if req.TimeoutMS > 0 {
+		timeout = time.Duration(req.TimeoutMS) * time.Millisecond
+	}
+	client := &http.Client{Timeout: timeout}
 	resp, err := client.Do(hreq)
 	if err != nil {
-		return ResponseDTO{Error: err.Error(), LatencyMS: s.clk.Now().Sub(start).Milliseconds()}, err
+		lat := s.clk.Now().Sub(start).Milliseconds()
+		return ResponseDTO{Error: err.Error(), Err: err.Error(), LatencyMS: lat}, err
 	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(resp.Body)
@@ -224,13 +236,18 @@ func (s *Service) SendRequest(req RequestDTO) (ResponseDTO, error) {
 		pb, _ := json.MarshalIndent(tmp, "", "  ")
 		pretty = string(pb)
 	}
-	h := map[string]string{}
+	h := map[string][]string{}
 	for k, v := range resp.Header {
-		if len(v) > 0 {
-			h[k] = strings.Join(v, ",")
-		}
+		h[k] = append([]string(nil), v...)
 	}
-	return ResponseDTO{StatusCode: resp.StatusCode, Headers: h, Body: pretty, LatencyMS: s.clk.Now().Sub(start).Milliseconds()}, nil
+	lat := s.clk.Now().Sub(start).Milliseconds()
+	return ResponseDTO{
+		StatusCode: resp.StatusCode,
+		Status:     resp.StatusCode,
+		Headers:    h,
+		Body:       pretty,
+		LatencyMS:  lat,
+	}, nil
 }
 
 func (s *Service) LoadConfigs(envPath, authPath string) error {
@@ -477,9 +494,15 @@ func (s *Service) ListHistory() []ResultDTO {
 }
 
 func (s *Service) SaveWorkspace(ws Workspace) error {
+	if ws.Version == 0 {
+		ws.Version = 1
+	}
 	ws.UpdatedAtUnix = s.clk.Now().Unix()
 	b, err := json.MarshalIndent(ws, "", "  ")
 	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(s.wsPath), 0755); err != nil {
 		return err
 	}
 	return os.WriteFile(s.wsPath, b, 0600)
@@ -493,6 +516,9 @@ func (s *Service) LoadWorkspace() (Workspace, error) {
 	var ws Workspace
 	if err := json.Unmarshal(b, &ws); err != nil {
 		return Workspace{}, err
+	}
+	if ws.Version == 0 {
+		ws.Version = 1
 	}
 	return ws, nil
 }

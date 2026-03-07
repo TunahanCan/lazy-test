@@ -50,7 +50,7 @@ func TestSendRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.StatusCode != 201 || res.Headers["X-Test"] != "ok" {
+	if res.StatusCode != 201 || len(res.Headers["X-Test"]) == 0 || res.Headers["X-Test"][0] != "ok" {
 		t.Fatalf("unexpected response: %+v", res)
 	}
 }

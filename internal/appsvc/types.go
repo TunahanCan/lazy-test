@@ -3,11 +3,12 @@ package appsvc
 import "time"
 
 type SpecSummary struct {
-	Title         string   `json:"title"`
-	Version       string   `json:"version"`
-	EndpointCount int      `json:"endpointCount"`
-	TagCount      int      `json:"tagCount"`
-	Tags          []string `json:"tags"`
+	Title          string   `json:"title"`
+	Version        string   `json:"version"`
+	EndpointCount  int      `json:"endpointCount"`
+	EndpointsCount int      `json:"endpointsCount"`
+	TagCount       int      `json:"tagCount"`
+	Tags           []string `json:"tags"`
 }
 
 type EndpointDTO struct {
@@ -25,14 +26,17 @@ type RequestDTO struct {
 	URL        string            `json:"url"`
 	Headers    map[string]string `json:"headers"`
 	Body       string            `json:"body"`
+	TimeoutMS  int               `json:"timeoutMs,omitempty"`
 }
 
 type ResponseDTO struct {
-	StatusCode int               `json:"statusCode"`
-	Headers    map[string]string `json:"headers"`
-	Body       string            `json:"body"`
-	LatencyMS  int64             `json:"latencyMS"`
-	Error      string            `json:"error,omitempty"`
+	StatusCode int                 `json:"statusCode"`
+	Status     int                 `json:"status"`
+	Headers    map[string][]string `json:"headers"`
+	Body       string              `json:"body"`
+	LatencyMS  int64               `json:"latencyMS"`
+	Error      string              `json:"error,omitempty"`
+	Err        string              `json:"err,omitempty"`
 }
 
 type EndpointFilter struct {
@@ -83,6 +87,7 @@ type ResultDTO struct {
 }
 
 type Workspace struct {
+	Version       int    `json:"version"`
 	SpecPath      string `json:"specPath"`
 	EnvPath       string `json:"envPath"`
 	AuthPath      string `json:"authPath"`

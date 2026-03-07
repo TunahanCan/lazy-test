@@ -97,6 +97,19 @@ make build
 ./bin/lazytest
 ```
 
+### 3) Native desktop (Fyne) çalıştır
+
+```bash
+make build-desktop
+./bin/lazytest-desktop
+```
+
+Linux için desktop build sırasında paket gerekebilir:
+
+```bash
+sudo apt-get install -y libgl1-mesa-dev xorg-dev
+```
+
 ---
 
 ## ⚡ Hızlı başlangıç
@@ -213,9 +226,11 @@ Desteklenen alanlar:
 
 ```bash
 make build   # bin/lazytest üretir
+make build-desktop # bin/lazytest-desktop üretir (native desktop)
 make test    # go test ./...
 make lint    # go vet + golangci-lint (varsa)
 make run     # örnek TUI çalıştırma
+make run-desktop # native desktop uygulamayı açar
 make lt      # örnek LT planı ile çalıştırma
 ```
 
