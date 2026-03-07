@@ -3,116 +3,109 @@
 package ui
 
 import (
-	"image/color"
-
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
+type navItem struct {
+	ID         string
+	Label      string
+	Selectable bool
+}
+
+func buildNavItems() []navItem {
+	rows := []navItem{{Label: "[ VIEW ]", Selectable: false}}
+	for _, v := range ViewNavOptions() {
+		rows = append(rows, navItem{ID: v.ID, Label: v.Label, Selectable: true})
+	}
+	rows = append(rows, navItem{Label: "", Selectable: false}, navItem{Label: "[ SYSTEM ]", Selectable: false})
+	for _, v := range SystemNavOptions() {
+		rows = append(rows, navItem{ID: v.ID, Label: v.Label, Selectable: true})
+	}
+	return rows
+}
+
 // Navigation manages the left sidebar navigation.
 type Navigation struct {
-	tree       *widget.Tree
+	list       *widget.List
 	container  *fyne.Container
 	onNavigate func(string)
 	selected   string
-}
-
-var navStructure = map[string][]string{
-	"root":   {"View", "System"},
-	"View":   {"Dashboard", "Workspace", "Explorer", "Smoke", "Drift", "Compare", "LoadTests", "LiveMetrics", "Logs", "Reports"},
-	"System": {"LoadSpec", "About", "Quit"},
+	rows       []navItem
 }
 
 func NewNavigation(onNavigate func(string)) *Navigation {
-	n := &Navigation{onNavigate: onNavigate, selected: "Dashboard"}
-	n.buildTree()
-	brand := canvas.NewText("lazytest", color.RGBA{R: 0x0B, G: 0x72, B: 0xD9, A: 0xFF})
-	brand.TextSize = 10
-	header := container.NewVBox(
-		widget.NewLabelWithStyle("Navigation", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-		brand,
+	n := &Navigation{onNavigate: onNavigate, selected: "Dashboard", rows: buildNavItems()}
+	n.buildList()
+	n.container = container.NewBorder(
+		widget.NewLabelWithStyle("NAVIGATION", fyne.TextAlignLeading, fyne.TextStyle{Bold: true, Monospace: true}),
+		nil,
+		nil,
+		nil,
+		n.list,
 	)
-	n.container = container.NewBorder(header, nil, nil, nil, n.tree)
 	return n
 }
 
-func (n *Navigation) buildTree() {
-	n.tree = widget.NewTree(
-		func(uid string) []string {
-			if c, ok := navStructure[uid]; ok {
-				return c
+func (n *Navigation) buildList() {
+	n.list = widget.NewList(
+		func() int { return len(n.rows) },
+		func() fyne.CanvasObject {
+			return container.NewHBox(widget.NewLabel(" "), widget.NewLabel("item"))
+		},
+		func(id widget.ListItemID, obj fyne.CanvasObject) {
+			row := obj.(*fyne.Container)
+			mark := row.Objects[0].(*widget.Label)
+			label := row.Objects[1].(*widget.Label)
+			item := n.rows[id]
+
+			if !item.Selectable {
+				mark.SetText(" ")
+				label.SetText(item.Label)
+				label.TextStyle = fyne.TextStyle{Bold: true, Monospace: true}
+				return
 			}
-			return nil
-		},
-		func(uid string) bool {
-			_, ok := navStructure[uid]
-			return ok
-		},
-		func(bool) fyne.CanvasObject {
-			return container.NewHBox(widget.NewIcon(theme.DocumentIcon()), widget.NewLabel(""))
-		},
-		func(uid string, branch bool, obj fyne.CanvasObject) {
-			c := obj.(*fyne.Container)
-			icon := c.Objects[0].(*widget.Icon)
-			label := c.Objects[1].(*widget.Label)
-			label.SetText(uid)
-			icon.SetResource(iconFor(uid, branch))
+			if n.selected == item.ID {
+				mark.SetText(">")
+			} else {
+				mark.SetText(" ")
+			}
+			label.SetText(item.Label)
+			label.TextStyle = fyne.TextStyle{Monospace: true}
 		},
 	)
-	n.tree.OpenBranch("root")
-	n.tree.OpenBranch("View")
-	n.tree.OpenBranch("System")
-	n.tree.OnSelected = func(uid string) {
-		if _, isBranch := navStructure[uid]; isBranch {
+
+	n.list.OnSelected = func(id widget.ListItemID) {
+		if id < 0 || id >= len(n.rows) {
 			return
 		}
-		n.selected = uid
+		item := n.rows[id]
+		if !item.Selectable {
+			n.list.Unselect(id)
+			return
+		}
+		n.selected = item.ID
+		n.list.Refresh()
 		if n.onNavigate != nil {
-			n.onNavigate(uid)
+			n.onNavigate(item.ID)
 		}
 	}
-	n.tree.Select("Dashboard")
-}
 
-func iconFor(uid string, branch bool) fyne.Resource {
-	if branch {
-		return theme.FolderIcon()
-	}
-	switch uid {
-	case "Dashboard":
-		return theme.HomeIcon()
-	case "Workspace":
-		return theme.SettingsIcon()
-	case "Explorer":
-		return theme.SearchIcon()
-	case "Smoke":
-		return theme.VisibilityIcon()
-	case "Drift":
-		return theme.WarningIcon()
-	case "Compare":
-		return theme.ContentCopyIcon()
-	case "LoadTests":
-		return theme.MediaPlayIcon()
-	case "LiveMetrics":
-		return theme.InfoIcon()
-	case "Reports":
-		return theme.FileTextIcon()
-	case "Logs":
-		return theme.FileTextIcon()
-	case "LoadSpec":
-		return theme.FolderOpenIcon()
-	case "About":
-		return theme.InfoIcon()
-	case "Quit":
-		return theme.CancelIcon()
-	default:
-		return theme.DocumentIcon()
-	}
+	n.SelectItem("Dashboard")
 }
 
 func (n *Navigation) Container() *fyne.Container { return n.container }
-func (n *Navigation) SelectItem(name string)     { n.tree.Select(name) }
-func (n *Navigation) GetSelected() string        { return n.selected }
+
+func (n *Navigation) SelectItem(name string) {
+	for i, item := range n.rows {
+		if item.ID == name {
+			n.selected = name
+			n.list.Select(i)
+			n.list.Refresh()
+			return
+		}
+	}
+}
+
+func (n *Navigation) GetSelected() string { return n.selected }

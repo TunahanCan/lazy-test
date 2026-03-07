@@ -31,6 +31,7 @@ type MainWindow struct {
 	window    fyne.Window
 	state     *UIState
 	nav       *Navigation
+	liveLog   *LiveLogDock
 	statusBar *StatusBar
 	content   *fyne.Container
 
@@ -94,10 +95,17 @@ func (mw *MainWindow) setupUI() {
 	first := mw.panelMap["Dashboard"]
 	mw.currentPanel = first
 	mw.content = container.NewStack(first.Container())
+	mw.liveLog = NewLiveLogDock(mw.state, mw.setStatus)
 	mw.nav = NewNavigation(mw.onNavigate)
 
-	split := container.NewHSplit(mw.nav.Container(), mw.content)
-	split.SetOffset(0.17)
+	rightDock := container.NewVSplit(container.NewMax(), mw.liveLog.Container())
+	rightDock.SetOffset(0.72) // bottom 28% fixed live log area
+
+	center := container.NewHSplit(mw.content, rightDock)
+	center.SetOffset(0.68) // right dock ~32%
+
+	split := container.NewHSplit(mw.nav.Container(), center)
+	split.SetOffset(0.17) // left navigation width
 
 	main := container.NewBorder(nil, mw.statusBar.Container(), nil, nil, split)
 	mw.window.SetContent(main)
@@ -110,18 +118,12 @@ func (mw *MainWindow) setupMenuBar() {
 		fyne.NewMenuItemSeparator(),
 		fyne.NewMenuItem("Quit", func() { mw.window.Close() }),
 	)
-	viewMenu := fyne.NewMenu("View",
-		fyne.NewMenuItem("Dashboard", func() { mw.nav.SelectItem("Dashboard") }),
-		fyne.NewMenuItem("Workspace", func() { mw.nav.SelectItem("Workspace") }),
-		fyne.NewMenuItem("Explorer", func() { mw.nav.SelectItem("Explorer") }),
-		fyne.NewMenuItem("Smoke", func() { mw.nav.SelectItem("Smoke") }),
-		fyne.NewMenuItem("Drift", func() { mw.nav.SelectItem("Drift") }),
-		fyne.NewMenuItem("Compare", func() { mw.nav.SelectItem("Compare") }),
-		fyne.NewMenuItem("Load Tests", func() { mw.nav.SelectItem("LoadTests") }),
-		fyne.NewMenuItem("Live Metrics", func() { mw.nav.SelectItem("LiveMetrics") }),
-		fyne.NewMenuItem("Logs", func() { mw.nav.SelectItem("Logs") }),
-		fyne.NewMenuItem("Reports", func() { mw.nav.SelectItem("Reports") }),
-	)
+	viewItems := make([]*fyne.MenuItem, 0, len(ViewNavOptions()))
+	for _, option := range ViewNavOptions() {
+		id := option.ID
+		viewItems = append(viewItems, fyne.NewMenuItem(option.Label, func() { mw.nav.SelectItem(id) }))
+	}
+	viewMenu := fyne.NewMenu("View", viewItems...)
 	helpMenu := fyne.NewMenu("Help", fyne.NewMenuItem("About", func() { mw.nav.SelectItem("About") }))
 	mw.window.SetMainMenu(fyne.NewMainMenu(fileMenu, viewMenu, helpMenu))
 }
