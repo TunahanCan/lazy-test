@@ -4,12 +4,15 @@ package ui
 
 import (
 	"fmt"
+	"image/color"
 	"strings"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	fyneDesktop "fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/widget"
 
 	"lazytest/internal/appsvc"
 	"lazytest/internal/desktop/panels"
@@ -65,7 +68,6 @@ func NewMainWindow(desktopApp panels.DesktopApp, agg EventAggregator) *MainWindo
 	}
 
 	mw.setupUI()
-	mw.setupMenuBar()
 	mw.setupShortcuts()
 	mw.window.SetCloseIntercept(func() {
 		mw.cleanup()
@@ -98,18 +100,58 @@ func (mw *MainWindow) setupUI() {
 	mw.liveLog = NewLiveLogDock(mw.state, mw.setStatus)
 	mw.nav = NewNavigation(mw.onNavigate)
 
-	rightDock := container.NewVSplit(container.NewMax(), mw.liveLog.Container())
-	rightDock.SetOffset(0.72) // bottom 28% fixed live log area
+	logDock := mw.liveLog.Container()
+	logDock.Resize(fyne.NewSize(300, 250))
+	logDockMin := canvas.NewRectangle(color.Transparent)
+	logDockMin.SetMinSize(fyne.NewSize(300, 250))
+	logDockObj := container.NewStack(logDockMin, container.NewPadded(logDock))
 
-	center := container.NewHSplit(mw.content, rightDock)
-	center.SetOffset(0.68) // right dock ~32%
+	center := container.NewBorder(
+		mw.buildAbilityBar(),
+		logDockObj, // bottom fixed live log
+		nil,
+		nil,
+		mw.content,
+	)
 
 	split := container.NewHSplit(mw.nav.Container(), center)
-	split.SetOffset(0.17) // left navigation width
+	split.SetOffset(0.22) // left navigation full bar
 
 	main := container.NewBorder(nil, mw.statusBar.Container(), nil, nil, split)
 	mw.window.SetContent(main)
 	first.OnShow()
+}
+
+func (mw *MainWindow) buildAbilityBar() fyne.CanvasObject {
+	title := canvas.NewText("YETENEKLER", color.RGBA{R: 0x96, G: 0xBE, B: 0xF7, A: 0xFF})
+	title.TextStyle = fyne.TextStyle{Bold: true, Monospace: true}
+	title.TextSize = 11
+
+	bg := canvas.NewRectangle(color.RGBA{R: 0x11, G: 0x1A, B: 0x27, A: 0xFF})
+	bg.CornerRadius = 8
+
+	buttons := make([]fyne.CanvasObject, 0, len(ViewNavOptions())+1)
+	for _, option := range ViewNavOptions() {
+		id := option.ID
+		btn := widget.NewButton(option.Label, func() { mw.nav.SelectItem(id) })
+		btn.Importance = widget.LowImportance
+		buttons = append(buttons, btn)
+	}
+	cancelBtn := widget.NewButton("Cancel Active", func() {
+		if mw.app.CancelActiveRun() {
+			mw.setStatus("active run canceled")
+			return
+		}
+		mw.setStatus("no active run")
+	})
+	cancelBtn.Importance = widget.DangerImportance
+	buttons = append(buttons, cancelBtn)
+
+	row := container.NewHBox(buttons...)
+	scroll := container.NewHScroll(container.NewPadded(row))
+	scroll.SetMinSize(fyne.NewSize(200, 56))
+	content := container.NewVBox(title, scroll)
+	return container.NewStack(bg, container.NewPadded(content))
 }
 
 func (mw *MainWindow) setupMenuBar() {

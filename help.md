@@ -1,252 +1,151 @@
-# lazytest — Mimari ve Özellik Dokümantasyonu
+# lazytest Help
 
-Bu doküman, `lazytest` projesinin **mimarisini, modül sınırlarını, veri akışlarını, çalışma modlarını ve genişletilebilirlik noktalarını**; geliştirici ve çözüm mimarı perspektifiyle özetler.
+Bu dokuman, komut referansi ve calisma modeli icin teknik yardim sayfasidir.
 
----
+## 1) Calisma Modlari
 
-## 1) Ürün Özeti
+- Headless CLI
+- Desktop UI (Fyne)
 
-`lazytest`, REST mikroservislerini tek araçla doğrulamak için tasarlanmış bir CLI/TUI uygulamasıdır. Temel hedefi, API kalite yaşam döngüsünde sıklıkla ayrık araçlarla yapılan işleri tek bir akışta toplamaktır:
+TUI artik desteklenmiyor.
 
-- OpenAPI’den endpoint keşfi
-- Smoke test (tek endpoint + toplu)
-- Contract drift analizi (OpenAPI response schema vs gerçek response)
-- A/B environment karşılaştırması
-- Taurus-benzeri YAML planlarıyla tek-node load test
-- JUnit + JSON raporlama
-- Canlı operasyon takibi için terminal tabanlı TUI
+## 2) Global Flag'ler
 
----
+Tum komutlarin cogu su flag'leri destekler:
 
-## 2) Sistem Sınırı ve Katmanlar
+- `-f, --file`: OpenAPI/LT dosyasi
+- `-e, --env`: ortam adi (`dev`, `test`, `prod`)
+- `--base`: base URL override
+- `--env-config`: varsayilan `env.yaml`
+- `--auth-config`: varsayilan `auth.yaml`
+- `-v, --verbose`: ayrintili cikti
 
-Proje, teknik olarak aşağıdaki katmanlara ayrılmıştır:
+## 3) Komut Referansi
 
-1. **Entry/Orchestration katmanı (`cmd/lazytest`)**
-   - Cobra komutları, global flag’ler, çalışma moduna göre yönlendirme.
-2. **Domain/Core doğrulama katmanı (`internal/core`)**
-   - OpenAPI parse, smoke, drift, A/B karşılaştırma.
-3. **Load test katmanı (`internal/lt`)**
-   - Taurus plan parse + goroutine tabanlı execution + metrik hesaplama.
-4. **Presentation katmanı (`internal/tui`)**
-   - gocui tabanlı ekranlar, state, keybinding’ler, kullanıcı etkileşimi.
-5. **Destekleyici altyapı katmanları**
-   - `internal/config`: env/auth konfigürasyonu
-   - `internal/report`: JUnit/JSON dışa aktarım
+### `lazytest load`
+OpenAPI dosyasini yukler ve ozet bilgi basar.
 
-Bu ayrım sayesinde **UI (TUI/CLI) ile test iş mantığı gevşek bağlı** tutulur ve aynı core fonksiyonları hem headless hem interaktif modlarda yeniden kullanılır.
+```bash
+lazytest load -f openapi.yaml
+```
 
----
+### `lazytest run smoke`
+Tum endpoint'ler icin smoke kosar.
 
-## 3) Dizin Bazlı Mimari Harita
+```bash
+lazytest run smoke -f openapi.yaml --workers 10 --report junit.xml --json out.json
+```
 
-## `cmd/lazytest/main.go`
+### `lazytest run drift`
+Tek endpoint icin schema drift kontrolu yapar.
 
-Uygulamanın komut sözleşmesi burada tanımlıdır:
+```bash
+lazytest run drift -f openapi.yaml --path /health --method GET
+```
 
-- `lazytest` → varsayılan TUI akışı
-- `lazytest load` → OpenAPI yükleyip TUI
-- `lazytest run smoke` → headless smoke + rapor
-- `lazytest run drift` → tek endpoint drift
-- `lazytest compare` → A/B karşılaştırma
-- `lazytest lt` → Taurus planı ile LT odaklı TUI
+### `lazytest run tcp`
+TCP senaryo plani kosar.
 
-Ayrıca:
-- Ortam (`env.yaml`) ve auth (`auth.yaml`) yükleme
-- `--base` override davranışı
-- Sonuçların raporlayıcıya aktarılması
-- TUI state’in başlangıç değerlerinin hazırlanması
+```bash
+lazytest run tcp --plan plans/tcp.yaml --report junit.xml --json out.json
+```
 
-## `internal/core`
+### `lazytest compare`
+Ayni endpoint'i iki ortamda calistirip farklari raporlar.
 
-### `openapi.go`
-- OpenAPI dokümanını okur, parse/validate eder.
-- `path + method` kombinasyonlarını `Endpoint` listesine dönüştürür.
-- Request body için şema tabanlı örnek payload üretir (`ExampleBody`).
-- Base URL + path birleştirme ve path param çözümleme (`BuildURL`).
+```bash
+lazytest compare -f openapi.yaml --envA dev --envB test --path /users --method GET
+```
 
-### `smoke.go`
-- Tek endpoint smoke (`RunSmokeSingle`) ve bulk smoke (`RunSmokeBulk`).
-- Worker pool ve RPS limiter (`ticker`) ile paralel yürütme.
-- Smoke sonucu modeli: status, latency, hata metni, OK bilgisi.
-- Drift kullanımına yönelik response alma yardımcı fonksiyonu (`FetchResponse`).
+### `lazytest lt`
+Taurus benzeri plani headless kosar.
 
-### `drift.go`
-- OpenAPI response schema ile gerçek JSON body karşılaştırması.
-- Bulgu tipleri:
-  - `missing`
-  - `extra`
-  - `type_mismatch`
-  - `enum_violation`
-- Nesne/dizi/iç içe alanlarda yol bazlı (`$.field[0].x`) bulgu üretimi.
+```bash
+lazytest lt -f examples/taurus/checkouts.yaml
+```
 
-### `abcompare.go`
-- Aynı endpoint’i iki base URL’e gönderir.
-- Fark analizi:
-  - status karşılaştırma
-  - header anahtar seti karşılaştırması
-  - body structure diff
-  - body value diff
+### `lazytest plan new`
+Ornek plan olusturur.
 
-## `internal/lt`
+```bash
+lazytest plan new --kind tcp --out plans/tcp.yaml
+```
 
-### `taurus.go`
-- Taurus YAML planını `Plan` modeline parse eder.
-- `execution`, `scenarios`, `data-sources` yapılarını normalize eder.
-- Request method normalizasyonu (default GET).
-- `${var}` biçimli değişken çözümleme (`ResolveVars`).
+### `lazytest plan edit`
+Plan dosyasini editor ile acar.
 
-### `runner.go`
-- Planın ilk execution bloğuna göre concurrency/ramp-up/hold-for ile koşum.
-- Tek-node, goroutine tabanlı VU yaklaşımı.
-- Request/assertion/extraction döngüsü.
-- Warm-up sonrasını metriğe dahil eden akış.
-- Think-time uygulama ve threshold odaklı LT config.
+```bash
+lazytest plan edit plans/tcp.yaml
+```
 
-### `metrics.go`
-- Latency/OK/status örneklerini thread-safe toplar.
-- `Snapshot` üretir:
-  - p50/p90/p95/p99
-  - RPS
-  - error rate
-  - status dağılımı
-- Eşik ihlali kontrolü (`ThresholdCheck`).
+### `lazytest desktop`
+Native desktop UI baslatir.
 
-## `internal/tui`
+```bash
+# onerilen
+make run-desktop
 
-### `state.go`
-- Uygulamanın merkezi state modeli (`AppState`).
-- Endpoint/smoke/drift/A-B/LT metrikleri, env/auth ve rapor durumu burada tutulur.
-- Her menü için tablo projeksiyonları üretir.
+# veya
+go run -tags desktop ./cmd/lazytest-desktop
+```
 
-### `app.go`
-- gocui layout yönetimi ve event loop.
-- Keybinding’ler:
-  - `r`: seçili endpoint smoke
-  - `a`: tüm endpoint smoke
-  - `o`: drift
-  - `c/C`: A/B compare
-  - `L`: load test çalıştır
-  - `W/E/R/H`: warm-up/error budget/reset/hide metrics
-  - `s`: rapor kaydı
-  - `e/p`: env ve auth profili döngüsü
+## 4) Desktop UI Rehberi
 
-### `views/*`
-- Sol menü, tablo, detay paneli, status bar, logo ve tema bileşenleri.
+Layout:
 
-## `internal/config`
-- `env.yaml` -> environment modeli (baseURL, headers, RPS)
-- `auth.yaml` -> auth profilleri (jwt/apikey)
-- Basit lookup fonksiyonlarıyla tüketim (`GetEnvironment`, `GetAuthProfile`).
+- Sol: navigation
+- Orta ust: yetenekler (hizli gecis / aksiyon)
+- Orta alt: sabit live log paneli
+- Alt bar: genel durum
 
-## `internal/report`
-- `junit.go`: test sonuçlarından JUnit XML üretimi
-- `json.go`: smoke/drift/compare çıktıları için JSON raporlama
+Canli log paneli:
 
----
+- Smoke/Drift/Compare/Load calisirken event satirlari anlik akar
+- Run biterse final status satiri gorunur
+- `Clear` ile panel temizlenebilir
 
-## 4) Çalışma Modları
+## 5) Rapor Dosyalari
 
-### 4.1 Headless (CI/CD dostu)
+- Smoke: JUnit + JSON
+- TCP: JUnit + JSON
+- Drift/Compare: stdout odakli; gerektiğinde desktop export kullanilabilir
 
-- `run smoke`:
-  - OpenAPI parse
-  - Bulk smoke koşumu
-  - JUnit + JSON rapor yazımı
-- `run drift`:
-  - Endpoint seçimi (`--path --method`)
-  - Tek request + schema karşılaştırma
-- `compare`:
-  - İki env’in aynı endpoint sonuçlarının diff’i
+## 6) Sik Hatalar
 
-### 4.2 Interaktif TUI
+### `package cmd/lazytest-desktop is not in std`
+Yanlis paket yolu kullanimi.
 
-- Çoklu menü üzerinden operasyonel kullanım
-- Canlı geri bildirim (status, latency, bulgular, metrikler)
-- Çalışma sırasında env/auth değiştirme
-- Raporu UI’dan kaydetme
+Dogru:
 
----
+```bash
+go run -tags desktop ./cmd/lazytest-desktop
+```
 
-## 5) Uçtan Uca Veri Akışları
+### `desktop build tag required`
+`lazytest desktop` komutu normal binary ile calisti.
+Desktop tag ile derleyin:
 
-### Akış A — OpenAPI’den smoke’a
-1. Spec yüklenir, endpoint listesi çıkarılır.
-2. Endpointler state’e alınır.
-3. Smoke tetiklenir (tekli veya bulk).
-4. Sonuçlar state’e yazılır ve UI güncellenir.
-5. İstenirse sonuçlar JUnit/JSON’a aktarılır.
+```bash
+make build-desktop
+./bin/lazytest-desktop
+```
 
-### Akış B — Drift
-1. Endpoint seçilir.
-2. İstek atılır, response body alınır.
-3. İlgili status için response schema bulunur.
-4. Recursive karşılaştırma ile bulgular üretilir.
-5. Sonuç UI veya CLI stdout üzerinden sunulur.
+## 7) Gelistirici Notlari
 
-### Akış C — LT
-1. Taurus plan parse edilir.
-2. Runner, concurrency/ramp-up/hold-for ile VU’ları başlatır.
-3. Request/assertion/extraction döngüsü çalışır.
-4. Metrics örnekleri toplanır ve snapshot hesaplanır.
-5. TUI Live Metrics ekranı veriyi görselleştirir.
+- Desktop test:
 
----
+```bash
+go test -tags desktop ./internal/desktop/...
+```
 
-## 6) Mimari Kararlar ve Rasyonel
+- Desktop build:
 
-- **`internal/` sınırı**: Domain paketlerinin dış tüketime kapatılması.
-- **CLI ve TUI ayrımı**: Aynı iş mantığı iki kullanım modelinde tekrar kullanılabilir.
-- **YAML + OpenAPI merkezli yaklaşım**: Mevcut ekip artefaktlarını (spec, test planı) yeniden değerlendirme.
-- **Tek-node LT**: Hafif ve hızlı geri bildirim odaklı; dağıtık yük üretimi hedeflenmez.
+```bash
+go build -tags desktop -o bin/lazytest-desktop ./cmd/lazytest-desktop
+```
 
----
+- CLI build:
 
-## 7) Özellik Matrisi
-
-- OpenAPI parse + doğrulama
-- Endpoint keşfi ve tag bilgisi
-- Request body örnek üretimi
-- Parallel smoke (worker + rate limit)
-- Contract drift bulguları (missing/extra/type/enum)
-- A/B diff (status/header/body)
-- Taurus plan parse + execute
-- Percentile/RPS/error-rate canlı metrikleri
-- Environment ve auth profile yönetimi
-- JUnit XML + JSON raporlama
-
----
-
-## 8) Kısıtlar / Bilinçli Trade-off’lar
-
-- LT runner tek execution bloğuna odaklıdır (ilk blok üzerinden yürür).
-- JSONPath extraction sadeleştirilmiş uygulanır (tam JSONPath motoru değildir).
-- Drift analizi `application/json` response odaklıdır.
-- A/B body diff yaklaşımı pratik ve hızlıdır; semantik eşdeğerlik (ör. sırasız koleksiyon eşleme) sınırlıdır.
-
----
-
-## 9) Genişletme Rehberi
-
-### Yeni test tipi eklemek
-1. `internal/core` veya `internal/lt` altında domain modeli + yürütücü ekleyin.
-2. Gerekirse `internal/report` tarafında çıktı formatı ekleyin.
-3. CLI komutu (`cmd/lazytest/main.go`) ile headless akışı bağlayın.
-4. TUI aksiyonu (`internal/tui/app.go`) ve tablo/detay görünümü (`state.go`, `views/*`) ekleyin.
-
-### LT yeteneklerini büyütmek
-- Çoklu execution block stratejisi
-- Daha zengin assertion türleri
-- Data source ve değişken çözümlemede kapsam genişletme
-- Gelişmiş JSONPath implementasyonu
-
-### Kurumsal kullanım için öneriler
-- CI’de `run smoke` + JUnit yayınlama
-- Nightly pipeline’da LT planı + threshold gate
-- Sözleşme yönetişimi için düzenli drift scan
-
----
-
-## 10) Sonuç
-
-`lazytest`, API kalite mühendisliğinde üç kritik ekseni (fonksiyonel erişilebilirlik, sözleşme uyumu, yük altında davranış) tek bir operasyonel yüzeyde birleştiren modüler bir mimariye sahiptir. Kod tabanı; **komut yönlendirme**, **domain yürütme**, **sunum** ve **raporlama** sorumluluklarını net ayırdığı için hem geliştirmesi hem de ölçeklendirmesi görece düşüktür.
+```bash
+go build -o bin/lazytest ./cmd/lazytest
+```

@@ -1,237 +1,132 @@
-# 🚀 lazytest
+# lazytest
 
-> REST mikroservisleri için **OpenAPI tabanlı kalite doğrulama** + **Taurus uyumlu yük testi** yapan CLI/Desktop aracı.
+OpenAPI tabanli API dogrulama ve yuk testi aracidir.
 
+- Headless CLI: smoke, drift, compare, tcp, lt
+- Native desktop UI (Fyne): calisma yonetimi, canli metrik, canli log
 
-<p align="center">
-  <em>OpenAPI içeri al → Smoke/Drift doğrula → A/B kıyasla → LT ile yük altında gözlemle → Raporla.</em>
-</p>
+## Neler yapar?
 
----
+- OpenAPI spec'ten endpoint kesfi
+- Paralel smoke test
+- Contract drift kontrolu (schema uyumlulugu)
+- Iki ortam arasinda A/B karsilastirma
+- Taurus benzeri YAML plan ile load test
+- TCP plan calistirma
+- JUnit XML + JSON raporlama
 
-## 🎯 Neden lazytest?
+## Gereksinimler
 
-Klasik test zinciri çoğu ekipte parçalıdır:
+- Go 1.24+
+- Desktop icin (Linux):
+  - `libgl1-mesa-dev`
+  - `xorg-dev`
 
-- smoke test başka araçta,
-- contract kontrolü başka script’te,
-- load test bambaşka bir pipeline’da.
-
-`lazytest` bu parçaları tek akışta toplar:
-
-- ✅ OpenAPI’dan endpoint keşfi
-- ✅ Paralel smoke test
-- ✅ Contract drift analizi
-- ✅ A/B environment karşılaştırması
-- ✅ Taurus planı ile load test
-- ✅ Native Desktop (Fyne) ile canlı metrik takibi
-
----
-
-## 🎬 Ürün hikayesi (animasyonlu akış)
-
-### 1) Endpoint’leri keşfet
-
-```mermaid
-flowchart LR
-  A[OpenAPI yükle] --> B[Endpoint Explorer]
-  B --> C[Tag / path / method filtrele]
-  C --> D[Hedef endpoint seç]
-```
-
-### 2) Tek tuşla doğrula
-
-```mermaid
-flowchart LR
-  E[Smoke run] --> F[HTTP durum + erişilebilirlik]
-  E --> G[Temel response kontrolleri]
-  H[Drift run] --> I[missing / extra]
-  H --> J[type_mismatch / enum_violation]
-```
-
-### 3) Ortamları kıyasla, yük altında doğrula
-
-```mermaid
-flowchart LR
-  K[A/B Compare] --> L[status/header/body farkları]
-  M[LT Mode] --> N[Taurus execution/scenario]
-  N --> O[p95 + RPS + error rate]
-```
-
-<p align="center">
-  <img src="https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExc3h5M2h6dWZmMHF0M3N2ajByMHo2M2s2aHhnNmQ4b2M4M2hoYnU3MCZlcD12MV9naWZzX3NlYXJjaCZjdD1n/l0MYt5jPR6QX5pnqM/giphy.gif" alt="live metrics animation" width="820" />
-</p>
-
----
-
-## 🧩 Özellik seti
-
-- **Smoke test:** Endpoint erişilebilirliği ve temel davranış kontrolü
-- **Contract drift:** `missing`, `extra`, `type_mismatch`, `enum_violation` tespiti
-- **A/B compare:** status / header / body fark analizi
-- **LT mode:** Taurus YAML planlarını tek node’da çalıştırma
-- **Raporlama:** JUnit XML + JSON
-- **Desktop metrik ekranı:** p50/p90/p95/p99, RPS, error rate
-
----
-
-## ⚙️ Gereksinimler
-
-- **Go 1.24+**
-
----
-
-## 🛠️ Kurulum
-
-### 1) Kaynaktan çalıştır
+## Kurulum ve Build
 
 ```bash
 go mod tidy
-go run ./cmd/lazytest
+make build
 ```
 
-### 2) Binary üret
+CLI binary:
 
 ```bash
-make build
 ./bin/lazytest
 ```
 
-### 3) Native desktop (Fyne) çalıştır
+Desktop binary:
 
 ```bash
 make build-desktop
 ./bin/lazytest-desktop
 ```
 
-Linux için desktop build sırasında paket gerekebilir:
+## Hemen Basla
 
-```bash
-sudo apt-get install -y libgl1-mesa-dev xorg-dev
-```
-
----
-
-## ⚡ Hızlı başlangıç
-
-### Testleri çalıştır
-
-```bash
-make test
-```
-
-### Headless smoke
+Smoke:
 
 ```bash
 ./bin/lazytest run smoke -f openapi.sample.yaml -e dev --base http://localhost:8080
 ```
 
-### Tek endpoint drift
+Drift:
 
 ```bash
 ./bin/lazytest run drift -f openapi.sample.yaml --path /health --method GET -e dev --base http://localhost:8080
 ```
 
-### A/B compare
+Compare:
 
 ```bash
 ./bin/lazytest compare -f openapi.sample.yaml --envA dev --envB test --path /users --method GET
 ```
 
-### LT mode
+Load test:
 
 ```bash
 ./bin/lazytest lt -f examples/taurus/checkouts.yaml
 ```
 
----
-
-## 🧪 Komutlar
-
-| Komut | Açıklama |
-|---|---|
-| `lazytest` | Komut yardımını gösterir |
-| `lazytest load -f <openapi>` | OpenAPI yükler ve özet bilgiyi yazdırır |
-| `lazytest run smoke ...` | Headless smoke test çalıştırır |
-| `lazytest run drift ...` | Tek endpoint için drift kontrolü yapar |
-| `lazytest compare ...` | İki environment arasında A/B karşılaştırma yapar |
-| `lazytest lt -f <taurus.yaml>` | LT planını headless çalıştırır |
-| `lazytest desktop` | Native masaüstü arayüzünü açar (`-tags desktop` ile) |
-
-### Sık kullanılan flag’ler
-
-- `-f, --file`: OpenAPI veya LT plan dosyası
-- `-e, --env`: environment adı (`dev`, `test`, `prod`)
-- `--base`: base URL override
-- `--env-config`: env dosyası (varsayılan `env.yaml`)
-- `--auth-config`: auth dosyası (varsayılan `auth.yaml`)
-
-Smoke için ek:
-- `--workers`
-- `--report`
-- `--json`
-
-Drift/A-B için ek:
-- `--path`
-- `--method`
-
----
-
-## 📁 Konfigürasyon
-
-### `env.yaml`
-- `name`
-- `baseURL`
-- `headers`
-- `rateLimitRPS`
-
-### `auth.yaml`
-- JWT (`type: jwt`, `token`)
-- API key (`type: apikey`, `header`, `key`)
-
----
-
-## 📈 LT mode (Taurus YAML) desteği
-
-Desteklenen alanlar:
-- `execution`: `concurrency`, `ramp-up`, `hold-for`, `scenario`
-- `scenarios`: `base-url`, `headers`, `think-time`, `requests`
-- `requests`: `method`, `url`, `body`, `extract-jsonpath`, `assertions`
-- `assertions`: `status-code`, `p95-time-ms`, `jsonpath`
-- `data-sources`: CSV tanımları
-
-Örnek plan: `examples/taurus/checkouts.yaml`
-
----
-
-## 🧾 Raporlama
-
-- **JUnit XML:** CI/CD test raporu
-- **JSON:** Programatik analiz / arşivleme
-- Desktop panelinden export ile hızlı rapor kaydetme
-
----
-
-## 🔧 Makefile hedefleri
+TCP:
 
 ```bash
-make build   # bin/lazytest üretir
-make build-desktop # bin/lazytest-desktop üretir (native desktop)
-make test    # go test ./...
-make lint    # go vet + golangci-lint (varsa)
-make run     # örnek smoke çalıştırma
-make run-desktop # native desktop uygulamayı açar
-make lt      # örnek LT planı ile çalıştırma
+./bin/lazytest run tcp --plan plans/tcp.yaml
 ```
 
----
+## Komutlar
 
-## ✅ Demo fikri: repo içine lokal animasyon ekleme
+- `lazytest load -f <openapi>`
+- `lazytest run smoke -f <openapi> [--workers N] [--report junit.xml] [--json out.json]`
+- `lazytest run drift -f <openapi> --path <path> [--method GET]`
+- `lazytest run tcp --plan <tcp.yaml> [--report junit.xml] [--json out.json]`
+- `lazytest compare -f <openapi> --envA <a> --envB <b> --path <path> [--method GET]`
+- `lazytest lt -f <taurus.yaml>`
+- `lazytest plan new --kind tcp --out plans/tcp.yaml`
+- `lazytest plan edit <path>`
+- `lazytest desktop`
 
-Dış linke bağlı kalmadan uzun ömürlü bir README için:
+Not: `lazytest desktop` komutu `-tags desktop` ile derlenmis binary gerektirir.
 
-- `docs/gifs/desktop-overview.gif`
-- `docs/gifs/drift-check.gif`
-- `docs/gifs/lt-metrics.gif`
+## Sık Kullanilan Flag'ler
 
-Bu üç GIF’i eklediğinizde README tamamen self-contained olur ve ürün demosu çok daha profesyonel görünür.
+- `-f, --file`: OpenAPI veya LT plan dosyasi
+- `-e, --env`: ortam adi
+- `--base`: base URL override
+- `--env-config`: ortam dosyasi (varsayilan `env.yaml`)
+- `--auth-config`: auth dosyasi (varsayilan `auth.yaml`)
+- `-v, --verbose`: ayrintili cikti
+
+## Desktop UI Ozet
+
+Yeni desktop duzeni su sekildedir:
+
+- Sol: komple navigation bar
+- Orta ust: yetenek butonlari
+- Orta orta: secili panel icerigi
+- Orta alt: sabit canli log ekrani (run eventlerini anlik yazar)
+- En alt: status bar
+
+UI, terminal-modern bir gorunumle tasarlanmistir (monospace, yuksek kontrast).
+
+## Makefile Hedefleri
+
+```bash
+make build
+make build-desktop
+make run
+make run-desktop
+make test
+make lint
+make package-desktop
+```
+
+## Raporlama
+
+- Smoke ve TCP akislarinda JUnit + JSON dosyalari uretilir.
+- Dosya yollari `--report` ve `--json` ile degistirilebilir.
+
+## Proje Durumu
+
+TUI kaldirilmistir.
+Aktif arayuz: Desktop (Fyne) + Headless CLI.
