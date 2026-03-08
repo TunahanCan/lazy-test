@@ -2,7 +2,7 @@ package appsvc
 
 import "time"
 
-// MetricsPoint is a normalized point for desktop charts.
+// MetricsPoint is a normalized chart point used by live dashboard/metrics UI.
 type MetricsPoint struct {
 	Time      time.Time `json:"time"`
 	P95       int64     `json:"p95"`
@@ -10,7 +10,8 @@ type MetricsPoint struct {
 	ErrorRate float64   `json:"errorRate"`
 }
 
-// RunSnapshot stores the latest normalized state of a run for UI.
+// RunSnapshot is the read model materialized from run events.
+// Java analogy: projection DTO built from event stream.
 type RunSnapshot struct {
 	RunID         string           `json:"runID"`
 	RunType       string           `json:"runType"`

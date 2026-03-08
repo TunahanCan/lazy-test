@@ -5,6 +5,7 @@ package panels
 import "lazytest/internal/appsvc"
 
 // DesktopApp defines desktop backend methods used by panels.
+// Java analogy: this behaves like a facade interface injected into each panel.
 type DesktopApp interface {
 	LoadWorkspace() (appsvc.Workspace, error)
 	SaveWorkspace(ws appsvc.Workspace) (bool, error)
@@ -24,7 +25,8 @@ type DesktopApp interface {
 	CancelActiveRun() bool
 }
 
-// SharedState is the state surface consumed by panels.
+// SharedState is the observable state surface consumed by panels.
+// Java analogy: comparable to a shared ViewModel/store abstraction.
 type SharedState interface {
 	GetWorkspace() appsvc.Workspace
 	SetWorkspace(ws appsvc.Workspace)

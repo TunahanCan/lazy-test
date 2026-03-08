@@ -102,12 +102,17 @@ Not: `lazytest desktop` komutu `-tags desktop` ile derlenmis binary gerektirir.
 Yeni desktop duzeni su sekildedir:
 
 - Sol: komple navigation bar
-- Orta ust: yetenek butonlari
-- Orta orta: secili panel icerigi
+- Orta: secili panel icerigi
 - Orta alt: sabit canli log ekrani (run eventlerini anlik yazar)
 - En alt: status bar
 
 UI, terminal-modern bir gorunumle tasarlanmistir (monospace, yuksek kontrast).
+
+## Java Developer Notu
+
+Kod tabanini Java bakis acisiyla hizli okumak icin:
+
+- [JAVA_DEVELOPER_GUIDE.md](JAVA_DEVELOPER_GUIDE.md)
 
 ## Makefile Hedefleri
 

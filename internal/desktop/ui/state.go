@@ -10,6 +10,7 @@ import (
 )
 
 // UIState manages global desktop UI state.
+// Java analogy: shared observable store (similar to a simple evented ViewModel).
 type UIState struct {
 	mu sync.RWMutex
 

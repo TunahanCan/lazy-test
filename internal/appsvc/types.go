@@ -2,6 +2,7 @@ package appsvc
 
 import "time"
 
+// SpecSummary is a lightweight projection of parsed OpenAPI metadata.
 type SpecSummary struct {
 	Title          string   `json:"title"`
 	Version        string   `json:"version"`
@@ -11,6 +12,7 @@ type SpecSummary struct {
 	Tags           []string `json:"tags"`
 }
 
+// EndpointDTO is the UI-facing endpoint record (read-only data transfer object).
 type EndpointDTO struct {
 	ID          string   `json:"id"`
 	Method      string   `json:"method"`
@@ -20,6 +22,7 @@ type EndpointDTO struct {
 	Tags        []string `json:"tags"`
 }
 
+// RequestDTO is an outbound HTTP request model prepared by UI/application service.
 type RequestDTO struct {
 	EndpointID string            `json:"endpointID"`
 	Method     string            `json:"method"`
@@ -29,6 +32,7 @@ type RequestDTO struct {
 	TimeoutMS  int               `json:"timeoutMs,omitempty"`
 }
 
+// ResponseDTO is a normalized HTTP response payload for UI rendering.
 type ResponseDTO struct {
 	StatusCode int                 `json:"statusCode"`
 	Status     int                 `json:"status"`
@@ -39,12 +43,14 @@ type ResponseDTO struct {
 	Err        string              `json:"err,omitempty"`
 }
 
+// EndpointFilter is query criteria used by ListEndpoints.
 type EndpointFilter struct {
 	Query  string `json:"query"`
 	Tag    string `json:"tag"`
 	Method string `json:"method"`
 }
 
+// SmokeStartConfig carries smoke run parameters.
 type SmokeStartConfig struct {
 	EndpointIDs []string `json:"endpointIDs"`
 	RunAll      bool     `json:"runAll"`
@@ -54,12 +60,14 @@ type SmokeStartConfig struct {
 	ExportDir   string   `json:"exportDir"`
 }
 
+// DriftStartConfig carries drift run parameters.
 type DriftStartConfig struct {
 	EndpointID string `json:"endpointID"`
 	TimeoutMS  int    `json:"timeoutMS"`
 	ExportDir  string `json:"exportDir"`
 }
 
+// CompareStartConfig carries A/B compare run parameters.
 type CompareStartConfig struct {
 	EndpointID string `json:"endpointID"`
 	EnvA       string `json:"envA"`
@@ -68,6 +76,7 @@ type CompareStartConfig struct {
 	TimeoutMS  int    `json:"timeoutMS"`
 }
 
+// LTStartConfig carries load-test threshold settings.
 type LTStartConfig struct {
 	MaxErrorPct float64 `json:"maxErrorPct"`
 	MaxP95Ms    int64   `json:"maxP95Ms"`
@@ -75,6 +84,7 @@ type LTStartConfig struct {
 
 type TCPStartConfig struct{}
 
+// ResultDTO is a persisted run history item.
 type ResultDTO struct {
 	RunID     string      `json:"runID"`
 	Type      string      `json:"type"`
@@ -86,6 +96,7 @@ type ResultDTO struct {
 	Error     string      `json:"error,omitempty"`
 }
 
+// Workspace stores user paths and runtime context.
 type Workspace struct {
 	Version       int    `json:"version"`
 	SpecPath      string `json:"specPath"`
@@ -98,6 +109,7 @@ type Workspace struct {
 	UpdatedAtUnix int64  `json:"updatedAtUnix"`
 }
 
+// RunProgressEvent is incremental progress event published by Service.
 type RunProgressEvent struct {
 	RunID       string `json:"runID"`
 	Phase       string `json:"phase"`
@@ -108,6 +120,7 @@ type RunProgressEvent struct {
 	ErrCount    int    `json:"errCount"`
 }
 
+// RunMetricsSnapshot is periodic load-test metrics snapshot.
 type RunMetricsSnapshot struct {
 	P95       int64          `json:"p95"`
 	RPS       float64        `json:"rps"`
@@ -117,23 +130,27 @@ type RunMetricsSnapshot struct {
 	Extra     map[string]any `json:"extra,omitempty"`
 }
 
+// RunMetricsEvent wraps one metrics snapshot per run id.
 type RunMetricsEvent struct {
 	RunID    string             `json:"runID"`
 	Snapshot RunMetricsSnapshot `json:"snapshot"`
 }
 
+// RunLogEvent is a log-line event emitted during run execution.
 type RunLogEvent struct {
 	RunID string `json:"runID"`
 	Level string `json:"level"`
 	Msg   string `json:"msg"`
 }
 
+// RunDoneEvent marks final state of a run.
 type RunDoneEvent struct {
 	RunID         string `json:"runID"`
 	Status        string `json:"status"`
 	ResultSummary string `json:"resultSummary"`
 }
 
+// RunEventSink is observer interface for streaming run events.
 type RunEventSink interface {
 	Progress(RunProgressEvent)
 	Metrics(RunMetricsEvent)

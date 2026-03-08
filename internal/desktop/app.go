@@ -18,6 +18,11 @@ type App struct {
 	rm        *RunManager
 }
 
+// NewApp wires desktop adapter to app-service and initializes cached workspace context.
+//
+// Java analogy:
+// - App is a UI adapter/facade (similar to a controller-facing service bean).
+// - appsvc.Service remains the application/business layer.
 func NewApp(workspacePath string) *App {
 	a := &App{rm: NewRunManager()}
 	a.svc = appsvc.NewService(workspacePath, a)
@@ -35,6 +40,7 @@ func (a *App) Startup(ctx context.Context) {
 	_ = ctx
 }
 
+// RunManager exposes pub/sub run bus used by desktop panels.
 func (a *App) RunManager() *RunManager { return a.rm }
 
 func (a *App) SubscribeRun(runID string) (<-chan any, func()) {
@@ -60,6 +66,7 @@ func (a *App) CancelActiveRun() bool {
 	return a.rm.CancelActive()
 }
 
+// SaveWorkspace updates cache + persists workspace + reloads env/auth configs.
 func (a *App) SaveWorkspace(ws appsvc.Workspace) (bool, error) {
 	a.mu.Lock()
 	a.workspace = ws
@@ -75,6 +82,7 @@ func (a *App) SaveWorkspace(ws appsvc.Workspace) (bool, error) {
 
 func (a *App) LoadWorkspace() (appsvc.Workspace, error) { return a.svc.LoadWorkspace() }
 
+// CurrentWorkspace returns in-memory cached workspace (cheap read for panels).
 func (a *App) CurrentWorkspace() appsvc.Workspace {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -92,6 +100,7 @@ func (a *App) SendRequest(req appsvc.RequestDTO) (appsvc.ResponseDTO, error) {
 	return a.svc.SendRequest(req)
 }
 
+// Run use-cases (Smoke/Drift/Compare/LT/TCP) are forwarded to app-service.
 func (a *App) StartSmoke(cfg appsvc.SmokeStartConfig) (string, error) {
 	ws := a.CurrentWorkspace()
 	return a.svc.StartSmoke(cfg, ws.EnvName, ws.AuthProfile, ws.BaseURL)
@@ -118,6 +127,7 @@ func (a *App) OpenFileDialog(pattern string) (string, error) {
 	return "", nil
 }
 
+// RunEventSink implementation: bridge application events into desktop run manager.
 func (a *App) Progress(e appsvc.RunProgressEvent) {
 	if a.rm != nil {
 		a.rm.Publish(e.RunID, e)

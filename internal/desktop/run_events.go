@@ -11,6 +11,9 @@ import (
 )
 
 // RunEventAggregator normalizes run events for UI panels.
+//
+// Java analogy: this is an in-memory projection/aggregator that consumes
+// domain events and materializes a read model (RunSnapshot).
 type RunEventAggregator interface {
 	Consume(ev any) appsvc.RunSnapshot
 	Snapshot(runID string) appsvc.RunSnapshot
@@ -24,6 +27,7 @@ type runAgg struct {
 	runs        map[string]appsvc.RunSnapshot
 }
 
+// NewRunEventAggregator creates bounded buffers for metrics/logs.
 func NewRunEventAggregator(metricLimit, logLimit int) RunEventAggregator {
 	if metricLimit <= 0 {
 		metricLimit = 120
@@ -35,6 +39,7 @@ func NewRunEventAggregator(metricLimit, logLimit int) RunEventAggregator {
 	return &runAgg{metricLimit: metricLimit, logLimit: logLimit, runs: map[string]appsvc.RunSnapshot{}}
 }
 
+// Consume updates the snapshot for one incoming event.
 func (a *runAgg) Consume(ev any) appsvc.RunSnapshot {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -88,12 +93,14 @@ func (a *runAgg) Consume(ev any) appsvc.RunSnapshot {
 	}
 }
 
+// Snapshot returns the latest materialized state for a run.
 func (a *runAgg) Snapshot(runID string) appsvc.RunSnapshot {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return a.runs[runID]
 }
 
+// Clear removes one run snapshot from projection store.
 func (a *runAgg) Clear(runID string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()

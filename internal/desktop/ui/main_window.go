@@ -25,7 +25,8 @@ type EventAggregator interface {
 	Clear(runID string)
 }
 
-// MainWindow is the main application window.
+// MainWindow is the root shell that composes navigation, content area and live log dock.
+// Java analogy: this is the "application frame" that coordinates panel controllers.
 type MainWindow struct {
 	app       panels.DesktopApp
 	agg       EventAggregator
