@@ -36,7 +36,7 @@ func NewLineChart(maxPoints int) *LineChart {
 	if maxPoints <= 0 {
 		maxPoints = 120
 	}
-	c := &LineChart{max: maxPoints, line: color.RGBA{R: 0x0B, G: 0x72, B: 0xD9, A: 0xFF}}
+	c := &LineChart{max: maxPoints, line: color.RGBA{R: 0x73, G: 0xB4, B: 0xFF, A: 0xFF}}
 	c.ExtendBaseWidget(c)
 	return c
 }
@@ -51,7 +51,7 @@ func (c *LineChart) Points() []DataPoint {
 }
 
 func (c *LineChart) CreateRenderer() fyne.WidgetRenderer {
-	bg := canvas.NewRectangle(color.RGBA{R: 0xF0, G: 0xF3, B: 0xF8, A: 0xFF})
+	bg := canvas.NewRectangle(color.RGBA{R: 0x0D, G: 0x14, B: 0x20, A: 0xFF})
 	return &lineChartRenderer{chart: c, bg: bg, lines: []*canvas.Line{}}
 }
 

@@ -12,7 +12,6 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	fyneDesktop "fyne.io/fyne/v2/driver/desktop"
-	"fyne.io/fyne/v2/widget"
 
 	"lazytest/internal/appsvc"
 	"lazytest/internal/desktop/panels"
@@ -81,7 +80,13 @@ func (mw *MainWindow) setupUI() {
 	mw.statusBar.SetStatus("Ready")
 
 	mw.panelMap = map[string]Panel{
-		"Dashboard":   panels.NewDashboardPanel(mw.state),
+		"Dashboard": panels.NewDashboardPanel(mw.state, func(id string) {
+			if mw.nav != nil {
+				mw.nav.SelectItem(id)
+				return
+			}
+			mw.onNavigate(id)
+		}),
 		"Workspace":   panels.NewWorkspacePanel(mw.app, mw.state, mw.window, mw.setStatus),
 		"Explorer":    panels.NewExplorerPanel(mw.app, mw.state, mw.setStatus),
 		"Smoke":       panels.NewSmokePanel(mw.app, mw.state, mw.setStatus, mw.onRunStarted),
@@ -100,74 +105,24 @@ func (mw *MainWindow) setupUI() {
 	mw.liveLog = NewLiveLogDock(mw.state, mw.setStatus)
 	mw.nav = NewNavigation(mw.onNavigate)
 
-	logDock := mw.liveLog.Container()
-	logDock.Resize(fyne.NewSize(300, 250))
-	logDockMin := canvas.NewRectangle(color.Transparent)
-	logDockMin.SetMinSize(fyne.NewSize(300, 250))
-	logDockObj := container.NewStack(logDockMin, container.NewPadded(logDock))
-
-	center := container.NewBorder(
-		mw.buildAbilityBar(),
-		logDockObj, // bottom fixed live log
-		nil,
-		nil,
-		mw.content,
-	)
+	centerCore := container.NewBorder(nil, mw.buildBottomLog(), nil, nil, mw.content)
+	centerBg := canvas.NewRectangle(color.RGBA{R: 0x10, G: 0x18, B: 0x24, A: 0xFF})
+	center := container.NewStack(centerBg, container.NewPadded(centerCore))
 
 	split := container.NewHSplit(mw.nav.Container(), center)
-	split.SetOffset(0.22) // left navigation full bar
+	split.SetOffset(0.24)
 
 	main := container.NewBorder(nil, mw.statusBar.Container(), nil, nil, split)
 	mw.window.SetContent(main)
+	mw.nav.SetSelected("Dashboard")
 	first.OnShow()
 }
 
-func (mw *MainWindow) buildAbilityBar() fyne.CanvasObject {
-	title := canvas.NewText("YETENEKLER", color.RGBA{R: 0x96, G: 0xBE, B: 0xF7, A: 0xFF})
-	title.TextStyle = fyne.TextStyle{Bold: true, Monospace: true}
-	title.TextSize = 11
-
-	bg := canvas.NewRectangle(color.RGBA{R: 0x11, G: 0x1A, B: 0x27, A: 0xFF})
-	bg.CornerRadius = 8
-
-	buttons := make([]fyne.CanvasObject, 0, len(ViewNavOptions())+1)
-	for _, option := range ViewNavOptions() {
-		id := option.ID
-		btn := widget.NewButton(option.Label, func() { mw.nav.SelectItem(id) })
-		btn.Importance = widget.LowImportance
-		buttons = append(buttons, btn)
-	}
-	cancelBtn := widget.NewButton("Cancel Active", func() {
-		if mw.app.CancelActiveRun() {
-			mw.setStatus("active run canceled")
-			return
-		}
-		mw.setStatus("no active run")
-	})
-	cancelBtn.Importance = widget.DangerImportance
-	buttons = append(buttons, cancelBtn)
-
-	row := container.NewHBox(buttons...)
-	scroll := container.NewHScroll(container.NewPadded(row))
-	scroll.SetMinSize(fyne.NewSize(200, 56))
-	content := container.NewVBox(title, scroll)
-	return container.NewStack(bg, container.NewPadded(content))
-}
-
-func (mw *MainWindow) setupMenuBar() {
-	fileMenu := fyne.NewMenu("File",
-		fyne.NewMenuItem("Load Spec", func() { mw.nav.SelectItem("Workspace") }),
-		fyne.NewMenuItemSeparator(),
-		fyne.NewMenuItem("Quit", func() { mw.window.Close() }),
-	)
-	viewItems := make([]*fyne.MenuItem, 0, len(ViewNavOptions()))
-	for _, option := range ViewNavOptions() {
-		id := option.ID
-		viewItems = append(viewItems, fyne.NewMenuItem(option.Label, func() { mw.nav.SelectItem(id) }))
-	}
-	viewMenu := fyne.NewMenu("View", viewItems...)
-	helpMenu := fyne.NewMenu("Help", fyne.NewMenuItem("About", func() { mw.nav.SelectItem("About") }))
-	mw.window.SetMainMenu(fyne.NewMainMenu(fileMenu, viewMenu, helpMenu))
+func (mw *MainWindow) buildBottomLog() fyne.CanvasObject {
+	logDock := mw.liveLog.Container()
+	logDockMin := canvas.NewRectangle(color.Transparent)
+	logDockMin.SetMinSize(fyne.NewSize(300, 220))
+	return container.NewStack(logDockMin, container.NewPadded(logDock))
 }
 
 func (mw *MainWindow) setupShortcuts() {

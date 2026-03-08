@@ -36,6 +36,7 @@ type Navigation struct {
 	onNavigate func(string)
 	selected   string
 	rows       []navItem
+	suppress   bool
 }
 
 func NewNavigation(onNavigate func(string)) *Navigation {
@@ -50,9 +51,16 @@ func NewNavigation(onNavigate func(string)) *Navigation {
 	bg.CornerRadius = 0
 	sep := canvas.NewLine(color.RGBA{R: 0x28, G: 0x36, B: 0x49, A: 0xFF})
 	sep.StrokeWidth = 1
+	rightBorder := canvas.NewRectangle(color.RGBA{R: 0x2A, G: 0x38, B: 0x4D, A: 0xFF})
+	rightBorder.SetMinSize(fyne.NewSize(1, 1))
 
-	content := container.NewVBox(title, sep, n.list)
-	n.container = container.NewStack(bg, container.NewPadded(content))
+	header := container.NewVBox(title, sep)
+	content := container.NewBorder(header, nil, nil, nil, n.list)
+
+	min := canvas.NewRectangle(color.Transparent)
+	min.SetMinSize(fyne.NewSize(290, 560))
+	main := container.NewStack(min, bg, container.NewPadded(content))
+	n.container = container.NewBorder(nil, nil, nil, rightBorder, main)
 	return n
 }
 
@@ -101,35 +109,54 @@ func (n *Navigation) buildList() {
 	// terminal-style list: no separators
 	n.list.HideSeparators = true
 
-	n.list.OnSelected = func(id widget.ListItemID) {
-		if id < 0 || id >= len(n.rows) {
-			return
-		}
-		item := n.rows[id]
-		if !item.Selectable {
-			n.list.Unselect(id)
-			return
-		}
-		n.selected = item.ID
-		n.list.Refresh()
-		if n.onNavigate != nil {
-			n.onNavigate(item.ID)
-		}
-	}
+	n.list.OnSelected = n.handleSelection
 
-	n.SelectItem("Dashboard")
+	n.SetSelected("Dashboard")
 }
 
 func (n *Navigation) Container() *fyne.Container { return n.container }
 
 func (n *Navigation) SelectItem(name string) {
+	n.selectItem(name, true)
+}
+
+// SetSelected updates selected row without triggering navigation callback.
+func (n *Navigation) SetSelected(name string) {
+	n.selectItem(name, false)
+}
+
+func (n *Navigation) selectItem(name string, notify bool) {
 	for i, item := range n.rows {
 		if item.ID == name {
 			n.selected = name
+			n.suppress = !notify
 			n.list.Select(i)
+			n.suppress = false
 			n.list.Refresh()
 			return
 		}
+	}
+}
+
+func (n *Navigation) handleSelection(id widget.ListItemID) {
+	if id < 0 || id >= len(n.rows) {
+		return
+	}
+	item := n.rows[id]
+	if !item.Selectable {
+		n.list.Unselect(id)
+		return
+	}
+	n.selected = item.ID
+	n.list.Refresh()
+	if !n.suppress {
+		n.triggerNavigate(item.ID)
+	}
+}
+
+func (n *Navigation) triggerNavigate(id string) {
+	if n.onNavigate != nil {
+		n.onNavigate(id)
 	}
 }
 
