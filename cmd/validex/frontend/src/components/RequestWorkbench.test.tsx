@@ -1,4 +1,3 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import {
   cleanup,
@@ -35,9 +34,6 @@ const bootstrap: BootstrapData = {
 };
 
 function renderWorkbench(tab: RequestTab) {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
   useWorkspaceStore.setState({
     activeEnvironmentID: "none",
     environmentVariables: {},
@@ -45,11 +41,9 @@ function renderWorkbench(tab: RequestTab) {
     activeTabID: tab.id,
   });
   return render(
-    <QueryClientProvider client={queryClient}>
-      <Tooltip.Provider>
-        <RequestWorkbench tab={tab} bootstrap={bootstrap} />
-      </Tooltip.Provider>
-    </QueryClientProvider>,
+    <Tooltip.Provider>
+      <RequestWorkbench tab={tab} bootstrap={bootstrap} />
+    </Tooltip.Provider>,
   );
 }
 

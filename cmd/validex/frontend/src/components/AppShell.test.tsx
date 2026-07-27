@@ -1,4 +1,3 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import {
   cleanup,
@@ -30,18 +29,10 @@ const bootstrap: BootstrapData = {
 const originalInnerWidth = window.innerWidth;
 
 function renderShell() {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-      mutations: { retry: false },
-    },
-  });
   return render(
-    <QueryClientProvider client={queryClient}>
-      <Tooltip.Provider>
-        <AppShell bootstrap={bootstrap} />
-      </Tooltip.Provider>
-    </QueryClientProvider>,
+    <Tooltip.Provider>
+      <AppShell bootstrap={bootstrap} />
+    </Tooltip.Provider>,
   );
 }
 

@@ -7,7 +7,6 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { zodResolver } from "@hookform/resolvers/zod";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Tabs from "@radix-ui/react-tabs";
 import {
@@ -35,7 +34,7 @@ import { requestURLMatchesOpenAPIPath } from "../lib/openapi";
 import { useCancelRequest, useSendRequest } from "../lib/queries";
 import {
   missingVariables,
-  requestSchema,
+  requestFormResolver,
   requestURLValidationMessage,
   resolveVariableReferences,
   type RequestFormValues,
@@ -681,7 +680,7 @@ export function RequestWorkbench({
   );
 
   const form = useForm<RequestFormValues>({
-    resolver: zodResolver(requestSchema),
+    resolver: requestFormResolver,
     mode: "onChange",
     defaultValues: {
       method: tab.method,

@@ -1,5 +1,6 @@
-import { z } from "zod";
+import type { FieldErrors, Resolver } from "react-hook-form";
 import { isMaskedSecretValue } from "./secrets";
+import type { HTTPMethod, RequestTab } from "./types";
 
 const variableExpression = /\{\{\s*[A-Za-z_][A-Za-z0-9_.-]*\s*}}/g;
 const variableAtStartExpression =
@@ -37,38 +38,127 @@ export function requestURLValidationMessage(value: string): string | undefined {
   return undefined;
 }
 
-export const requestSchema = z.object({
-  method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]),
-  url: z
-    .string()
-    .superRefine((value, context) => {
-      const message = requestURLValidationMessage(
-        requestURLValidationCandidate(value),
-      );
-      if (message) {
-        context.addIssue({
-          code: "custom",
-          message,
-        });
-      }
-    }),
-  body: z.string(),
-  headers: z.array(
-    z.object({
-      id: z.string(),
-      enabled: z.boolean(),
-      key: z.string(),
-      value: z.string(),
-      description: z.string().optional(),
-      source: z
-        .enum(["Manual", "OpenAPI", "Environment", "Extracted", "Generated"])
-        .optional(),
-    }),
-  ),
-  timeoutMs: z.number().int().positive().max(300_000),
-});
+const requestMethods = new Set<HTTPMethod>([
+  "GET",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+  "OPTIONS",
+  "HEAD",
+]);
 
-export type RequestFormValues = z.infer<typeof requestSchema>;
+const headerSources = new Set([
+  "Manual",
+  "OpenAPI",
+  "Environment",
+  "Extracted",
+  "Generated",
+]);
+
+export interface RequestFormValues {
+  method: HTTPMethod;
+  url: string;
+  body: string;
+  headers: RequestTab["headers"];
+  timeoutMs: number;
+}
+
+interface ValidationIssue {
+  field: keyof RequestFormValues | "root";
+  message: string;
+}
+
+type RequestParseResult =
+  | { success: true; data: RequestFormValues }
+  | { success: false; error: { issues: ValidationIssue[] } };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function requestValidationIssues(value: unknown): ValidationIssue[] {
+  if (!isRecord(value)) {
+    return [{ field: "root", message: "Request verisi geçersiz." }];
+  }
+
+  const issues: ValidationIssue[] = [];
+  if (
+    typeof value.method !== "string" ||
+    !requestMethods.has(value.method as HTTPMethod)
+  ) {
+    issues.push({ field: "method", message: "HTTP metodu geçersiz." });
+  }
+  if (typeof value.url !== "string") {
+    issues.push({ field: "url", message: "Request URL gerekli." });
+  } else {
+    const message = requestURLValidationMessage(
+      requestURLValidationCandidate(value.url),
+    );
+    if (message) issues.push({ field: "url", message });
+  }
+  if (typeof value.body !== "string") {
+    issues.push({ field: "body", message: "Request body metin olmalı." });
+  }
+  if (
+    !Number.isInteger(value.timeoutMs) ||
+    (value.timeoutMs as number) <= 0 ||
+    (value.timeoutMs as number) > 300_000
+  ) {
+    issues.push({
+      field: "timeoutMs",
+      message: "Timeout 1 ile 300000 ms arasında olmalı.",
+    });
+  }
+  if (
+    !Array.isArray(value.headers) ||
+    value.headers.some(
+      (header) =>
+        !isRecord(header) ||
+        typeof header.id !== "string" ||
+        typeof header.enabled !== "boolean" ||
+        typeof header.key !== "string" ||
+        typeof header.value !== "string" ||
+        (header.description !== undefined &&
+          typeof header.description !== "string") ||
+        (header.source !== undefined &&
+          (typeof header.source !== "string" ||
+            !headerSources.has(header.source))),
+    )
+  ) {
+    issues.push({ field: "headers", message: "Request header verisi geçersiz." });
+  }
+  return issues;
+}
+
+export const requestSchema = {
+  safeParse(value: unknown): RequestParseResult {
+    const issues = requestValidationIssues(value);
+    if (issues.length > 0) return { success: false, error: { issues } };
+    return { success: true, data: value as RequestFormValues };
+  },
+};
+
+export const requestFormResolver: Resolver<RequestFormValues> = (values) => {
+  const parsed = requestSchema.safeParse(values);
+  if (parsed.success) return { values: parsed.data, errors: {} };
+
+  const errors = {} as FieldErrors<RequestFormValues>;
+  for (const issue of parsed.error.issues) {
+    if (issue.field === "root") {
+      errors.root ??= {
+        request: { type: "validate", message: issue.message },
+      };
+      continue;
+    }
+    if (!errors[issue.field]) {
+      Object.assign(errors, {
+        [issue.field]: { type: "validate", message: issue.message },
+      });
+    }
+  }
+  return { values: {}, errors };
+};
 
 export function missingVariables(
   value: string,

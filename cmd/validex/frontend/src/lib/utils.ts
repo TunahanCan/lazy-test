@@ -1,8 +1,33 @@
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
+type ClassDictionary = Record<string, boolean | null | undefined>;
+type ClassValue =
+  | string
+  | false
+  | null
+  | undefined
+  | ClassDictionary
+  | ClassValue[];
 
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
+export function cn(...inputs: ClassValue[]): string {
+  const classes = new Set<string>();
+  const append = (value: ClassValue): void => {
+    if (!value) return;
+    if (typeof value === "string") {
+      for (const className of value.split(/\s+/)) {
+        if (className) classes.add(className);
+      }
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach(append);
+      return;
+    }
+    for (const [className, enabled] of Object.entries(value)) {
+      if (enabled) classes.add(className);
+    }
+  };
+
+  inputs.forEach(append);
+  return [...classes].join(" ");
 }
 
 export function formatBytes(bytes: number): string {

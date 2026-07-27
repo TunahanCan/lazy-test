@@ -1,4 +1,3 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import {
   cleanup,
@@ -22,17 +21,6 @@ import { Sidebar } from "./Sidebar";
 import { StatusBar } from "./StatusBar";
 import { TopBar } from "./TopBar";
 
-vi.mock("@tanstack/react-virtual", () => ({
-  useVirtualizer: ({ count }: { count: number }) => ({
-    getTotalSize: () => count * 31,
-    getVirtualItems: () =>
-      Array.from({ length: count }, (_, index) => ({
-        index,
-        start: index * 31,
-      })),
-  }),
-}));
-
 const emptyBootstrap: BootstrapData = {
   appVersion: "test",
   workspaceId: "validex-workspace",
@@ -52,16 +40,8 @@ const emptyBootstrap: BootstrapData = {
 };
 
 function renderWithProviders(children: ReactNode) {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-      mutations: { retry: false },
-    },
-  });
   return render(
-    <QueryClientProvider client={queryClient}>
-      <Tooltip.Provider>{children}</Tooltip.Provider>
-    </QueryClientProvider>,
+    <Tooltip.Provider>{children}</Tooltip.Provider>,
   );
 }
 
@@ -205,11 +185,9 @@ describe("workspace chrome simplification", () => {
 
     useWorkspaceStore.setState({ activeEnvironmentID: "local" });
     rerender(
-      <QueryClientProvider client={new QueryClient()}>
-        <Tooltip.Provider>
-          <ContextPanel bootstrap={emptyBootstrap} tab={tab} />
-        </Tooltip.Provider>
-      </QueryClientProvider>,
+      <Tooltip.Provider>
+        <ContextPanel bootstrap={emptyBootstrap} tab={tab} />
+      </Tooltip.Provider>,
     );
     fireEvent.mouseDown(screen.getByRole("tab", { name: "Variables" }), {
       button: 0,
@@ -319,7 +297,7 @@ describe("workspace chrome simplification", () => {
   });
 
   it("reveals bootstrap technical details inside the error screen", async () => {
-    vi.spyOn(backend, "bootstrap").mockRejectedValueOnce(
+    vi.spyOn(backend, "bootstrap").mockRejectedValue(
       new Error("bridge initialization failed"),
     );
     renderWithProviders(<App />);

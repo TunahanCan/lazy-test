@@ -1,4 +1,3 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import {
   cleanup,
@@ -45,15 +44,10 @@ const successfulSendResult: SendResult = {
 };
 
 function renderApp() {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
   return render(
-    <QueryClientProvider client={queryClient}>
-      <Tooltip.Provider>
-        <App />
-      </Tooltip.Provider>
-    </QueryClientProvider>,
+    <Tooltip.Provider>
+      <App />
+    </Tooltip.Provider>,
   );
 }
 

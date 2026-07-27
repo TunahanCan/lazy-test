@@ -1,6 +1,5 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
-import { useVirtualizer } from "@tanstack/react-virtual";
 import { FileJson2, FilePlus2, Search, Waypoints } from "lucide-react";
 import {
   importedEndpointTabID,
@@ -15,6 +14,28 @@ const sections = [
   { id: "requests", label: "Requests", icon: FileJson2 },
   { id: "apis", label: "APIs", icon: Waypoints },
 ] as const;
+
+const sidebarRowHeight = 31;
+const sidebarOverscan = 10;
+
+function visibleRowRange(
+  count: number,
+  scrollTop: number,
+  viewportHeight: number,
+) {
+  const effectiveHeight =
+    viewportHeight > 0 ? viewportHeight : sidebarRowHeight * 20;
+  const start = Math.max(
+    0,
+    Math.floor(scrollTop / sidebarRowHeight) - sidebarOverscan,
+  );
+  const end = Math.min(
+    count,
+    Math.ceil((scrollTop + effectiveHeight) / sidebarRowHeight) +
+      sidebarOverscan,
+  );
+  return { start, end };
+}
 
 interface SidebarNode {
   id: string;
@@ -68,6 +89,7 @@ function RequestContext({
 export function Sidebar({ bootstrap: _bootstrap }: { bootstrap: BootstrapData }) {
   const [query, setQuery] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [viewport, setViewport] = useState({ scrollTop: 0, height: 0 });
   const section = useWorkspaceStore((state) => state.sidebarSection);
   const setSection = useWorkspaceStore((state) => state.setSidebarSection);
   const openTab = useWorkspaceStore((state) => state.openTab);
@@ -113,12 +135,36 @@ export function Sidebar({ bootstrap: _bootstrap }: { bootstrap: BootstrapData })
       }));
   }, [importedSpec, query, section, tabs]);
 
-  const virtualizer = useVirtualizer({
-    count: visibleNodes.length,
-    getScrollElement: () => scrollRef.current,
-    estimateSize: () => 31,
-    overscan: 10,
-  });
+  useEffect(() => {
+    const scrollElement = scrollRef.current;
+    if (!scrollElement) return;
+    const measure = () =>
+      setViewport((current) => ({
+        scrollTop: current.scrollTop,
+        height: scrollElement.clientHeight,
+      }));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(scrollElement);
+    return () => observer.disconnect();
+  }, [visibleNodes.length]);
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+    setViewport((current) => ({ ...current, scrollTop: 0 }));
+  }, [query, section]);
+
+  const rowRange = visibleRowRange(
+    visibleNodes.length,
+    viewport.scrollTop,
+    viewport.height,
+  );
+  const virtualRows = visibleNodes
+    .slice(rowRange.start, rowRange.end)
+    .map((node, offset) => ({
+      node,
+      index: rowRange.start + offset,
+    }));
 
   return (
     <aside className="sidebar" aria-label="Request navigation">
@@ -167,19 +213,28 @@ export function Sidebar({ bootstrap: _bootstrap }: { bootstrap: BootstrapData })
       )}
 
       {visibleNodes.length > 0 ? (
-        <div ref={scrollRef} className="tree-scroll" tabIndex={0}>
+        <div
+          ref={scrollRef}
+          className="tree-scroll"
+          tabIndex={0}
+          onScroll={(event) =>
+            setViewport({
+              scrollTop: event.currentTarget.scrollTop,
+              height: event.currentTarget.clientHeight,
+            })
+          }
+        >
           <div
             className="virtual-list"
-            style={{ height: `${virtualizer.getTotalSize()}px` }}
+            style={{ height: `${visibleNodes.length * sidebarRowHeight}px` }}
           >
-            {virtualizer.getVirtualItems().map((virtualItem) => {
-              const node = visibleNodes[virtualItem.index];
+            {virtualRows.map(({ node, index }) => {
               return (
                 <RequestContext key={node.id} node={node}>
                   <button
                     className="tree-row"
                     style={{
-                      transform: `translateY(${virtualItem.start}px)`,
+                      transform: `translateY(${index * sidebarRowHeight}px)`,
                       paddingLeft: "10px",
                     }}
                     onClick={() => openSidebarNode(node, openTab)}
