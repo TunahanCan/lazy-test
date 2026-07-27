@@ -19,14 +19,14 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: cmd/lazytest/frontend/package-lock.json
+          cache-dependency-path: cmd/validex/frontend/package-lock.json
 
       - name: Install frontend dependencies
-        working-directory: cmd/lazytest/frontend
+        working-directory: cmd/validex/frontend
         run: npm ci
 
       - name: Check frontend
-        working-directory: cmd/lazytest/frontend
+        working-directory: cmd/validex/frontend
         run: |
           npm run typecheck
           npm test
@@ -51,11 +51,11 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: cmd/lazytest/frontend/package-lock.json
+          cache-dependency-path: cmd/validex/frontend/package-lock.json
 
       - name: Install Wails
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 
       - name: Build native application
-        working-directory: cmd/lazytest
+        working-directory: cmd/validex
         run: '"$(go env GOPATH)/bin/wails" build -clean -m -nosyncgomod'

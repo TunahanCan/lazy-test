@@ -1,6 +1,6 @@
 WAILS_VERSION := v2.12.0
 WAILS_BIN := $(shell go env GOPATH)/bin/wails
-APP_DIR := cmd/lazytest
+APP_DIR := cmd/validex
 FRONTEND_DIR := $(APP_DIR)/frontend
 
 .PHONY: tools dev build test
@@ -69,4 +69,4 @@ build: tools
 test:
 	cd $(FRONTEND_DIR) && npm ci && npm run typecheck && npm test
 	go test ./...
-	go test -tags wails ./internal/wailsapp ./cmd/lazytest
+	go test -tags wails ./internal/wailsapp ./cmd/validex

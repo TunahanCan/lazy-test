@@ -59,7 +59,7 @@ sürebilir. Sonraki çalıştırmalar daha hızlıdır.
 
 ```bash
 go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
-cd cmd/lazytest
+cd cmd/validex
 wails dev -m -nosyncgomod
 ```
 
@@ -104,12 +104,12 @@ Production build almak için projenin kök dizininde:
 make build
 ```
 
-Çıktılar `cmd/lazytest/build/bin` dizinine yazılır.
+Çıktılar `cmd/validex/build/bin` dizinine yazılır.
 
 macOS uygulamasını açmak için:
 
 ```bash
-open cmd/lazytest/build/bin/Validex.app
+open cmd/validex/build/bin/Validex.app
 ```
 
 Windows ve Linux çıktıları da build alınan işletim sisteminde aynı `bin`
@@ -148,7 +148,7 @@ bridge testlerini çalıştırır.
 ## Proje yapısı
 
 ```text
-cmd/lazytest/
+cmd/validex/
 ├── main.go                 Wails uygulama girişi
 ├── wails.json              Native build ayarları
 ├── build/                  İkon ve platform kaynakları
@@ -174,7 +174,7 @@ React arayüzü
 ```
 
 Frontend componentleri Wails runtime’ını doğrudan çağırmaz. Backend çağrıları
-`cmd/lazytest/frontend/src/lib/backend.ts` içindeki typed adapter üzerinden
+`cmd/validex/frontend/src/lib/backend.ts` içindeki typed adapter üzerinden
 `internal/wailsapp` bridge’ine gider.
 
 ## Mevcut durum
