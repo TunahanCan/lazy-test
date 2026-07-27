@@ -1,0 +1,1200 @@
+import { defineMessages } from "./defineMessages";
+
+export const diagnosticsProtocolsMessages = defineMessages(
+  {
+    "common.technicalDetails": "Technical details",
+
+    "diagnostics.eyebrow": "SPRING BOOT · RUNTIME INSPECTION",
+    "diagnostics.title": "Diagnostics",
+    "diagnostics.description":
+      "Analyze API responses, tokens, and runtime data in one workspace.",
+    "diagnostics.toolsLabel": "Diagnostics tools",
+    "diagnostics.status.busy": "Working…",
+    "diagnostics.status.ready": "Ready",
+    "diagnostics.mode.spring": "Spring Error",
+    "diagnostics.mode.jwt": "JWT",
+    "diagnostics.mode.runtime": "Runtime",
+    "diagnostics.mode.environments": "Environments",
+    "diagnostics.mode.threadLogs": "Thread & Logs",
+    "diagnostics.mode.coverage": "Coverage",
+    "diagnostics.operation.stale":
+      "The input or tool changed; the previous operation result was ignored.",
+    "diagnostics.error.operationTitle": "Diagnostics operation failed",
+    "diagnostics.error.operationMessage":
+      "The diagnostics operation could not be completed.",
+    "diagnostics.error.operationHint":
+      "Check the input, endpoint access, and timeout, then try again.",
+    "diagnostics.error.bridgeTitle": "Validex backend connection was lost",
+    "diagnostics.error.bridgeHint":
+      "Make sure the desktop app is running, then try again.",
+    "diagnostics.error.invalidInputMessage":
+      "One or more diagnostics inputs are invalid.",
+    "diagnostics.error.invalidInputHint":
+      "Review the required fields and their formats, then try again.",
+    "diagnostics.error.unsafeMethodMessage":
+      "This HTTP method requires explicit approval before it can be sent to multiple environments.",
+    "diagnostics.error.unsafeMethodHint":
+      "Approve the method only if sending it to every target is intentional.",
+    "diagnostics.error.requestFailedMessage":
+      "The target service could not be reached.",
+    "diagnostics.error.requestFailedHint":
+      "Check the endpoint, network access, authentication, and timeout.",
+    "diagnostics.error.responseTooLargeMessage":
+      "The response is too large to inspect safely.",
+    "diagnostics.error.responseTooLargeHint":
+      "Narrow the request or reduce the amount of data returned by the target.",
+    "diagnostics.error.invalidResponseMessage":
+      "The service returned a response that Validex could not inspect.",
+    "diagnostics.error.invalidResponseHint":
+      "Verify that the endpoint returns the expected diagnostics format.",
+    "diagnostics.error.limitExceededMessage":
+      "The diagnostics input or result exceeded a safety limit.",
+    "diagnostics.error.limitExceededHint":
+      "Reduce the input or narrow the scope of the diagnostics operation.",
+    "diagnostics.error.diagnosticFailedMessage":
+      "The diagnostics operation failed before a result was produced.",
+    "diagnostics.error.coverageSpecMissingMessage":
+      "No imported OpenAPI specification is available for coverage analysis.",
+    "diagnostics.error.coverageSpecMissingHint":
+      "Import an OpenAPI specification, then run coverage analysis again.",
+    "diagnostics.error.headersJSON": "Headers must be a valid JSON object.",
+    "diagnostics.error.headersObject": "Headers must be a JSON object.",
+    "diagnostics.error.headersText":
+      "Header names and values must be text.",
+    "diagnostics.error.headerLine":
+      "Header line {line} must use the “Name: value” format.",
+    "diagnostics.error.knownLine":
+      "Known endpoint line {line} must use the “METHOD /path” format.",
+    "diagnostics.error.observedLine":
+      "Observed call line {line} must use the “METHOD /path [count]” format.",
+    "diagnostics.error.observedCount":
+      "Observed count on line {line} must be a positive integer.",
+
+    "diagnostics.spring.category": "Category",
+    "diagnostics.spring.category.problemDetail": "Problem detail",
+    "diagnostics.spring.category.validation": "Validation",
+    "diagnostics.spring.category.unauthorized": "Unauthorized",
+    "diagnostics.spring.category.forbidden": "Forbidden",
+    "diagnostics.spring.category.notFound": "Not found",
+    "diagnostics.spring.category.conflict": "Conflict",
+    "diagnostics.spring.category.serverError": "Server error",
+    "diagnostics.spring.category.httpError": "HTTP error",
+    "diagnostics.spring.format": "Spring format",
+    "diagnostics.spring.traceRequestID": "Trace / Request ID",
+    "diagnostics.spring.exception": "Exception",
+    "diagnostics.spring.instance": "Instance",
+    "diagnostics.spring.beanValidation": "Bean Validation",
+    "diagnostics.spring.recognized": "Recognized",
+    "diagnostics.spring.genericResponse": "Generic HTTP response",
+    "diagnostics.spring.notFound": "Not found",
+    "diagnostics.spring.exceptionMissing": "Not present in response",
+    "diagnostics.spring.fieldCount": "{count} field errors parsed",
+    "diagnostics.spring.field": "Field",
+    "diagnostics.spring.message": "Message",
+    "diagnostics.spring.rejectedValue": "Rejected value",
+    "diagnostics.spring.checklist": "Checklist",
+    "diagnostics.spring.defaultTitle.problemDetail": "Problem Detail",
+    "diagnostics.spring.defaultTitle.validation": "Bean Validation error",
+    "diagnostics.spring.defaultTitle.unauthorized":
+      "Authentication required",
+    "diagnostics.spring.defaultTitle.forbidden":
+      "Not authorized for this operation",
+    "diagnostics.spring.defaultTitle.notFound":
+      "Resource or endpoint not found",
+    "diagnostics.spring.defaultTitle.conflict": "Resource conflict",
+    "diagnostics.spring.defaultTitle.serverError": "Server error",
+    "diagnostics.spring.defaultTitle.httpError": "HTTP error",
+    "diagnostics.spring.noDetails": "The response contains no details.",
+    "diagnostics.spring.advice.problemDetail.1":
+      "Compare the type and instance fields with responses from the same error family.",
+    "diagnostics.spring.advice.problemDetail.2":
+      "If a trace ID is available, search the logs for the matching server record.",
+    "diagnostics.spring.advice.validation.1":
+      "Compare the field names in the error list with the request body.",
+    "diagnostics.spring.advice.validation.2":
+      "Check the Bean Validation constraints and nullability rules on the DTO.",
+    "diagnostics.spring.advice.unauthorized.1":
+      "Check that the Authorization header was sent and that the token has not expired.",
+    "diagnostics.spring.advice.unauthorized.2":
+      "Inspect issuer and audience values in the JWT tool.",
+    "diagnostics.spring.advice.forbidden.1":
+      "Compare the token roles and scopes with the endpoint authorization rule.",
+    "diagnostics.spring.advice.forbidden.2":
+      "Authentication may succeed while permission to access the resource is still missing.",
+    "diagnostics.spring.advice.notFound.1":
+      "Verify the base URL, context path, and endpoint method.",
+    "diagnostics.spring.advice.notFound.2":
+      "If Actuator mappings are enabled, confirm that the endpoint is registered in the running service.",
+    "diagnostics.spring.advice.conflict.1":
+      "Check for another record using the same unique value or resource version.",
+    "diagnostics.spring.advice.conflict.2":
+      "Compare the domain rule in the response detail with the request data.",
+    "diagnostics.spring.advice.serverError.1":
+      "Find the log record using the trace ID; focus on the exception and first root-cause line.",
+    "diagnostics.spring.advice.serverError.2":
+      "Check thread, heap, GC, and connection-pool values in Runtime.",
+    "diagnostics.spring.advice.httpError.1":
+      "Evaluate the status, response detail, and submitted request together.",
+    "diagnostics.spring.advice.httpError.2":
+      "Compare the request with a known working environment.",
+    "diagnostics.spring.advice.status400":
+      "Check request JSON syntax, Content-Type, field types, and required fields.",
+    "diagnostics.spring.advice.status401":
+      "Verify the token expiration, issuer, and audience claims in JWT.",
+    "diagnostics.spring.advice.status403":
+      "Compare the endpoint's expected role/scope with the token claims.",
+    "diagnostics.spring.advice.status500":
+      "Search the request logs using the trace ID and inspect the Runtime snapshot.",
+    "diagnostics.spring.activeTab":
+      "Active tab: {name} · HTTP {status}",
+    "diagnostics.spring.responseTitle": "Spring error response",
+    "diagnostics.spring.inputHint":
+      "Paste a response or load it from the active request",
+    "diagnostics.spring.loadActive": "Load active response",
+    "diagnostics.spring.bodyLabel": "Spring error response body",
+    "diagnostics.spring.headersLabel": "Response headers",
+    "diagnostics.spring.httpStatus": "HTTP status",
+    "diagnostics.spring.analyze": "Analyze error",
+    "diagnostics.spring.emptyTitle": "Waiting for analysis",
+    "diagnostics.spring.emptyDescription":
+      "Turn ProblemDetail, Bean Validation, and 4xx/5xx responses into a readable summary.",
+    "diagnostics.spring.noActiveResponse":
+      "The active request tab has no response to analyze.",
+    "diagnostics.spring.activeRequest": "Active request",
+    "diagnostics.spring.responseLoaded": "{name} response loaded.",
+    "diagnostics.spring.bodyRequired":
+      "Enter a response body to analyze.",
+    "diagnostics.spring.success":
+      "Spring error response analyzed locally.",
+
+    "diagnostics.jwt.localWarning":
+      "The token was decoded locally only. Its signature and trustworthiness were not verified.",
+    "diagnostics.jwt.active": "Token is active in its time window",
+    "diagnostics.jwt.inactive": "Token is not active",
+    "diagnostics.jwt.expired": "The token has expired.",
+    "diagnostics.jwt.signaturePresent":
+      "A signature segment is present, but cryptographic verification was not performed.",
+    "diagnostics.jwt.signatureMissing": "The token signature segment is empty.",
+    "diagnostics.jwt.algorithm": "Algorithm",
+    "diagnostics.jwt.subject": "Subject",
+    "diagnostics.jwt.issuer": "Issuer",
+    "diagnostics.jwt.audience": "Audience",
+    "diagnostics.jwt.roles": "Roles",
+    "diagnostics.jwt.scopes": "Scopes",
+    "diagnostics.jwt.tokenLabel": "JWT token",
+    "diagnostics.jwt.issuedAt": "Issued at",
+    "diagnostics.jwt.expires": "Expires",
+    "diagnostics.jwt.notBefore": "Not before",
+    "diagnostics.jwt.noRoles": "No role claim found.",
+    "diagnostics.jwt.noScopes": "No scope claim found.",
+    "diagnostics.jwt.details": "Header and payload",
+    "diagnostics.jwt.inputHint":
+      "A Bearer prefix is accepted; the token never leaves this device",
+    "diagnostics.jwt.inputTitle": "JWT input",
+    "diagnostics.jwt.decode": "Decode claims",
+    "diagnostics.jwt.emptyTitle": "Waiting for a token",
+    "diagnostics.jwt.emptyDescription":
+      "Inspect expiration, issuer, audience, role, and scope claims.",
+    "diagnostics.jwt.success":
+      "JWT claims decoded locally; the signature was not verified.",
+    "diagnostics.jwt.threeParts": "JWT must contain three segments.",
+    "diagnostics.jwt.invalidBase64":
+      "The JWT segment could not be decoded as base64url.",
+
+    "diagnostics.runtime.unknown": "Unknown",
+    "diagnostics.runtime.healthEyebrow": "HEALTH",
+    "diagnostics.runtime.metricsEyebrow": "METRICS",
+    "diagnostics.runtime.baselineEyebrow": "BASELINE",
+    "diagnostics.runtime.mappingsEyebrow": "MAPPINGS",
+    "diagnostics.runtime.applicationContext": "application context",
+    "diagnostics.runtime.components": "{count} components",
+    "diagnostics.runtime.noSnapshotTime": "No snapshot timestamp",
+    "diagnostics.runtime.deltaCount": "{count} deltas",
+    "diagnostics.runtime.none": "None",
+    "diagnostics.runtime.comparison": "Before / after comparison",
+    "diagnostics.runtime.baselineHint": "You can capture a baseline",
+    "diagnostics.runtime.disabled": "Disabled",
+    "diagnostics.runtime.notRequested": "Not requested",
+    "diagnostics.runtime.healthComponents": "Health components",
+    "diagnostics.runtime.healthDescription":
+      "Top level of the Actuator health tree",
+    "diagnostics.runtime.component": "Component",
+    "diagnostics.runtime.status": "Status",
+    "diagnostics.runtime.metric": "Metric",
+    "diagnostics.runtime.delta": "Delta",
+    "diagnostics.runtime.metricSnapshot": "Metric snapshot",
+    "diagnostics.runtime.metricDescription":
+      "Selected JVM and dependency metrics",
+    "diagnostics.runtime.statistic": "Statistic",
+    "diagnostics.runtime.value": "Value",
+    "diagnostics.runtime.unit": "Unit",
+    "diagnostics.runtime.noMeasurement": "No measurement",
+    "diagnostics.runtime.baselineDifference": "Baseline difference",
+    "diagnostics.runtime.baselineDifferenceDescription":
+      "Change between the first and latest snapshots",
+    "diagnostics.runtime.before": "Before",
+    "diagnostics.runtime.after": "After",
+    "diagnostics.runtime.metricFailures":
+      "Some metric endpoints are not available: {names}",
+    "diagnostics.runtime.baseURL": "Actuator base URL",
+    "diagnostics.runtime.includeMappings": "Read mappings too",
+    "diagnostics.runtime.headers": "Headers",
+    "diagnostics.runtime.metricNames": "Metric names",
+    "diagnostics.runtime.captureBaseline": "Capture baseline",
+    "diagnostics.runtime.captureSnapshot": "Capture snapshot",
+    "diagnostics.runtime.captureDelta": "New snapshot and delta",
+    "diagnostics.runtime.clearBaseline": "Clear baseline",
+    "diagnostics.runtime.readOnlyHint":
+      "Actuator calls are read-only. Header values are not saved to the workspace.",
+    "diagnostics.runtime.emptyTitle": "No runtime snapshot",
+    "diagnostics.runtime.emptyDescription":
+      "Read Health, JVM, GC, Hikari, and messaging metrics from the running service.",
+    "diagnostics.runtime.baseURLRequired": "Enter an Actuator base URL.",
+    "diagnostics.runtime.metricRequired":
+      "Enter at least one Actuator metric name.",
+    "diagnostics.runtime.noBaselineSnapshot":
+      "The Actuator response did not contain a metric snapshot that can be saved as a baseline.",
+    "diagnostics.runtime.baselineSuccess":
+      "Metric baseline captured. Exercise the service, then capture a new snapshot.",
+    "diagnostics.runtime.compareSuccess":
+      "Runtime snapshot compared with the baseline.",
+    "diagnostics.runtime.snapshotSuccess": "Runtime snapshot captured.",
+    "diagnostics.runtime.baselineFailure":
+      "Runtime metric baseline could not be captured.",
+    "diagnostics.runtime.snapshotFailure":
+      "Runtime snapshot could not be captured.",
+    "diagnostics.runtime.baselineCleared": "Runtime baseline cleared.",
+
+    "diagnostics.environment.error": "Error",
+    "diagnostics.environment.shortLabel": "ENV {number}",
+    "diagnostics.environment.summary":
+      "Status {status} · Body {body}",
+    "diagnostics.environment.status": "Status",
+    "diagnostics.environment.path": "Path",
+    "diagnostics.environment.baselineColumn": "Baseline",
+    "diagnostics.environment.environmentColumn": "Environment",
+    "diagnostics.environment.missingURL": "No URL",
+    "diagnostics.environment.bodyTruncated":
+      "Body truncated at the size limit",
+    "diagnostics.environment.defaultBaseline": "Baseline",
+    "diagnostics.environment.defaultCandidate": "Ortam",
+    "diagnostics.environment.same": "same",
+    "diagnostics.environment.different": "different",
+    "diagnostics.environment.matched": "Matched",
+    "diagnostics.environment.hasDifference": "Differences found",
+    "diagnostics.environment.bodyMode": "Body mode",
+    "diagnostics.environment.headerDifference": "Header differences",
+    "diagnostics.environment.noDifference": "None",
+    "diagnostics.environment.firstDifferences": " · first 1000 differences",
+    "diagnostics.environment.jsonDifference": "JSON differences",
+    "diagnostics.environment.resultsLimited": " · results limited",
+    "diagnostics.environment.type": "Type",
+    "diagnostics.environment.change.added": "Added",
+    "diagnostics.environment.change.removed": "Removed",
+    "diagnostics.environment.change.changed": "Changed",
+    "diagnostics.environment.change.type": "Type changed",
+    "diagnostics.environment.emptyTitle": "No comparison result",
+    "diagnostics.environment.emptyDescription":
+      "Run the comparison for at least two environments.",
+    "diagnostics.environment.responseBody": "{name} response body",
+    "diagnostics.environment.emptyBody": "Body is empty.",
+    "diagnostics.environment.method": "Method",
+    "diagnostics.environment.relativePath": "Relative path",
+    "diagnostics.environment.name": "Name",
+    "diagnostics.environment.baseURL": "Base URL",
+    "diagnostics.environment.legend": "Environment {number}",
+    "diagnostics.environment.ignorePaths": "Ignored JSONPaths",
+    "diagnostics.environment.requestBody": "Request body",
+    "diagnostics.environment.safeBodyHint":
+      "Usually left empty for this method.",
+    "diagnostics.environment.unsafeConsent":
+      "I explicitly allow the {method} request to be sent to every populated environment.",
+    "diagnostics.environment.compare": "Compare environments",
+    "diagnostics.environment.baselineHint":
+      "The first environment is used as the baseline.",
+    "diagnostics.environment.noResultTitle": "No environment result",
+    "diagnostics.environment.noResultDescription":
+      "Inspect status, header, and JSON differences for the same request side by side.",
+    "diagnostics.environment.twoRequired":
+      "Enter base URLs for at least two environments.",
+    "diagnostics.environment.unsafeWarning":
+      "{method} can change data in multiple environments. Select the explicit consent checkbox first.",
+    "diagnostics.environment.success": "{count} environments compared.",
+    "diagnostics.environment.failure":
+      "Environment comparison could not be completed.",
+
+    "diagnostics.thread.deadlockWarning":
+      "The JVM dump contains an explicit deadlock marker. Inspect the related thread and lock chains immediately.",
+    "diagnostics.thread.eyebrow": "THREADS",
+    "diagnostics.thread.threadColumn": "Thread",
+    "diagnostics.thread.stateColumn": "State",
+    "diagnostics.thread.dumpTitle": "JVM thread dump",
+    "diagnostics.thread.limited": "Results limited",
+    "diagnostics.thread.complete": "Complete analysis",
+    "diagnostics.thread.count": "threads",
+    "diagnostics.thread.blockedTitle": "Blocked / lock-waiting threads",
+    "diagnostics.thread.findingCount": "{count} findings",
+    "diagnostics.thread.clue": "Clue",
+    "diagnostics.thread.unnamed": "unnamed",
+    "diagnostics.thread.noLockDetails": "No lock details",
+    "diagnostics.thread.repeatedTitle": "Repeated stacks",
+    "diagnostics.thread.repeatedDescription":
+      "Groups of threads stalled in similar work",
+    "diagnostics.thread.group": "{count} threads · {names}",
+    "diagnostics.thread.noFrames": "No stack frames",
+    "diagnostics.thread.deadlockClues": "Deadlock / lock clues ({count})",
+    "diagnostics.thread.toolsLabel": "Thread and log tools",
+    "diagnostics.thread.dumpTab": "Thread dump",
+    "diagnostics.thread.logTab": "Trace log search",
+    "diagnostics.thread.dumpHint": "Paste a jstack-formatted text dump",
+    "diagnostics.thread.dumpLabel": "JVM thread dump",
+    "diagnostics.thread.analyze": "Analyze threads",
+    "diagnostics.thread.emptyTitle": "Waiting for thread analysis",
+    "diagnostics.thread.emptyDescription":
+      "Find blocked threads, deadlock clues, and repeated stacks.",
+    "diagnostics.thread.required":
+      "Paste thread dump text to analyze.",
+    "diagnostics.thread.success": "{count} threads analyzed.",
+    "diagnostics.thread.failure":
+      "Thread dump analysis could not be completed.",
+
+    "diagnostics.log.title": "Application log",
+    "diagnostics.log.description":
+      "Search runs only on the pasted text and on this device",
+    "diagnostics.log.traceLabel": "Trace / correlation ID",
+    "diagnostics.log.inputLabel": "Log text to search",
+    "diagnostics.log.caseSensitive": "Case-sensitive",
+    "diagnostics.log.useActiveTitle":
+      "Use the trace ID from the active request response",
+    "diagnostics.log.noActiveTitle":
+      "The active response has no trace ID",
+    "diagnostics.log.activeResponseID": "Active response ID",
+    "diagnostics.log.search": "Search logs",
+    "diagnostics.log.emptyTitle": "Waiting for a log search",
+    "diagnostics.log.emptyDescription":
+      "Find log lines related to a trace or correlation ID from the response.",
+    "diagnostics.log.matchCount": "{count} matches",
+    "diagnostics.log.scannedCount": "{count} lines scanned",
+    "diagnostics.log.noMatchTitle": "No matches found",
+    "diagnostics.log.noMatchDescription":
+      "Check the complete ID and the case-sensitivity setting.",
+    "diagnostics.log.required":
+      "Enter both log text and the trace/correlation ID to search for.",
+    "diagnostics.log.success": "{count} log lines found.",
+    "diagnostics.log.failure":
+      "Trace/correlation ID search could not be completed.",
+
+    "diagnostics.coverage.aria": "Endpoint coverage {percentage} percent",
+    "diagnostics.coverage.called": "{covered} / {total} endpoints called",
+    "diagnostics.coverage.disclaimer":
+      "This ratio is based only on the supplied observed-call list; it is not code or test coverage.",
+    "diagnostics.coverage.endpoints": "Endpoints",
+    "diagnostics.coverage.method": "Method",
+    "diagnostics.coverage.path": "Path",
+    "diagnostics.coverage.matchDescription":
+      "Known route → observed hit match",
+    "diagnostics.coverage.hit": "Hits",
+    "diagnostics.coverage.observedPath": "Observed path",
+    "diagnostics.coverage.notSeen": "Not seen yet",
+    "diagnostics.coverage.unknownCalls":
+      "Calls not present in the known list",
+    "diagnostics.coverage.routeCount": "{count} routes",
+    "diagnostics.coverage.knownDescription": "Each line: METHOD /path",
+    "diagnostics.coverage.knownTitle": "Known endpoints",
+    "diagnostics.coverage.knownLabel": "Known endpoint list",
+    "diagnostics.coverage.observedDescription":
+      "Each line: METHOD /path [count]",
+    "diagnostics.coverage.observedTitle": "Observed calls",
+    "diagnostics.coverage.observedLabel": "Observed call list",
+    "diagnostics.coverage.fromSession": "Calculate from this session",
+    "diagnostics.coverage.calculate": "Calculate coverage",
+    "diagnostics.coverage.templateHint":
+      "{id}, *, and ** route templates are matched against concrete calls.",
+    "diagnostics.coverage.emptyTitle": "No coverage result",
+    "diagnostics.coverage.emptyDescription":
+      "Match endpoints known from OpenAPI with requests from this session, or enter the lists manually.",
+    "diagnostics.coverage.knownRequired":
+      "Enter at least one known endpoint.",
+    "diagnostics.coverage.success": "{covered}/{total} endpoints matched.",
+    "diagnostics.coverage.sessionSuccess":
+      "{covered}/{total} endpoints matched requests from this session.",
+    "diagnostics.coverage.failure":
+      "Endpoint coverage analysis could not be completed.",
+    "diagnostics.coverage.sessionFailure":
+      "Recorded endpoint coverage analysis could not be completed.",
+
+    "protocol.eyebrow": "LIVE CONNECTIONS · BOUNDED",
+    "protocol.title": "Protocol Lab",
+    "protocol.description":
+      "Read SSE streams, observe WebSocket messages, and discover gRPC reflection services.",
+    "protocol.toolsLabel": "Protocol tools",
+    "protocol.running": "Running",
+    "protocol.mode.sseDescription": "Read the event stream from a server",
+    "protocol.mode.websocketDescription":
+      "Send a message and observe incoming messages",
+    "protocol.mode.grpcDescription":
+      "Discover services published through reflection",
+    "protocol.waiting":
+      "Waiting until the timeout expires or the server responds.",
+    "protocol.cancel": "Cancel",
+    "protocol.canceling": "Canceling…",
+    "protocol.cancelRejectedTitle": "Operation could not be stopped",
+    "protocol.cancelRejectedMessage":
+      "The backend found no running operation for this operation ID.",
+    "protocol.cancelRejectedHint":
+      "The operation may have completed. Wait for the result or start it again.",
+    "protocol.error.bridgeTitle": "Validex backend connection was lost",
+    "protocol.error.bridgeMessage":
+      "The protocol operation could not be completed in the desktop backend.",
+    "protocol.error.bridgeHint":
+      "Check the connection settings, then try the operation again.",
+    "protocol.error.connectionTitle": "Connection could not be completed",
+    "protocol.error.operationMessage":
+      "The protocol operation could not be completed.",
+    "protocol.error.operationHint":
+      "Check the address, timeout, TLS, and authentication settings, then try again.",
+    "protocol.error.sseFailedTitle": "SSE stream failed",
+    "protocol.error.sseFailedMessage":
+      "The SSE stream could not be completed.",
+    "protocol.error.websocketFailedTitle": "WebSocket exchange failed",
+    "protocol.error.websocketFailedMessage":
+      "The WebSocket exchange could not be completed.",
+    "protocol.error.grpcFailedTitle": "gRPC discovery failed",
+    "protocol.error.grpcFailedMessage":
+      "The gRPC reflection request could not be completed.",
+    "protocol.error.toolTimeoutTitle": "Protocol operation timed out",
+    "protocol.error.toolTimeoutMessage":
+      "The target did not respond within the configured timeout.",
+    "protocol.error.toolCanceledTitle": "Protocol operation canceled",
+    "protocol.error.toolCanceledMessage":
+      "The operation was canceled before it completed.",
+    "protocol.error.invalidInputTitle": "Protocol input is invalid",
+    "protocol.error.invalidInputMessage":
+      "One or more connection settings are invalid.",
+    "protocol.error.noDetails":
+      "The backend ended the operation without providing details.",
+    "protocol.error.unknown": "An unknown error occurred.",
+    "protocol.validation.json": "{label} must be a valid JSON object.",
+    "protocol.validation.object":
+      "{label} must be a JSON object containing key-value pairs.",
+    "protocol.validation.emptyKey":
+      "{label} cannot contain an empty key.",
+    "protocol.validation.textValue":
+      "The “{key}” value in {label} must be text.",
+    "protocol.validation.integer":
+      "{label} must be an integer between 1 and {maximum}.",
+    "protocol.validation.required": "{label} address is required.",
+    "protocol.validation.invalid": "{label} address is invalid.",
+    "protocol.validation.protocol":
+      "{label} address must start with {protocols}.",
+    "protocol.validation.or": " or ",
+    "protocol.validation.hostname":
+      "{label} address is missing a hostname.",
+    "protocol.validation.grpcRequired":
+      "gRPC server address is required.",
+    "protocol.validation.grpcNoProtocol":
+      "Enter the gRPC address as host:port without a protocol.",
+    "protocol.validation.grpcFormat":
+      "gRPC address must use the host:port format.",
+    "protocol.validation.grpcPort":
+      "gRPC port must be between 1 and 65535.",
+    "protocol.label.header": "Header",
+    "protocol.label.metadata": "Metadata",
+    "protocol.label.timeout": "Timeout",
+    "protocol.label.eventLimit": "Event limit",
+    "protocol.label.messageLimit": "Message limit",
+    "protocol.unit.seconds": "sec",
+    "protocol.metric.duration": "Duration",
+    "protocol.metric.event": "Events",
+    "protocol.metric.message": "Messages",
+    "protocol.metric.connection": "Connection",
+    "protocol.metric.service": "Services",
+
+    "protocol.sse.connection": "SSE connection",
+    "protocol.sse.connectionDescription":
+      "Connect to an HTTP event-stream endpoint",
+    "protocol.sse.url": "Event stream URL",
+    "protocol.sse.maxEvents": "Maximum events",
+    "protocol.headers": "Request headers · JSON",
+    "protocol.headersHint": "Every header value must be text.",
+    "protocol.skipCertificate": "Skip certificate verification",
+    "protocol.sse.certificateHint":
+      "Use only with local, self-signed HTTPS development servers.",
+    "protocol.sse.listening": "Listening…",
+    "protocol.sse.listen": "Listen to stream",
+    "protocol.sse.limitHint":
+      "The connection closes when the event limit is reached.",
+    "protocol.sse.resultLabel": "SSE result",
+    "protocol.sse.events": "Events",
+    "protocol.sse.resultDescription":
+      "Event, ID, retry, and data fields are shown separately",
+    "protocol.responseHeaders": "Response headers",
+    "protocol.sse.emptyStreamTitle": "The stream sent no events",
+    "protocol.sse.emptyStreamDescription":
+      "The connection succeeded, but no event arrived before the stream closed.",
+    "protocol.noConnectionTitle": "No connection yet",
+    "protocol.sse.noConnectionDescription":
+      "Set the URL and limits, then choose “Listen to stream”.",
+    "protocol.sse.loading": "Waiting for the SSE stream",
+
+    "protocol.websocket.connection": "WebSocket connection",
+    "protocol.websocket.connectionDescription":
+      "Connect, send one text message, and read the responses",
+    "protocol.websocket.url": "WebSocket URL",
+    "protocol.websocket.maxMessages": "Maximum messages",
+    "protocol.websocket.subprotocols": "Subprotocols",
+    "protocol.websocket.subprotocolsHint":
+      "Separate multiple values with commas.",
+    "protocol.websocket.handshakeHeaders": "Handshake headers",
+    "protocol.websocket.message":
+      "Text message to send · optional",
+    "protocol.websocket.certificateHint":
+      "Use only with local, self-signed WSS development servers.",
+    "protocol.websocket.waiting": "Waiting for messages…",
+    "protocol.websocket.sendListen": "Send and listen",
+    "protocol.websocket.connectListen": "Connect and listen",
+    "protocol.websocket.listenHint":
+      "If the text message is empty, only incoming messages are observed.",
+    "protocol.websocket.resultLabel": "WebSocket result",
+    "protocol.websocket.resultTitle": "Handshake and messages",
+    "protocol.websocket.resultDescription":
+      "Text and binary messages are shown in arrival order",
+    "protocol.websocket.protocol": "Protocol",
+    "protocol.websocket.noMessagesTitle": "No messages received",
+    "protocol.websocket.noMessagesDescription":
+      "The handshake completed, but no message arrived before the connection closed.",
+    "protocol.websocket.noConnectionDescription":
+      "Enter the URL; optionally add a message, then start the connection.",
+    "protocol.websocket.loading": "Waiting for WebSocket messages",
+
+    "protocol.grpc.connection": "gRPC service reflection",
+    "protocol.grpc.connectionDescription":
+      "Read the actual service list published by the server",
+    "protocol.grpc.address": "Server address",
+    "protocol.grpc.addressHint":
+      "Enter host:port without a protocol.",
+    "protocol.grpc.useTLS": "Use TLS",
+    "protocol.grpc.tlsHint":
+      "Creates an encrypted connection to the server.",
+    "protocol.grpc.serverName": "TLS server name · optional",
+    "protocol.grpc.certificateHint":
+      "Use only with local, self-signed development servers.",
+    "protocol.grpc.metadata": "gRPC metadata · JSON",
+    "protocol.grpc.metadataHint":
+      "Metadata keys are converted to lowercase by the backend.",
+    "protocol.grpc.reading": "Reading services…",
+    "protocol.grpc.discover": "Discover services",
+    "protocol.grpc.reflectionHint":
+      "gRPC server reflection must be enabled on the server.",
+    "protocol.grpc.resultLabel": "gRPC result",
+    "protocol.grpc.resultTitle": "Reflection services",
+    "protocol.grpc.resultDescription":
+      "Services reported by the server are sorted alphabetically",
+    "protocol.grpc.reflection": "Reflection",
+    "protocol.grpc.noServicesTitle": "No services reported",
+    "protocol.grpc.noServicesDescription":
+      "Reflection responded, but no published service was found.",
+    "protocol.grpc.noDiscoveryTitle": "No discovery yet",
+    "protocol.grpc.noDiscoveryDescription":
+      "Set the server address and connection security, then discover services.",
+    "protocol.grpc.loading": "Connecting to the gRPC server",
+  },
+  {
+    "common.technicalDetails": "Teknik ayrıntı",
+
+    "diagnostics.eyebrow": "SPRING BOOT · ÇALIŞMA ZAMANI İNCELEMESİ",
+    "diagnostics.title": "Tanılama",
+    "diagnostics.description":
+      "API yanıtlarını, token’ları ve çalışma zamanı verilerini tek çalışma alanında analiz edin.",
+    "diagnostics.toolsLabel": "Tanılama araçları",
+    "diagnostics.status.busy": "İşlem sürüyor…",
+    "diagnostics.status.ready": "Hazır",
+    "diagnostics.mode.spring": "Spring Hatası",
+    "diagnostics.mode.jwt": "JWT",
+    "diagnostics.mode.runtime": "Çalışma Zamanı",
+    "diagnostics.mode.environments": "Ortamlar",
+    "diagnostics.mode.threadLogs": "İş Parçacıkları ve Loglar",
+    "diagnostics.mode.coverage": "Kapsama",
+    "diagnostics.operation.stale":
+      "Girdi veya araç değişti; önceki işlemin sonucu yok sayıldı.",
+    "diagnostics.error.operationTitle": "Tanılama işlemi tamamlanamadı",
+    "diagnostics.error.operationMessage":
+      "Tanılama işlemi tamamlanamadı.",
+    "diagnostics.error.operationHint":
+      "Girdiyi, endpoint erişimini ve timeout değerini kontrol edip yeniden deneyin.",
+    "diagnostics.error.bridgeTitle": "Validex backend bağlantısı kesildi",
+    "diagnostics.error.bridgeHint":
+      "Masaüstü uygulamasının çalıştığını kontrol edip yeniden deneyin.",
+    "diagnostics.error.invalidInputMessage":
+      "Bir veya daha fazla tanılama girdisi geçerli değil.",
+    "diagnostics.error.invalidInputHint":
+      "Zorunlu alanları ve biçimlerini kontrol edip yeniden deneyin.",
+    "diagnostics.error.unsafeMethodMessage":
+      "Bu HTTP metodunun birden fazla ortama gönderilmesi için açık onay gerekiyor.",
+    "diagnostics.error.unsafeMethodHint":
+      "Yalnızca tüm hedeflere göndermek istediğinizden eminseniz metodu onaylayın.",
+    "diagnostics.error.requestFailedMessage":
+      "Hedef servise ulaşılamadı.",
+    "diagnostics.error.requestFailedHint":
+      "Endpoint’i, ağ erişimini, kimlik doğrulamayı ve timeout değerini kontrol edin.",
+    "diagnostics.error.responseTooLargeMessage":
+      "Yanıt güvenli biçimde incelenemeyecek kadar büyük.",
+    "diagnostics.error.responseTooLargeHint":
+      "İsteği daraltın veya hedefin döndürdüğü veri miktarını azaltın.",
+    "diagnostics.error.invalidResponseMessage":
+      "Servis, Validex’in inceleyemediği bir yanıt döndürdü.",
+    "diagnostics.error.invalidResponseHint":
+      "Endpoint’in beklenen tanılama biçimini döndürdüğünü doğrulayın.",
+    "diagnostics.error.limitExceededMessage":
+      "Tanılama girdisi veya sonucu güvenlik sınırını aştı.",
+    "diagnostics.error.limitExceededHint":
+      "Girdiyi azaltın veya tanılama işleminin kapsamını daraltın.",
+    "diagnostics.error.diagnosticFailedMessage":
+      "Tanılama işlemi sonuç üretilemeden başarısız oldu.",
+    "diagnostics.error.coverageSpecMissingMessage":
+      "Coverage analizi için içe aktarılmış bir OpenAPI tanımı yok.",
+    "diagnostics.error.coverageSpecMissingHint":
+      "Bir OpenAPI tanımı içe aktarıp coverage analizini yeniden çalıştırın.",
+    "diagnostics.error.headersJSON": "Headers geçerli bir JSON nesnesi değil.",
+    "diagnostics.error.headersObject": "Headers bir JSON nesnesi olmalı.",
+    "diagnostics.error.headersText":
+      "Header adları ve değerleri metin olmalı.",
+    "diagnostics.error.headerLine":
+      "{line}. header satırı “Ad: değer” biçiminde olmalı.",
+    "diagnostics.error.knownLine":
+      "{line}. known satırı “METHOD /path” biçiminde olmalı.",
+    "diagnostics.error.observedLine":
+      "{line}. observed satırı “METHOD /path [count]” biçiminde olmalı.",
+    "diagnostics.error.observedCount":
+      "{line}. observed count pozitif bir tam sayı olmalı.",
+
+    "diagnostics.spring.category": "Kategori",
+    "diagnostics.spring.category.problemDetail": "Problem detail",
+    "diagnostics.spring.category.validation": "Doğrulama",
+    "diagnostics.spring.category.unauthorized": "Kimlik doğrulanmadı",
+    "diagnostics.spring.category.forbidden": "Erişim yasak",
+    "diagnostics.spring.category.notFound": "Bulunamadı",
+    "diagnostics.spring.category.conflict": "Çakışma",
+    "diagnostics.spring.category.serverError": "Sunucu hatası",
+    "diagnostics.spring.category.httpError": "HTTP hatası",
+    "diagnostics.spring.format": "Spring biçimi",
+    "diagnostics.spring.traceRequestID": "Trace / Request ID",
+    "diagnostics.spring.exception": "İstisna",
+    "diagnostics.spring.instance": "Instance",
+    "diagnostics.spring.beanValidation": "Bean Validation",
+    "diagnostics.spring.recognized": "Tanındı",
+    "diagnostics.spring.genericResponse": "Genel HTTP response",
+    "diagnostics.spring.notFound": "Bulunamadı",
+    "diagnostics.spring.exceptionMissing": "Response içinde yok",
+    "diagnostics.spring.fieldCount": "{count} alan hatası ayrıştırıldı",
+    "diagnostics.spring.field": "Alan",
+    "diagnostics.spring.message": "Mesaj",
+    "diagnostics.spring.rejectedValue": "Reddedilen değer",
+    "diagnostics.spring.checklist": "Kontrol listesi",
+    "diagnostics.spring.defaultTitle.problemDetail": "Problem Detail",
+    "diagnostics.spring.defaultTitle.validation": "Bean Validation hatası",
+    "diagnostics.spring.defaultTitle.unauthorized":
+      "Kimlik doğrulama gerekli",
+    "diagnostics.spring.defaultTitle.forbidden":
+      "Bu işlem için yetki yok",
+    "diagnostics.spring.defaultTitle.notFound":
+      "Kaynak veya endpoint bulunamadı",
+    "diagnostics.spring.defaultTitle.conflict": "Kaynak çakışması",
+    "diagnostics.spring.defaultTitle.serverError": "Sunucu hatası",
+    "diagnostics.spring.defaultTitle.httpError": "HTTP hatası",
+    "diagnostics.spring.noDetails": "Response ayrıntı içermiyor.",
+    "diagnostics.spring.advice.problemDetail.1":
+      "type ve instance alanlarını aynı hata ailesindeki yanıtlarla karşılaştırın.",
+    "diagnostics.spring.advice.problemDetail.2":
+      "Trace ID varsa log aramasına geçerek aynı isteğin sunucu kaydını bulun.",
+    "diagnostics.spring.advice.validation.1":
+      "Field error listesindeki alan adlarını request body ile karşılaştırın.",
+    "diagnostics.spring.advice.validation.2":
+      "DTO üzerindeki Bean Validation constraint ve nullability kurallarını kontrol edin.",
+    "diagnostics.spring.advice.unauthorized.1":
+      "Authorization header’ın gönderildiğini ve token’ın süresinin dolmadığını kontrol edin.",
+    "diagnostics.spring.advice.unauthorized.2":
+      "Issuer ve audience değerlerini JWT ekranında inceleyin.",
+    "diagnostics.spring.advice.forbidden.1":
+      "Token içindeki role ve scope değerlerini endpoint yetki kuralıyla karşılaştırın.",
+    "diagnostics.spring.advice.forbidden.2":
+      "Kimlik doğrulama başarılı olsa bile kaynağa erişim izni eksik olabilir.",
+    "diagnostics.spring.advice.notFound.1":
+      "Base URL, context path ve endpoint methodunu doğrulayın.",
+    "diagnostics.spring.advice.notFound.2":
+      "Actuator mappings açıksa endpoint’in çalışan serviste kayıtlı olduğunu kontrol edin.",
+    "diagnostics.spring.advice.conflict.1":
+      "Aynı unique alanı veya mevcut kaynak sürümünü kullanan başka kayıt olup olmadığını kontrol edin.",
+    "diagnostics.spring.advice.conflict.2":
+      "Response detail içindeki domain kuralını request verisiyle karşılaştırın.",
+    "diagnostics.spring.advice.serverError.1":
+      "Trace ID ile log kaydını bulun; exception ve ilk root-cause satırına odaklanın.",
+    "diagnostics.spring.advice.serverError.2":
+      "Runtime ekranından thread, heap, GC ve connection pool değerlerini kontrol edin.",
+    "diagnostics.spring.advice.httpError.1":
+      "Status, response detail ve gönderilen request içeriğini birlikte değerlendirin.",
+    "diagnostics.spring.advice.httpError.2":
+      "Aynı isteği bilinen çalışan ortamla karşılaştırın.",
+    "diagnostics.spring.advice.status400":
+      "Request JSON syntax, Content-Type, alan tipleri ve zorunlu alanları kontrol edin.",
+    "diagnostics.spring.advice.status401":
+      "Token’ın expiration, issuer ve audience claim’lerini JWT ekranında doğrulayın.",
+    "diagnostics.spring.advice.status403":
+      "Endpoint’in beklediği role/scope ile token claim’lerini karşılaştırın.",
+    "diagnostics.spring.advice.status500":
+      "Trace ID ile aynı isteğin loglarını arayın ve Runtime snapshot’ını inceleyin.",
+    "diagnostics.spring.activeTab":
+      "Aktif sekme: {name} · HTTP {status}",
+    "diagnostics.spring.responseTitle": "Spring hata response’u",
+    "diagnostics.spring.inputHint":
+      "Response yapıştırın veya aktif request’ten alın",
+    "diagnostics.spring.loadActive": "Aktif response’u al",
+    "diagnostics.spring.bodyLabel": "Spring error response body",
+    "diagnostics.spring.headersLabel": "Response headers",
+    "diagnostics.spring.httpStatus": "HTTP durumu",
+    "diagnostics.spring.analyze": "Hatayı analiz et",
+    "diagnostics.spring.emptyTitle": "Analiz bekleniyor",
+    "diagnostics.spring.emptyDescription":
+      "ProblemDetail, Bean Validation ve 4xx/5xx response’ları okunabilir bir özete dönüştürün.",
+    "diagnostics.spring.noActiveResponse":
+      "Aktif request sekmesinde analiz edilecek bir response yok.",
+    "diagnostics.spring.activeRequest": "Aktif request",
+    "diagnostics.spring.responseLoaded": "{name} response’u yüklendi.",
+    "diagnostics.spring.bodyRequired":
+      "Analiz için response body girin.",
+    "diagnostics.spring.success":
+      "Spring hata response’u yerel olarak analiz edildi.",
+
+    "diagnostics.jwt.localWarning":
+      "Token yalnızca yerel olarak çözüldü. İmza ve token güvenilirliği doğrulanmadı.",
+    "diagnostics.jwt.active": "Token zaman aralığında aktif",
+    "diagnostics.jwt.inactive": "Token aktif değil",
+    "diagnostics.jwt.expired": "Token süresi dolmuş.",
+    "diagnostics.jwt.signaturePresent":
+      "Signature bölümü mevcut fakat cryptographic doğrulama yapılmadı.",
+    "diagnostics.jwt.signatureMissing": "Token signature bölümü boş.",
+    "diagnostics.jwt.algorithm": "Algoritma",
+    "diagnostics.jwt.subject": "Subject",
+    "diagnostics.jwt.issuer": "Issuer",
+    "diagnostics.jwt.audience": "Audience",
+    "diagnostics.jwt.roles": "Roller",
+    "diagnostics.jwt.scopes": "Scope’lar",
+    "diagnostics.jwt.tokenLabel": "JWT token",
+    "diagnostics.jwt.issuedAt": "Issued at",
+    "diagnostics.jwt.expires": "Expires",
+    "diagnostics.jwt.notBefore": "Not before",
+    "diagnostics.jwt.noRoles": "Role claim bulunamadı.",
+    "diagnostics.jwt.noScopes": "Scope claim bulunamadı.",
+    "diagnostics.jwt.details": "Header ve payload",
+    "diagnostics.jwt.inputHint":
+      "Bearer prefix’i kullanılabilir; token cihazdan çıkmaz",
+    "diagnostics.jwt.inputTitle": "JWT girdisi",
+    "diagnostics.jwt.decode": "Claim’leri çöz",
+    "diagnostics.jwt.emptyTitle": "Token bekleniyor",
+    "diagnostics.jwt.emptyDescription":
+      "Expiration, issuer, audience, role ve scope claim’lerini inceleyin.",
+    "diagnostics.jwt.success":
+      "JWT claim’leri yerel olarak çözüldü; signature doğrulanmadı.",
+    "diagnostics.jwt.threeParts": "JWT üç bölümden oluşmalıdır.",
+    "diagnostics.jwt.invalidBase64":
+      "JWT bölümü base64url olarak çözülemedi.",
+
+    "diagnostics.runtime.unknown": "Bilinmiyor",
+    "diagnostics.runtime.healthEyebrow": "SAĞLIK",
+    "diagnostics.runtime.metricsEyebrow": "METRİKLER",
+    "diagnostics.runtime.baselineEyebrow": "BASELINE",
+    "diagnostics.runtime.mappingsEyebrow": "MAPPINGS",
+    "diagnostics.runtime.applicationContext": "uygulama context’i",
+    "diagnostics.runtime.components": "{count} component",
+    "diagnostics.runtime.noSnapshotTime": "Snapshot zamanı yok",
+    "diagnostics.runtime.deltaCount": "{count} delta",
+    "diagnostics.runtime.none": "Yok",
+    "diagnostics.runtime.comparison": "Önce / sonra karşılaştırması",
+    "diagnostics.runtime.baselineHint": "Baseline alabilirsiniz",
+    "diagnostics.runtime.disabled": "Kapalı",
+    "diagnostics.runtime.notRequested": "İstenmedi",
+    "diagnostics.runtime.healthComponents": "Health components",
+    "diagnostics.runtime.healthDescription":
+      "Actuator health ağacının üst seviyesi",
+    "diagnostics.runtime.component": "Component",
+    "diagnostics.runtime.status": "Durum",
+    "diagnostics.runtime.metric": "Metrik",
+    "diagnostics.runtime.delta": "Fark",
+    "diagnostics.runtime.metricSnapshot": "Metric snapshot",
+    "diagnostics.runtime.metricDescription":
+      "Seçili JVM ve dependency metrikleri",
+    "diagnostics.runtime.statistic": "Statistic",
+    "diagnostics.runtime.value": "Değer",
+    "diagnostics.runtime.unit": "Birim",
+    "diagnostics.runtime.noMeasurement": "Ölçüm yok",
+    "diagnostics.runtime.baselineDifference": "Baseline farkı",
+    "diagnostics.runtime.baselineDifferenceDescription":
+      "İlk snapshot ile son snapshot arasındaki değişim",
+    "diagnostics.runtime.before": "Önce",
+    "diagnostics.runtime.after": "Sonra",
+    "diagnostics.runtime.metricFailures":
+      "Bazı metric endpoint’leri açık değil: {names}",
+    "diagnostics.runtime.baseURL": "Actuator base URL",
+    "diagnostics.runtime.includeMappings": "Mappings’i de oku",
+    "diagnostics.runtime.headers": "Headers",
+    "diagnostics.runtime.metricNames": "Metric isimleri",
+    "diagnostics.runtime.captureBaseline": "Baseline al",
+    "diagnostics.runtime.captureSnapshot": "Snapshot al",
+    "diagnostics.runtime.captureDelta": "Yeni snapshot ve delta",
+    "diagnostics.runtime.clearBaseline": "Baseline’ı temizle",
+    "diagnostics.runtime.readOnlyHint":
+      "Actuator çağrıları salt okunurdur. Header değerleri çalışma alanına kaydedilmez.",
+    "diagnostics.runtime.emptyTitle": "Runtime snapshot yok",
+    "diagnostics.runtime.emptyDescription":
+      "Health, JVM, GC, Hikari ve messaging metriklerini çalışan servisten okuyun.",
+    "diagnostics.runtime.baseURLRequired": "Actuator base URL girin.",
+    "diagnostics.runtime.metricRequired":
+      "En az bir Actuator metric adı girin.",
+    "diagnostics.runtime.noBaselineSnapshot":
+      "Actuator yanıtında baseline olarak saklanabilir metric snapshot bulunamadı.",
+    "diagnostics.runtime.baselineSuccess":
+      "Metric baseline alındı. Serviste işlemi çalıştırıp yeni snapshot alın.",
+    "diagnostics.runtime.compareSuccess":
+      "Runtime snapshot baseline ile karşılaştırıldı.",
+    "diagnostics.runtime.snapshotSuccess": "Runtime snapshot alındı.",
+    "diagnostics.runtime.baselineFailure":
+      "Runtime metric baseline’ı alınamadı.",
+    "diagnostics.runtime.snapshotFailure":
+      "Runtime snapshot alınamadı.",
+    "diagnostics.runtime.baselineCleared": "Runtime baseline temizlendi.",
+
+    "diagnostics.environment.error": "Hata",
+    "diagnostics.environment.shortLabel": "ORTAM {number}",
+    "diagnostics.environment.summary":
+      "Durum {status} · Body {body}",
+    "diagnostics.environment.status": "Durum",
+    "diagnostics.environment.path": "Path",
+    "diagnostics.environment.baselineColumn": "Baseline",
+    "diagnostics.environment.environmentColumn": "Ortam",
+    "diagnostics.environment.missingURL": "URL yok",
+    "diagnostics.environment.bodyTruncated":
+      "Body boyut sınırında kesildi",
+    "diagnostics.environment.defaultBaseline": "Baseline",
+    "diagnostics.environment.defaultCandidate": "Environment",
+    "diagnostics.environment.same": "aynı",
+    "diagnostics.environment.different": "farklı",
+    "diagnostics.environment.matched": "Eşleşti",
+    "diagnostics.environment.hasDifference": "Fark var",
+    "diagnostics.environment.bodyMode": "Body modu",
+    "diagnostics.environment.headerDifference": "Header farkı",
+    "diagnostics.environment.noDifference": "Yok",
+    "diagnostics.environment.firstDifferences": " · ilk 1000 fark",
+    "diagnostics.environment.jsonDifference": "JSON farkı",
+    "diagnostics.environment.resultsLimited": " · sonuç sınırlandırıldı",
+    "diagnostics.environment.type": "Tür",
+    "diagnostics.environment.change.added": "Eklendi",
+    "diagnostics.environment.change.removed": "Kaldırıldı",
+    "diagnostics.environment.change.changed": "Değişti",
+    "diagnostics.environment.change.type": "Tür değişti",
+    "diagnostics.environment.emptyTitle": "Karşılaştırma sonucu yok",
+    "diagnostics.environment.emptyDescription":
+      "En az iki ortam için karşılaştırmayı çalıştırın.",
+    "diagnostics.environment.responseBody": "{name} yanıt gövdesi",
+    "diagnostics.environment.emptyBody": "Body boş.",
+    "diagnostics.environment.method": "Method",
+    "diagnostics.environment.relativePath": "Relative path",
+    "diagnostics.environment.name": "Ad",
+    "diagnostics.environment.baseURL": "Base URL",
+    "diagnostics.environment.legend": "Ortam {number}",
+    "diagnostics.environment.ignorePaths": "Yok sayılan JSONPath’ler",
+    "diagnostics.environment.requestBody": "İstek gövdesi",
+    "diagnostics.environment.safeBodyHint":
+      "Bu yöntem için genellikle boş bırakılır.",
+    "diagnostics.environment.unsafeConsent":
+      "{method} isteğini doldurulmuş tüm ortamlara göndermeye açıkça izin veriyorum.",
+    "diagnostics.environment.compare": "Ortamları karşılaştır",
+    "diagnostics.environment.baselineHint":
+      "İlk ortam referans olarak kullanılır.",
+    "diagnostics.environment.noResultTitle": "Ortam sonucu yok",
+    "diagnostics.environment.noResultDescription":
+      "Aynı isteğin durum, header ve JSON farklarını yan yana inceleyin.",
+    "diagnostics.environment.twoRequired":
+      "Karşılaştırma için en az iki ortam base URL’si girin.",
+    "diagnostics.environment.unsafeWarning":
+      "{method} birden fazla ortamda veri değiştirebilir. Önce açık izin kutusunu işaretleyin.",
+    "diagnostics.environment.success": "{count} ortam karşılaştırıldı.",
+    "diagnostics.environment.failure":
+      "Ortam karşılaştırması tamamlanamadı.",
+
+    "diagnostics.thread.deadlockWarning":
+      "JVM dump içinde açık deadlock işareti bulundu. İlgili thread ve lock zincirlerini hemen inceleyin.",
+    "diagnostics.thread.eyebrow": "THREAD’LER",
+    "diagnostics.thread.threadColumn": "Thread",
+    "diagnostics.thread.stateColumn": "Durum",
+    "diagnostics.thread.dumpTitle": "JVM thread dump",
+    "diagnostics.thread.limited": "Sonuç sınırlandırıldı",
+    "diagnostics.thread.complete": "Tam analiz",
+    "diagnostics.thread.count": "thread",
+    "diagnostics.thread.blockedTitle": "Blocked / lock bekleyen thread’ler",
+    "diagnostics.thread.findingCount": "{count} bulgu",
+    "diagnostics.thread.clue": "İpucu",
+    "diagnostics.thread.unnamed": "adsız",
+    "diagnostics.thread.noLockDetails": "Lock detayı yok",
+    "diagnostics.thread.repeatedTitle": "Tekrar eden stack’ler",
+    "diagnostics.thread.repeatedDescription":
+      "Benzer işte yığılmış thread grupları",
+    "diagnostics.thread.group": "{count} thread · {names}",
+    "diagnostics.thread.noFrames": "Stack frame yok",
+    "diagnostics.thread.deadlockClues": "Deadlock / lock ipuçları ({count})",
+    "diagnostics.thread.toolsLabel": "Thread ve log araçları",
+    "diagnostics.thread.dumpTab": "Thread dump",
+    "diagnostics.thread.logTab": "Trace log araması",
+    "diagnostics.thread.dumpHint": "jstack biçimindeki metin dump’ını yapıştırın",
+    "diagnostics.thread.dumpLabel": "JVM thread dump",
+    "diagnostics.thread.analyze": "Thread’leri analiz et",
+    "diagnostics.thread.emptyTitle": "Thread analizi bekleniyor",
+    "diagnostics.thread.emptyDescription":
+      "Blocked thread, deadlock ipucu ve tekrar eden stack’leri bulun.",
+    "diagnostics.thread.required":
+      "Analiz için thread dump metni yapıştırın.",
+    "diagnostics.thread.success": "{count} thread analiz edildi.",
+    "diagnostics.thread.failure":
+      "Thread dump analizi tamamlanamadı.",
+
+    "diagnostics.log.title": "Uygulama logu",
+    "diagnostics.log.description":
+      "Arama yalnız yapıştırılan metinde ve cihazda çalışır",
+    "diagnostics.log.traceLabel": "Trace / correlation ID",
+    "diagnostics.log.inputLabel": "Aranacak log metni",
+    "diagnostics.log.caseSensitive": "Büyük/küçük harf duyarlı",
+    "diagnostics.log.useActiveTitle":
+      "Aktif request response’undaki trace ID’yi kullan",
+    "diagnostics.log.noActiveTitle":
+      "Aktif response’ta trace ID yok",
+    "diagnostics.log.activeResponseID": "Aktif response ID",
+    "diagnostics.log.search": "Logda ara",
+    "diagnostics.log.emptyTitle": "Log araması bekleniyor",
+    "diagnostics.log.emptyDescription":
+      "Response’taki trace veya correlation ID ile ilgili log satırlarını bulun.",
+    "diagnostics.log.matchCount": "{count} eşleşme",
+    "diagnostics.log.scannedCount": "{count} satır tarandı",
+    "diagnostics.log.noMatchTitle": "Eşleşme bulunamadı",
+    "diagnostics.log.noMatchDescription":
+      "ID’nin tamamını ve büyük/küçük harf ayarını kontrol edin.",
+    "diagnostics.log.required":
+      "Log metnini ve aranacak trace/correlation ID’yi girin.",
+    "diagnostics.log.success": "{count} log satırı bulundu.",
+    "diagnostics.log.failure":
+      "Trace/correlation ID araması tamamlanamadı.",
+
+    "diagnostics.coverage.aria": "Endpoint coverage yüzde {percentage}",
+    "diagnostics.coverage.called": "{covered} / {total} endpoint çağrıldı",
+    "diagnostics.coverage.disclaimer":
+      "Bu oran yalnız sağlanan observed call listesine dayanır; kod coverage veya test coverage değildir.",
+    "diagnostics.coverage.endpoints": "Endpoint’ler",
+    "diagnostics.coverage.method": "Yöntem",
+    "diagnostics.coverage.path": "Path",
+    "diagnostics.coverage.matchDescription":
+      "Known route → observed hit eşleşmesi",
+    "diagnostics.coverage.hit": "Hit",
+    "diagnostics.coverage.observedPath": "Observed path",
+    "diagnostics.coverage.notSeen": "Henüz görülmedi",
+    "diagnostics.coverage.unknownCalls":
+      "Known listesinde olmayan çağrılar",
+    "diagnostics.coverage.routeCount": "{count} route",
+    "diagnostics.coverage.knownDescription": "Her satır: METHOD /path",
+    "diagnostics.coverage.knownTitle": "Bilinen endpoint’ler",
+    "diagnostics.coverage.knownLabel": "Known endpoint listesi",
+    "diagnostics.coverage.observedDescription":
+      "Her satır: METHOD /path [count]",
+    "diagnostics.coverage.observedTitle": "Gözlemlenen çağrılar",
+    "diagnostics.coverage.observedLabel": "Observed call listesi",
+    "diagnostics.coverage.fromSession": "Bu oturumdan hesapla",
+    "diagnostics.coverage.calculate": "Coverage’i hesapla",
+    "diagnostics.coverage.templateHint":
+      "{id}, * ve ** route template’leri concrete çağrılarla eşleştirilir.",
+    "diagnostics.coverage.emptyTitle": "Coverage sonucu yok",
+    "diagnostics.coverage.emptyDescription":
+      "OpenAPI’den bilinen endpoint’leri bu oturumdaki request’lerle eşleştirin veya listeleri elle girin.",
+    "diagnostics.coverage.knownRequired":
+      "En az bir known endpoint girin.",
+    "diagnostics.coverage.success": "{covered}/{total} endpoint eşleşti.",
+    "diagnostics.coverage.sessionSuccess":
+      "{covered}/{total} endpoint bu oturumdaki request’lerle eşleşti.",
+    "diagnostics.coverage.failure":
+      "Endpoint coverage analizi tamamlanamadı.",
+    "diagnostics.coverage.sessionFailure":
+      "Kaydedilmiş endpoint coverage analizi tamamlanamadı.",
+
+    "protocol.eyebrow": "CANLI BAĞLANTILAR · SINIRLI",
+    "protocol.title": "Protokol Laboratuvarı",
+    "protocol.description":
+      "SSE akışlarını okuyun, WebSocket mesajlarını izleyin ve gRPC reflection servislerini keşfedin.",
+    "protocol.toolsLabel": "Protokol araçları",
+    "protocol.running": "Çalışıyor",
+    "protocol.mode.sseDescription": "Sunucudan gelen olay akışını okuyun",
+    "protocol.mode.websocketDescription":
+      "Mesaj gönderin ve gelen mesajları izleyin",
+    "protocol.mode.grpcDescription":
+      "Reflection ile yayınlanan servisleri keşfedin",
+    "protocol.waiting":
+      "Timeout dolana veya sunucu yanıt verene kadar bekleniyor.",
+    "protocol.cancel": "İptal et",
+    "protocol.canceling": "İptal ediliyor…",
+    "protocol.cancelRejectedTitle": "İşlem durdurulamadı",
+    "protocol.cancelRejectedMessage":
+      "Backend bu operation ID için çalışan bir işlem bulamadı.",
+    "protocol.cancelRejectedHint":
+      "İşlem tamamlanmış olabilir. Sonucu bekleyin veya yeniden başlatın.",
+    "protocol.error.bridgeTitle": "Validex backend bağlantısı kesildi",
+    "protocol.error.bridgeMessage":
+      "Protokol işlemi masaüstü backend’inde tamamlanamadı.",
+    "protocol.error.bridgeHint":
+      "Bağlantı ayarlarını kontrol edip işlemi yeniden deneyin.",
+    "protocol.error.connectionTitle": "Bağlantı tamamlanamadı",
+    "protocol.error.operationMessage":
+      "Protokol işlemi tamamlanamadı.",
+    "protocol.error.operationHint":
+      "Adresi, timeout değerini, TLS ve kimlik doğrulama ayarlarını kontrol edip yeniden deneyin.",
+    "protocol.error.sseFailedTitle": "SSE akışı başarısız oldu",
+    "protocol.error.sseFailedMessage":
+      "SSE akışı tamamlanamadı.",
+    "protocol.error.websocketFailedTitle": "WebSocket exchange başarısız oldu",
+    "protocol.error.websocketFailedMessage":
+      "WebSocket exchange tamamlanamadı.",
+    "protocol.error.grpcFailedTitle": "gRPC keşfi başarısız oldu",
+    "protocol.error.grpcFailedMessage":
+      "gRPC reflection isteği tamamlanamadı.",
+    "protocol.error.toolTimeoutTitle": "Protokol işlemi zaman aşımına uğradı",
+    "protocol.error.toolTimeoutMessage":
+      "Hedef, yapılandırılan timeout süresi içinde yanıt vermedi.",
+    "protocol.error.toolCanceledTitle": "Protokol işlemi iptal edildi",
+    "protocol.error.toolCanceledMessage":
+      "İşlem tamamlanmadan iptal edildi.",
+    "protocol.error.invalidInputTitle": "Protokol girdisi geçerli değil",
+    "protocol.error.invalidInputMessage":
+      "Bir veya daha fazla bağlantı ayarı geçerli değil.",
+    "protocol.error.noDetails":
+      "Backend ayrıntı vermeden işlemi sonlandırdı.",
+    "protocol.error.unknown": "Bilinmeyen bir hata oluştu.",
+    "protocol.validation.json": "{label} geçerli bir JSON nesnesi olmalı.",
+    "protocol.validation.object":
+      "{label} anahtar-değer içeren bir JSON nesnesi olmalı.",
+    "protocol.validation.emptyKey":
+      "{label} içinde boş anahtar kullanılamaz.",
+    "protocol.validation.textValue":
+      "{label} içindeki “{key}” değeri metin olmalı.",
+    "protocol.validation.integer":
+      "{label} 1 ile {maximum} arasında tam sayı olmalı.",
+    "protocol.validation.required": "{label} adresi gerekli.",
+    "protocol.validation.invalid": "{label} adresi geçerli değil.",
+    "protocol.validation.protocol":
+      "{label} adresi {protocols} ile başlamalı.",
+    "protocol.validation.or": " veya ",
+    "protocol.validation.hostname":
+      "{label} adresinde sunucu adı eksik.",
+    "protocol.validation.grpcRequired":
+      "gRPC sunucu adresi gerekli.",
+    "protocol.validation.grpcNoProtocol":
+      "gRPC adresini protokol olmadan host:port biçiminde yazın.",
+    "protocol.validation.grpcFormat":
+      "gRPC adresi host:port biçiminde olmalı.",
+    "protocol.validation.grpcPort":
+      "gRPC portu 1 ile 65535 arasında olmalı.",
+    "protocol.label.header": "Header",
+    "protocol.label.metadata": "Metadata",
+    "protocol.label.timeout": "Timeout",
+    "protocol.label.eventLimit": "Olay sınırı",
+    "protocol.label.messageLimit": "Mesaj sınırı",
+    "protocol.unit.seconds": "sn",
+    "protocol.metric.duration": "Süre",
+    "protocol.metric.event": "Olay",
+    "protocol.metric.message": "Mesaj",
+    "protocol.metric.connection": "Bağlantı",
+    "protocol.metric.service": "Servis",
+
+    "protocol.sse.connection": "SSE bağlantısı",
+    "protocol.sse.connectionDescription":
+      "HTTP event-stream endpoint’ine bağlanın",
+    "protocol.sse.url": "Event stream URL",
+    "protocol.sse.maxEvents": "En fazla olay",
+    "protocol.headers": "Request headers · JSON",
+    "protocol.headersHint": "Her header değeri metin olmalı.",
+    "protocol.skipCertificate": "Sertifika doğrulamasını atla",
+    "protocol.sse.certificateHint":
+      "Yalnız yerel, self-signed HTTPS geliştirme sunucularında kullanın.",
+    "protocol.sse.listening": "Dinleniyor…",
+    "protocol.sse.listen": "Akışı dinle",
+    "protocol.sse.limitHint":
+      "Olay sınırına ulaşıldığında bağlantı kapatılır.",
+    "protocol.sse.resultLabel": "SSE sonucu",
+    "protocol.sse.events": "Olaylar",
+    "protocol.sse.resultDescription":
+      "Event, ID, retry ve data alanları ayrı gösterilir",
+    "protocol.responseHeaders": "Response headers",
+    "protocol.sse.emptyStreamTitle": "Akış olay göndermedi",
+    "protocol.sse.emptyStreamDescription":
+      "Bağlantı kuruldu ancak stream kapanmadan önce event alınmadı.",
+    "protocol.noConnectionTitle": "Henüz bağlantı yok",
+    "protocol.sse.noConnectionDescription":
+      "URL ve sınırları belirleyip “Akışı dinle” seçeneğini kullanın.",
+    "protocol.sse.loading": "SSE akışı bekleniyor",
+
+    "protocol.websocket.connection": "WebSocket bağlantısı",
+    "protocol.websocket.connectionDescription":
+      "Bağlanın, tek bir text mesaj gönderin ve yanıtları okuyun",
+    "protocol.websocket.url": "WebSocket URL",
+    "protocol.websocket.maxMessages": "En fazla mesaj",
+    "protocol.websocket.subprotocols": "Alt protokoller",
+    "protocol.websocket.subprotocolsHint":
+      "Birden fazlaysa virgülle ayırın.",
+    "protocol.websocket.handshakeHeaders": "Handshake header’ları",
+    "protocol.websocket.message":
+      "Gönderilecek text mesajı · isteğe bağlı",
+    "protocol.websocket.certificateHint":
+      "Yalnız yerel, self-signed WSS geliştirme sunucularında kullanın.",
+    "protocol.websocket.waiting": "Mesaj bekleniyor…",
+    "protocol.websocket.sendListen": "Gönder ve dinle",
+    "protocol.websocket.connectListen": "Bağlan ve dinle",
+    "protocol.websocket.listenHint":
+      "Text mesajı boşsa yalnız gelen mesajlar dinlenir.",
+    "protocol.websocket.resultLabel": "WebSocket sonucu",
+    "protocol.websocket.resultTitle": "Handshake ve mesajlar",
+    "protocol.websocket.resultDescription":
+      "Text ve binary mesajlar alınma sırasıyla gösterilir",
+    "protocol.websocket.protocol": "Protocol",
+    "protocol.websocket.noMessagesTitle": "Mesaj alınmadı",
+    "protocol.websocket.noMessagesDescription":
+      "Handshake tamamlandı ancak bağlantı kapanmadan önce mesaj gelmedi.",
+    "protocol.websocket.noConnectionDescription":
+      "URL’yi girin; gerekirse mesaj ekleyip bağlantıyı başlatın.",
+    "protocol.websocket.loading": "WebSocket mesajları bekleniyor",
+
+    "protocol.grpc.connection": "gRPC service reflection",
+    "protocol.grpc.connectionDescription":
+      "Sunucunun yayınladığı gerçek servis listesini okuyun",
+    "protocol.grpc.address": "Sunucu adresi",
+    "protocol.grpc.addressHint":
+      "Protokol eklemeden host:port biçiminde yazın.",
+    "protocol.grpc.useTLS": "TLS kullan",
+    "protocol.grpc.tlsHint":
+      "Sunucuya şifreli bağlantı kurar.",
+    "protocol.grpc.serverName": "TLS server name · isteğe bağlı",
+    "protocol.grpc.certificateHint":
+      "Yalnız yerel, self-signed geliştirme sunucularında kullanın.",
+    "protocol.grpc.metadata": "gRPC metadata · JSON",
+    "protocol.grpc.metadataHint":
+      "Metadata anahtarları backend tarafından lowercase’e çevrilir.",
+    "protocol.grpc.reading": "Servisler okunuyor…",
+    "protocol.grpc.discover": "Servisleri keşfet",
+    "protocol.grpc.reflectionHint":
+      "Sunucuda gRPC server reflection açık olmalı.",
+    "protocol.grpc.resultLabel": "gRPC sonucu",
+    "protocol.grpc.resultTitle": "Reflection servisleri",
+    "protocol.grpc.resultDescription":
+      "Sunucunun bildirdiği servisler alfabetik gösterilir",
+    "protocol.grpc.reflection": "Reflection",
+    "protocol.grpc.noServicesTitle": "Servis bildirilmedi",
+    "protocol.grpc.noServicesDescription":
+      "Reflection yanıt verdi ancak yayınlanan bir servis bulunamadı.",
+    "protocol.grpc.noDiscoveryTitle": "Henüz keşif yapılmadı",
+    "protocol.grpc.noDiscoveryDescription":
+      "Sunucu adresini ve bağlantı güvenliğini belirleyip servisleri keşfedin.",
+    "protocol.grpc.loading": "gRPC sunucusuna bağlanılıyor",
+  },
+);

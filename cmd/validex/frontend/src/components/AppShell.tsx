@@ -9,47 +9,51 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import {
-  FilePlus2,
-  Import,
   LoaderCircle,
   PanelLeftOpen,
   PanelRightOpen,
-  Sparkles,
+  X,
 } from "lucide-react";
-import { useCancelRequest, useImportOpenAPI } from "../lib/queries";
-import {
-  importedEndpointTabID,
-  importedRequestURL,
-} from "../lib/openapi";
+import { RequestTabs } from "../features/requests/RequestTabs";
+import { RequestWorkbench } from "../features/requests/RequestWorkbench";
+import { WelcomeWorkspace } from "../features/requests/WelcomeWorkspace";
+import { useOpenAPIImport } from "../features/openapi/useOpenAPIImport";
+import { useTranslation } from "../i18n";
+import { useCancelRequest } from "../lib/queries";
 import type { BootstrapData, WorkspaceView } from "../lib/types";
 import { cn } from "../lib/utils";
+import { IconButton } from "../shared/ui";
 import { useWorkspaceStore } from "../stores/workspace";
 import { ActivityBar } from "./ActivityBar";
 import { CommandPalette } from "./CommandPalette";
 import { ContextPanel } from "./ContextPanel";
-import { RequestTabs } from "./RequestTabs";
-import { RequestWorkbench } from "./RequestWorkbench";
 import { Sidebar } from "./Sidebar";
 import { StatusBar } from "./StatusBar";
 import { TopBar } from "./TopBar";
-import { Button, IconButton } from "./ui";
 
 const MockServerLab = lazy(() =>
-  import("./MockServerLab").then((module) => ({
+  import("../features/mock-server/MockServerLab").then((module) => ({
     default: module.MockServerLab,
   })),
 );
 const JSONLab = lazy(() =>
-  import("./JSONLab").then((module) => ({ default: module.JSONLab })),
+  import("../features/json-lab/JSONLab").then((module) => ({
+    default: module.JSONLab,
+  })),
 );
 const DiagnosticsLab = lazy(() =>
-  import("./DiagnosticsLab").then((module) => ({
+  import("../features/diagnostics/DiagnosticsLab").then((module) => ({
     default: module.DiagnosticsLab,
   })),
 );
 const ProtocolLab = lazy(() =>
-  import("./ProtocolLab").then((module) => ({
+  import("../features/protocols/ProtocolLab").then((module) => ({
     default: module.ProtocolLab,
+  })),
+);
+const AutomationLab = lazy(() =>
+  import("../features/automation/AutomationLab").then((module) => ({
+    default: module.AutomationLab,
   })),
 );
 
@@ -65,6 +69,8 @@ function renderTool(view: ToolView) {
       return <DiagnosticsLab />;
     case "protocols":
       return <ProtocolLab />;
+    case "automation":
+      return <AutomationLab />;
   }
 }
 
@@ -73,6 +79,7 @@ function clamp(value: number, min: number, max: number) {
 }
 
 const panelMinWidth = 210;
+const panelCompactThresholdWidth = 190;
 const panelMaxWidth = 440;
 const verticalCenterMinWidth = 480;
 const horizontalCenterMinWidth = 660;
@@ -130,6 +137,7 @@ function fitPanelWidths(
 }
 
 export function AppShell({ bootstrap }: { bootstrap: BootstrapData }) {
+  const t = useTranslation();
   const activeView = useWorkspaceStore((state) => state.activeView);
   const tabs = useWorkspaceStore((state) => state.tabs);
   const activeTabID = useWorkspaceStore((state) => state.activeTabID);
@@ -146,18 +154,18 @@ export function AppShell({ bootstrap }: { bootstrap: BootstrapData }) {
   const toggleLeft = useWorkspaceStore((state) => state.toggleLeft);
   const toggleRight = useWorkspaceStore((state) => state.toggleRight);
   const openTab = useWorkspaceStore((state) => state.openTab);
-  const setImportedSpec = useWorkspaceStore((state) => state.setImportedSpec);
+  const setActiveView = useWorkspaceStore((state) => state.setActiveView);
   const reopenClosedTab = useWorkspaceStore((state) => state.reopenClosedTab);
   const updateTab = useWorkspaceStore((state) => state.updateTab);
   const setPaletteOpen = useWorkspaceStore(
     (state) => state.setCommandPaletteOpen,
   );
   const cancelRequest = useCancelRequest();
-  const importer = useImportOpenAPI();
-  const [welcomeImportNotice, setWelcomeImportNotice] = useState<{
-    message: string;
-    tone: "success" | "error";
-  } | null>(null);
+  const {
+    importSpec,
+    isPending: importPending,
+    notice: welcomeImportNotice,
+  } = useOpenAPIImport();
   const activeToolView: ToolView | null =
     activeView === "requests" ? null : activeView;
   const [visitedToolViews, setVisitedToolViews] = useState<ToolView[]>(() =>
@@ -171,25 +179,42 @@ export function AppShell({ bootstrap }: { bootstrap: BootstrapData }) {
   const [workspaceWidth, setWorkspaceWidth] = useState(() =>
     typeof window === "undefined" ? verticalCenterMinWidth : window.innerWidth,
   );
-  const centerMinWidth =
+  const [compactPanel, setCompactPanel] = useState<"left" | "right" | null>(
+    null,
+  );
+  const requestedCenterMinWidth =
     responsePlacement === "horizontal"
       ? horizontalCenterMinWidth
       : verticalCenterMinWidth;
+  const requestedPanelCount = Number(leftVisible) + Number(rightVisible);
+  const requestedLayoutMinWidth =
+    requestedCenterMinWidth +
+    requestedPanelCount *
+      (panelCompactThresholdWidth + panelResizerWidth);
+  const compactLayout =
+    workspaceWidth <= 720 || workspaceWidth < requestedLayoutMinWidth;
+  const layoutLeftVisible = compactLayout
+    ? compactPanel === "left"
+    : leftVisible;
+  const layoutRightVisible = compactLayout
+    ? compactPanel === "right"
+    : rightVisible;
+  const centerMinWidth = compactLayout ? 0 : requestedCenterMinWidth;
   const fittedPanelWidths = useMemo(
     () =>
       fitPanelWidths(
         workspaceWidth,
         centerMinWidth,
-        leftVisible,
-        rightVisible,
+        layoutLeftVisible,
+        layoutRightVisible,
         leftWidth,
         rightWidth,
       ),
     [
       centerMinWidth,
-      leftVisible,
+      layoutLeftVisible,
       leftWidth,
-      rightVisible,
+      layoutRightVisible,
       rightWidth,
       workspaceWidth,
     ],
@@ -201,6 +226,26 @@ export function AppShell({ bootstrap }: { bootstrap: BootstrapData }) {
       current.includes(activeToolView) ? current : [...current, activeToolView],
     );
   }, [activeToolView]);
+
+  const previousViewRef = useRef(activeView);
+  useEffect(() => {
+    if (previousViewRef.current === activeView) return;
+    previousViewRef.current = activeView;
+    const frame = window.requestAnimationFrame(() => {
+      const workspace =
+        activeView === "requests"
+          ? document.querySelector<HTMLElement>(
+              ".workspace-layout:not([hidden]) h1",
+            )
+          : document.querySelector<HTMLElement>(
+              ".tool-workspace:not([hidden]) h1",
+            );
+      if (!workspace) return;
+      workspace.tabIndex = -1;
+      workspace.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeView]);
 
   useEffect(() => {
     const workspace = workspaceRef.current;
@@ -224,6 +269,11 @@ export function AppShell({ bootstrap }: { bootstrap: BootstrapData }) {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return;
+      if (event.key === "Escape" && compactPanel) {
+        event.preventDefault();
+        setCompactPanel(null);
+        return;
+      }
       const command = event.metaKey || event.ctrlKey;
       if (command && event.key.toLowerCase() === "k") {
         event.preventDefault();
@@ -231,7 +281,11 @@ export function AppShell({ bootstrap }: { bootstrap: BootstrapData }) {
       }
       if (command && event.key.toLowerCase() === "n") {
         event.preventDefault();
-        openTab({ name: "Untitled request", url: "", dirty: true });
+        openTab({
+          name: t("chrome.untitledRequest"),
+          url: "",
+          dirty: true,
+        });
       }
       if (command && event.shiftKey && event.key.toLowerCase() === "t") {
         event.preventDefault();
@@ -249,9 +303,9 @@ export function AppShell({ bootstrap }: { bootstrap: BootstrapData }) {
               error: true,
               userError: {
                 code: "cancel_not_found",
-                title: "Çalışan request bulunamadı",
-                message: "Backend bu request için aktif bir işlem bulamadı.",
-                hint: "Request’i yeniden gönderin veya uygulamayı yeniden başlatın.",
+                title: t("shell.cancelNotFound.title"),
+                message: t("shell.cancelNotFound.message"),
+                hint: t("shell.cancelNotFound.hint"),
               },
             });
           })
@@ -261,9 +315,9 @@ export function AppShell({ bootstrap }: { bootstrap: BootstrapData }) {
               error: true,
               userError: {
                 code: "cancel_failed",
-                title: "Request iptal edilemedi",
-                message: "Native backend iptal komutuna yanıt vermedi.",
-                hint: "Uygulamayı yeniden başlatıp tekrar deneyin.",
+                title: t("shell.cancelFailed.title"),
+                message: t("shell.cancelFailed.message"),
+                hint: t("shell.cancelFailed.hint"),
                 technical:
                   error instanceof Error ? error.message : String(error),
               },
@@ -277,16 +331,19 @@ export function AppShell({ bootstrap }: { bootstrap: BootstrapData }) {
     activeTab?.id,
     activeTab?.running,
     cancelRequest,
+    compactPanel,
     openTab,
     reopenClosedTab,
     setPaletteOpen,
+    t,
     updateTab,
   ]);
 
   const panelBounds = (side: "left" | "right") => {
     const otherWidth =
       side === "left" ? fittedPanelWidths.right : fittedPanelWidths.left;
-    const visibleCount = Number(leftVisible) + Number(rightVisible);
+    const visibleCount =
+      Number(layoutLeftVisible) + Number(layoutRightVisible);
     const available = Math.max(
       0,
       workspaceWidth -
@@ -361,51 +418,6 @@ export function AppShell({ bootstrap }: { bootstrap: BootstrapData }) {
       setPanelWidth(side, clamp(next, bounds.min, bounds.max));
     };
 
-  const importSpec = async () => {
-    setWelcomeImportNotice(null);
-    try {
-      const result = await importer.mutateAsync();
-      if (result.canceled) return;
-      if (result.error) {
-        setWelcomeImportNotice({
-          message: `${result.error.title}: ${result.error.message}`,
-          tone: "error",
-        });
-        return;
-      }
-      setImportedSpec(result);
-      const openedEndpoints = result.endpoints.slice(0, 8);
-      openedEndpoints.forEach((endpoint) =>
-        openTab({
-          id: importedEndpointTabID(result.specId, endpoint.id),
-          name: endpoint.summary || endpoint.path,
-          method: endpoint.method,
-          url: importedRequestURL(result.baseUrl, endpoint.path),
-          openApi: { specId: result.specId, path: endpoint.path },
-          dirty: false,
-        }),
-      );
-      setWelcomeImportNotice({
-        message:
-          openedEndpoints.length > 0
-            ? `${openedEndpoints.length} endpoint sekmede açıldı${
-                result.endpoints.length > openedEndpoints.length
-                  ? `; ${result.endpoints.length} endpoint APIs bölümünde erişilebilir`
-                  : ""
-              }`
-            : "OpenAPI dosyasında açılabilir endpoint bulunamadı.",
-        tone: openedEndpoints.length > 0 ? "success" : "error",
-      });
-    } catch (error) {
-      setWelcomeImportNotice({
-        message: `OpenAPI içe aktarılamadı: ${
-          error instanceof Error ? error.message : "Beklenmeyen bir hata oluştu."
-        }`,
-        tone: "error",
-      });
-    }
-  };
-
   return (
     <div className="app-shell">
       <TopBar bootstrap={bootstrap} />
@@ -421,176 +433,178 @@ export function AppShell({ bootstrap }: { bootstrap: BootstrapData }) {
                 hidden={activeView !== view}
               >
                 <LoaderCircle className="spin" size={22} />
-                <span>Çalışma alanı hazırlanıyor…</span>
+                <span>{t("shell.workspacePreparing")}</span>
               </main>
             }
           >
-            <div
+            <main
               className="tool-workspace"
               hidden={activeView !== view}
               aria-hidden={activeView !== view}
             >
               {renderTool(view)}
-            </div>
+            </main>
           </Suspense>
         ))}
+        <main
+          ref={workspaceRef}
+          className={cn(
+            "workspace-layout",
+            compactLayout && "compact-layout",
+          )}
+          hidden={activeView !== "requests"}
+          aria-hidden={activeView !== "requests"}
+          style={{
+            gridTemplateColumns: [
+              layoutLeftVisible
+                ? `${fittedPanelWidths.left}px 4px`
+                : "0px 0px",
+              `minmax(${centerMinWidth}px, 1fr)`,
+              layoutRightVisible
+                ? `4px ${fittedPanelWidths.right}px`
+                : "0px 0px",
+            ].join(" "),
+          }}
+        >
+          {compactPanel && (
+            <button
+              type="button"
+              className="mobile-panel-scrim"
+              aria-label={t("shell.closeSidePanel")}
+              onClick={() => setCompactPanel(null)}
+            />
+          )}
           <div
-            ref={workspaceRef}
-            className="workspace-layout"
-            hidden={activeView !== "requests"}
-            aria-hidden={activeView !== "requests"}
-            style={{
-              gridTemplateColumns: [
-                leftVisible ? `${fittedPanelWidths.left}px 4px` : "0px 0px",
-                `minmax(${centerMinWidth}px, 1fr)`,
-                rightVisible ? `4px ${fittedPanelWidths.right}px` : "0px 0px",
-              ].join(" "),
-            }}
+            id="request-panel"
+            className={cn(
+              "panel-slot",
+              "request-panel-slot",
+              !layoutLeftVisible && "panel-hidden",
+            )}
           >
-        <div
-          id="request-panel"
-          className={cn("panel-slot", !leftVisible && "panel-hidden")}
-        >
-          <Sidebar bootstrap={bootstrap} />
-        </div>
-        <div
-          className={cn(
-            "panel-resizer",
-            "panel-resizer-left",
-            !leftVisible && "panel-hidden",
-          )}
-          onPointerDown={startResize("left")}
-          onKeyDown={resizeWithKeyboard("left")}
-          role="separator"
-          tabIndex={0}
-          aria-orientation="vertical"
-          aria-label="Request panelini yeniden boyutlandır"
-          aria-controls="request-panel"
-          aria-valuemin={panelBounds("left").min}
-          aria-valuemax={panelBounds("left").max}
-          aria-valuenow={fittedPanelWidths.left}
-        >
-          <span />
-        </div>
-
-        <div
-          className={cn(
-            "center-workspace",
-            tabs.length === 0 && "welcome-workspace",
-          )}
-        >
-          {tabs.length > 0 && <RequestTabs />}
-          {activeTab ? (
-            <RequestWorkbench tab={activeTab} bootstrap={bootstrap} />
-          ) : (
-            <main className="welcome-state">
-              <div className="welcome-mark">
-                <Sparkles size={24} />
-              </div>
-              <p className="eyebrow">WELCOME TO VALIDEX</p>
-              <h1>API çalışmalarınızı tek bir yerde toplayın.</h1>
-              <p>
-                İlk request’inizi manuel oluşturun veya OpenAPI dosyanızdan
-                endpoint’leri içe aktarın.
-              </p>
-              <div className="welcome-actions">
-                <Button
-                  variant="primary"
-                  onClick={() =>
-                    openTab({
-                      name: "Untitled request",
-                      url: "",
-                      dirty: true,
-                    })
-                  }
-                >
-                  <FilePlus2 size={15} /> New request
-                </Button>
-                <Button
-                  disabled={importer.isPending}
-                  onClick={() => void importSpec()}
-                >
-                  {importer.isPending ? (
-                    <LoaderCircle className="spin" size={15} />
-                  ) : (
-                    <Import size={15} />
-                  )}
-                  {importer.isPending ? "Importing…" : "Import OpenAPI"}
-                </Button>
-              </div>
-              {welcomeImportNotice && (
-                <p
-                  className={cn(
-                    "welcome-import-notice",
-                    welcomeImportNotice.tone === "error" && "danger",
-                  )}
-                  role={
-                    welcomeImportNotice.tone === "error" ? "alert" : "status"
-                  }
-                >
-                  {welcomeImportNotice.message}
-                </p>
-              )}
-              <div className="welcome-shortcuts">
-                <span>
-                  <strong>⌘ K</strong> Search commands
-                </span>
-                <span>
-                  <strong>⌘ N</strong> New request
-                </span>
-                <span>
-                  <strong>⇧ ⌘ T</strong> Reopen tab
-                </span>
-              </div>
-            </main>
-          )}
-        </div>
-
-        <div
-          className={cn(
-            "panel-resizer",
-            "panel-resizer-right",
-            !rightVisible && "panel-hidden",
-          )}
-          onPointerDown={startResize("right")}
-          onKeyDown={resizeWithKeyboard("right")}
-          role="separator"
-          tabIndex={0}
-          aria-orientation="vertical"
-          aria-label="Context panelini yeniden boyutlandır"
-          aria-controls="context-panel"
-          aria-valuemin={panelBounds("right").min}
-          aria-valuemax={panelBounds("right").max}
-          aria-valuenow={fittedPanelWidths.right}
-        >
-          <span />
-        </div>
-        <div
-          id="context-panel"
-          className={cn("panel-slot", !rightVisible && "panel-hidden")}
-        >
-          <ContextPanel bootstrap={bootstrap} tab={activeTab} />
-        </div>
-
-        {!leftVisible && (
-          <IconButton
-            label="Request panelini göster"
-            className="panel-restore panel-restore-left"
-            onClick={toggleLeft}
-          >
-            <PanelLeftOpen size={15} />
-          </IconButton>
-        )}
-        {!rightVisible && (
-          <IconButton
-            label="Context panelini göster"
-            className="panel-restore panel-restore-right"
-            onClick={toggleRight}
-          >
-            <PanelRightOpen size={15} />
-          </IconButton>
-        )}
+            {compactLayout && layoutLeftVisible && (
+              <IconButton
+                label={t("shell.closeRequestPanel")}
+                className="mobile-panel-close"
+                onClick={() => setCompactPanel(null)}
+              >
+                <X size={15} />
+              </IconButton>
+            )}
+            <Sidebar bootstrap={bootstrap} />
           </div>
+          <div
+            className={cn(
+              "panel-resizer",
+              "panel-resizer-left",
+              !layoutLeftVisible && "panel-hidden",
+            )}
+            onPointerDown={startResize("left")}
+            onKeyDown={resizeWithKeyboard("left")}
+            role="separator"
+            tabIndex={0}
+            aria-orientation="vertical"
+            aria-label={t("shell.resizeRequestPanel")}
+            aria-controls="request-panel"
+            aria-valuemin={panelBounds("left").min}
+            aria-valuemax={panelBounds("left").max}
+            aria-valuenow={fittedPanelWidths.left}
+          >
+            <span />
+          </div>
+
+          <div
+            className={cn(
+              "center-workspace",
+              tabs.length === 0 && "welcome-workspace",
+            )}
+          >
+            {tabs.length > 0 && <RequestTabs />}
+            {activeTab ? (
+              <RequestWorkbench
+                tab={activeTab}
+                bootstrap={bootstrap}
+                compact={compactLayout}
+              />
+            ) : (
+              <WelcomeWorkspace
+                importPending={importPending}
+                importNotice={welcomeImportNotice}
+                onCreateRequest={() =>
+                  openTab({
+                    name: t("chrome.untitledRequest"),
+                    url: "",
+                    dirty: true,
+                  })
+                }
+                onImportOpenAPI={() => void importSpec()}
+                onOpenTool={setActiveView}
+              />
+            )}
+          </div>
+
+          <div
+            className={cn(
+              "panel-resizer",
+              "panel-resizer-right",
+              !layoutRightVisible && "panel-hidden",
+            )}
+            onPointerDown={startResize("right")}
+            onKeyDown={resizeWithKeyboard("right")}
+            role="separator"
+            tabIndex={0}
+            aria-orientation="vertical"
+            aria-label={t("shell.resizeContextPanel")}
+            aria-controls="context-panel"
+            aria-valuemin={panelBounds("right").min}
+            aria-valuemax={panelBounds("right").max}
+            aria-valuenow={fittedPanelWidths.right}
+          >
+            <span />
+          </div>
+          <div
+            id="context-panel"
+            className={cn(
+              "panel-slot",
+              "context-panel-slot",
+              !layoutRightVisible && "panel-hidden",
+            )}
+          >
+            {compactLayout && layoutRightVisible && (
+              <IconButton
+                label={t("shell.closeContextPanel")}
+                className="mobile-panel-close"
+                onClick={() => setCompactPanel(null)}
+              >
+                <X size={15} />
+              </IconButton>
+            )}
+            <ContextPanel bootstrap={bootstrap} tab={activeTab} />
+          </div>
+
+          {!layoutLeftVisible && (
+            <IconButton
+              label={t("shell.showRequestPanel")}
+              className="panel-restore panel-restore-left"
+              onClick={() =>
+                compactLayout ? setCompactPanel("left") : toggleLeft()
+              }
+            >
+              <PanelLeftOpen size={15} />
+            </IconButton>
+          )}
+          {!layoutRightVisible && (
+            <IconButton
+              label={t("shell.showContextPanel")}
+              className="panel-restore panel-restore-right"
+              onClick={() =>
+                compactLayout ? setCompactPanel("right") : toggleRight()
+              }
+            >
+              <PanelRightOpen size={15} />
+            </IconButton>
+          )}
+        </main>
       </div>
       <StatusBar bootstrap={bootstrap} />
       <CommandPalette bootstrap={bootstrap} />

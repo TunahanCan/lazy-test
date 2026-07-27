@@ -2,9 +2,13 @@ package mockserver
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/getkin/kin-openapi/openapi3"
 )
 
 func TestImportOpenAPIUsesExamplesAndSchemaSamples(t *testing.T) {
@@ -141,6 +145,170 @@ paths:
 	}
 	if body.Sequence != 3 {
 		t.Fatalf("sequence = %d, want 3", body.Sequence)
+	}
+}
+
+func TestImportOpenAPINormalReferencedSchemaSampleIsUnchanged(t *testing.T) {
+	spec := `openapi: 3.0.3
+info:
+  title: Referenced samples
+  version: 1.0.0
+components:
+  schemas:
+    Pet:
+      type: object
+      properties:
+        name:
+          type: string
+        active:
+          type: boolean
+paths:
+  /pets:
+    get:
+      responses:
+        "200":
+          description: Pets
+          content:
+            application/json:
+              schema:
+                type: array
+                minItems: 2
+                items:
+                  $ref: "#/components/schemas/Pet"
+`
+	path := filepath.Join(t.TempDir(), "referenced.yaml")
+	if err := os.WriteFile(path, []byte(spec), 0o600); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+
+	routes, err := ImportOpenAPI(path)
+	if err != nil {
+		t.Fatalf("ImportOpenAPI() error = %v", err)
+	}
+	const want = `[{"active":true,"name":"string"},{"active":true,"name":"string"}]`
+	if len(routes) != 1 || routes[0].Body != want {
+		t.Fatalf("generated referenced sample = %#v, want body %s", routes, want)
+	}
+}
+
+func TestImportOpenAPIUsesOneNodeBudgetAcrossRepeatedReferences(t *testing.T) {
+	spec := `openapi: 3.0.3
+info:
+  title: Shared sample budget
+  version: 1.0.0
+components:
+  schemas:
+    WideItem:
+      type: object
+      properties:
+        p01: {type: string}
+        p02: {type: string}
+        p03: {type: string}
+        p04: {type: string}
+        p05: {type: string}
+        p06: {type: string}
+        p07: {type: string}
+        p08: {type: string}
+        p09: {type: string}
+        p10: {type: string}
+paths:
+  /items:
+    get:
+      responses:
+        "200":
+          description: Items
+          content:
+            application/json:
+              schema:
+                type: array
+                minItems: 1000
+                items:
+                  $ref: "#/components/schemas/WideItem"
+`
+	path := filepath.Join(t.TempDir(), "wide-reference.yaml")
+	if err := os.WriteFile(path, []byte(spec), 0o600); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+
+	_, err := ImportOpenAPI(path)
+	var limitErr *SampleGenerationLimitError
+	if !errors.As(err, &limitErr) {
+		t.Fatalf("ImportOpenAPI() error = %v, want *SampleGenerationLimitError", err)
+	}
+	if limitErr.Code != CodeSampleGenerationLimitExceeded ||
+		limitErr.Budget != sampleBudgetNodes ||
+		limitErr.Limit != maxGeneratedSampleNodes ||
+		limitErr.Attempted != maxGeneratedSampleNodes+1 {
+		t.Fatalf("node budget error = %#v", limitErr)
+	}
+	if !strings.Contains(err.Error(), "Reduce nested properties") {
+		t.Fatalf("node budget error is not user actionable: %v", err)
+	}
+}
+
+func TestSchemaSampleVisitorReturnsStructuredEstimatedByteLimitError(t *testing.T) {
+	schema := openapi3.NewStringSchema().
+		WithDefault(strings.Repeat("x", int(maxGeneratedSampleEstimatedBytes)))
+
+	_, err := sampleFromSchema(schema.NewRef(), nil, 0)
+	var limitErr *SampleGenerationLimitError
+	if !errors.As(err, &limitErr) {
+		t.Fatalf("sampleFromSchema() error = %v, want *SampleGenerationLimitError", err)
+	}
+	if limitErr.Code != CodeSampleGenerationLimitExceeded ||
+		limitErr.Budget != sampleBudgetEstimatedBytes ||
+		limitErr.Limit != maxGeneratedSampleEstimatedBytes ||
+		limitErr.Attempted != maxGeneratedSampleEstimatedBytes+2 {
+		t.Fatalf("estimated-byte budget error = %#v", limitErr)
+	}
+	if _, err := json.Marshal(limitErr); err != nil {
+		t.Fatalf("json.Marshal(limit error) = %v", err)
+	}
+}
+
+func TestSchemaSampleVisitorBoundsDeepSchemas(t *testing.T) {
+	ref := openapi3.NewStringSchema().NewRef()
+	for range maxGeneratedSchemaDepth + 5 {
+		schema := openapi3.NewObjectSchema()
+		schema.Properties["child"] = ref
+		ref = schema.NewRef()
+	}
+
+	sample, err := sampleFromSchema(ref, nil, 0)
+	if err != nil {
+		t.Fatalf("sampleFromSchema() error = %v", err)
+	}
+	cursor := sample
+	objectCount := 0
+	for cursor != nil {
+		object, ok := cursor.(map[string]any)
+		if !ok {
+			t.Fatalf("deep sample level %d = %#v, want object or nil", objectCount, cursor)
+		}
+		objectCount++
+		cursor = object["child"]
+	}
+	if objectCount != maxGeneratedSchemaDepth+1 {
+		t.Fatalf("deep sample object count = %d, want %d", objectCount, maxGeneratedSchemaDepth+1)
+	}
+}
+
+func TestSchemaSampleVisitorCutsReferenceCycles(t *testing.T) {
+	schema := openapi3.NewObjectSchema()
+	ref := schema.NewRef()
+	schema.Properties["self"] = ref
+	schema.Properties["value"] = openapi3.NewStringSchema().NewRef()
+
+	sample, err := sampleFromSchema(ref, nil, 0)
+	if err != nil {
+		t.Fatalf("sampleFromSchema() error = %v", err)
+	}
+	object, ok := sample.(map[string]any)
+	if !ok {
+		t.Fatalf("cyclic sample = %#v, want object", sample)
+	}
+	if object["self"] != nil || object["value"] != "string" {
+		t.Fatalf("cyclic sample = %#v", object)
 	}
 }
 

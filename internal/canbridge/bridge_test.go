@@ -69,6 +69,57 @@ func TestSendRequestAcceptsResolvedExplicitHTTPURL(t *testing.T) {
 	}
 }
 
+func TestRequestTimeoutDurationAcceptsFrontendBoundaries(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		timeoutMS int
+		want      time.Duration
+	}{
+		{timeoutMS: minHTTPRequestTimeoutMS, want: time.Millisecond},
+		{timeoutMS: maxHTTPRequestTimeoutMS, want: 5 * time.Minute},
+	}
+	for _, test := range tests {
+		got, valid := requestTimeoutDuration(test.timeoutMS)
+		if !valid || got != test.want {
+			t.Fatalf("requestTimeoutDuration(%d) = (%s, %t), want (%s, true)", test.timeoutMS, got, valid, test.want)
+		}
+	}
+}
+
+func TestSendRequestRejectsInvalidTimeoutBeforeNetwork(t *testing.T) {
+	t.Parallel()
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	for _, timeoutMS := range []int{-1, 0, maxHTTPRequestTimeoutMS + 1} {
+		result := NewBridge().SendRequest(RequestInput{
+			ID:        "invalid-timeout-" + strconv.Itoa(timeoutMS),
+			Method:    http.MethodGet,
+			URL:       server.URL,
+			TimeoutMS: timeoutMS,
+		})
+		if result.Response != nil {
+			t.Fatalf("SendRequest(timeoutMs=%d) response = %#v, want nil", timeoutMS, result.Response)
+		}
+		if result.Error == nil {
+			t.Fatalf("SendRequest(timeoutMs=%d) error = nil", timeoutMS)
+		}
+		if result.Error.Code != "invalid_request" ||
+			result.Error.Title != "Timeout geçerli değil" ||
+			!strings.Contains(result.Error.Hint, "1 ile 300000 ms") ||
+			result.Error.Technical != "" {
+			t.Fatalf("SendRequest(timeoutMs=%d) error = %#v", timeoutMS, result.Error)
+		}
+	}
+	if got := requests.Load(); got != 0 {
+		t.Fatalf("invalid timeouts reached the network %d times", got)
+	}
+}
+
 func TestSendRequestRejectsURLsThatHTTPWouldSilentlyChange(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -327,13 +378,154 @@ func TestTraceIDFromTraceparentValidation(t *testing.T) {
 	}
 }
 
+func TestPrettyBodyPreservesJSONLexemesDuplicateKeysAndOrder(t *testing.T) {
+	t.Parallel()
+
+	raw := []byte(`{"z":9007199254740993,"id":1,"id":2,"decimal":1.2300e+10,"tiny":0.000000000000000000123400}`)
+	want := "{\n" +
+		"  \"z\": 9007199254740993,\n" +
+		"  \"id\": 1,\n" +
+		"  \"id\": 2,\n" +
+		"  \"decimal\": 1.2300e+10,\n" +
+		"  \"tiny\": 0.000000000000000000123400\n" +
+		"}"
+
+	if got := prettyBody(raw, "application/json; charset=utf-8"); got != want {
+		t.Fatalf("prettyBody() changed JSON tokens:\n got: %s\nwant: %s", got, want)
+	}
+}
+
+func TestPrettyBodyLeavesInvalidJSONAndPlainTextUntouched(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		raw         string
+		contentType string
+	}{
+		{name: "invalid JSON response", raw: `{"id":`, contentType: "application/json"},
+		{name: "plain text", raw: "9007199254740993 is an identifier", contentType: "text/plain"},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			if got := prettyBody([]byte(testCase.raw), testCase.contentType); got != testCase.raw {
+				t.Fatalf("prettyBody() = %q, want unchanged %q", got, testCase.raw)
+			}
+		})
+	}
+}
+
+func TestRequestTraceTimelineUsesMeasuredNonOverlappingPhases(t *testing.T) {
+	t.Parallel()
+
+	started := time.Unix(1_700_000_000, 0)
+	end := started.Add(100 * time.Millisecond)
+	snapshot := requestTraceSnapshot{
+		started:      started,
+		requestReady: started.Add(10 * time.Millisecond),
+		dnsStart:     started.Add(10 * time.Millisecond),
+		dnsDone:      started.Add(20 * time.Millisecond),
+		connectStart: started.Add(20 * time.Millisecond),
+		connectDone:  started.Add(40 * time.Millisecond),
+		tlsStart:     started.Add(40 * time.Millisecond),
+		tlsDone:      started.Add(50 * time.Millisecond),
+		gotConn:      started.Add(50 * time.Millisecond),
+		wroteRequest: started.Add(55 * time.Millisecond),
+		firstByte:    started.Add(80 * time.Millisecond),
+	}
+
+	timeline := snapshot.timeline(end)
+	want := []struct {
+		id         string
+		durationMS float64
+	}{
+		{id: "preparation", durationMS: 10},
+		{id: "dns", durationMS: 10},
+		{id: "tcp", durationMS: 20},
+		{id: "tls", durationMS: 10},
+		{id: "request", durationMS: 5},
+		{id: "server", durationMS: 25},
+		{id: "download", durationMS: 20},
+	}
+	if len(timeline) != len(want) {
+		t.Fatalf("timeline phase count = %d, want %d: %#v", len(timeline), len(want), timeline)
+	}
+	for index, expected := range want {
+		if timeline[index].ID != expected.id || timeline[index].DurationMS != expected.durationMS {
+			t.Errorf(
+				"timeline[%d] = %s %.3fms, want %s %.3fms",
+				index,
+				timeline[index].ID,
+				timeline[index].DurationMS,
+				expected.id,
+				expected.durationMS,
+			)
+		}
+	}
+	assertTimelineInvariants(t, timeline, end.Sub(started))
+}
+
+func TestRequestTraceTimelineClipsOverlappingAndOutOfOrderCallbacks(t *testing.T) {
+	t.Parallel()
+
+	started := time.Unix(1_700_000_100, 0)
+	end := started.Add(100 * time.Millisecond)
+	timeline := (requestTraceSnapshot{
+		started:      started,
+		requestReady: started.Add(20 * time.Millisecond),
+		dnsStart:     started.Add(10 * time.Millisecond),
+		dnsDone:      started.Add(40 * time.Millisecond),
+		connectStart: started.Add(30 * time.Millisecond),
+		connectDone:  started.Add(60 * time.Millisecond),
+		tlsStart:     started.Add(50 * time.Millisecond),
+		tlsDone:      started.Add(80 * time.Millisecond),
+		gotConn:      started.Add(70 * time.Millisecond),
+		wroteRequest: started.Add(90 * time.Millisecond),
+		firstByte:    started.Add(85 * time.Millisecond),
+	}).timeline(end)
+
+	assertTimelineInvariants(t, timeline, end.Sub(started))
+	if got := timeline[5].DurationMS; got != 0 {
+		t.Fatalf("out-of-order server callbacks produced %.3fms, want 0", got)
+	}
+}
+
+func TestRequestTraceTimelineHandlesReusedConnection(t *testing.T) {
+	t.Parallel()
+
+	started := time.Unix(1_700_000_200, 0)
+	end := started.Add(70 * time.Millisecond)
+	timeline := (requestTraceSnapshot{
+		started:          started,
+		requestReady:     started.Add(10 * time.Millisecond),
+		gotConn:          started.Add(25 * time.Millisecond),
+		wroteRequest:     started.Add(30 * time.Millisecond),
+		firstByte:        started.Add(60 * time.Millisecond),
+		connectionReused: true,
+	}).timeline(end)
+
+	for _, index := range []int{1, 2, 3} {
+		if timeline[index].DurationMS != 0 {
+			t.Errorf("reused connection phase %q = %.3fms, want 0", timeline[index].ID, timeline[index].DurationMS)
+		}
+	}
+	if got := timeline[4].DurationMS; got != 20 {
+		t.Fatalf("reused connection request phase = %.3fms, want 20ms", got)
+	}
+	if !strings.Contains(timeline[4].Description, "yeniden kullanıldı") {
+		t.Fatalf("reused connection description = %q", timeline[4].Description)
+	}
+	assertTimelineInvariants(t, timeline, end.Sub(started))
+}
+
 func TestRequestTraceUsesLockedSnapshotDuringConcurrentCallbacks(t *testing.T) {
 	t.Parallel()
 
 	clientConnection, serverConnection := net.Pipe()
 	defer clientConnection.Close()
 	defer serverConnection.Close()
-	trace := &requestTrace{start: time.Now()}
+	trace := &requestTrace{started: time.Now()}
 	callbacks := trace.clientTrace()
 	const iterations = 250
 
@@ -356,7 +548,7 @@ func TestRequestTraceUsesLockedSnapshotDuringConcurrentCallbacks(t *testing.T) {
 	go func() {
 		defer waitGroup.Done()
 		for range iterations {
-			callbacks.GotConn(httptrace.GotConnInfo{Conn: clientConnection})
+			callbacks.GotConn(httptrace.GotConnInfo{Conn: clientConnection, Reused: true})
 			callbacks.WroteRequest(httptrace.WroteRequestInfo{})
 			callbacks.GotFirstResponseByte()
 		}
@@ -375,8 +567,54 @@ func TestRequestTraceUsesLockedSnapshotDuringConcurrentCallbacks(t *testing.T) {
 	if snapshot.remoteAddr == "" {
 		t.Fatal("snapshot did not capture the remote address")
 	}
+	if snapshot.gotConn.IsZero() || !snapshot.connectionReused {
+		t.Fatalf(
+			"snapshot did not capture reused connection metadata: gotConn=%s reused=%t",
+			snapshot.gotConn,
+			snapshot.connectionReused,
+		)
+	}
 	if len(snapshot.timeline(time.Now())) == 0 {
 		t.Fatal("snapshot did not produce a timeline")
+	}
+}
+
+func assertTimelineInvariants(t *testing.T, timeline []TimelinePhase, total time.Duration) {
+	t.Helper()
+
+	totalMS := float64(total) / float64(time.Millisecond)
+	sumMS := 0.0
+	for _, phase := range timeline {
+		if phase.ID == "variables" || phase.ID == "contract" {
+			t.Errorf("timeline contains synthetic phase %q", phase.ID)
+		}
+		if phase.DurationMS < 0 || phase.DurationMS > totalMS {
+			t.Errorf(
+				"phase %q duration %.6fms is outside [0, %.6f]",
+				phase.ID,
+				phase.DurationMS,
+				totalMS,
+			)
+		}
+		if phase.Percent < 0 || phase.Percent > 100 {
+			t.Errorf("phase %q percent %.6f is outside [0, 100]", phase.ID, phase.Percent)
+		}
+		wantPercent := 0.0
+		if totalMS > 0 {
+			wantPercent = phase.DurationMS / totalMS * 100
+		}
+		if difference := phase.Percent - wantPercent; difference < -0.000001 || difference > 0.000001 {
+			t.Errorf(
+				"phase %q percent %.6f, want %.6f",
+				phase.ID,
+				phase.Percent,
+				wantPercent,
+			)
+		}
+		sumMS += phase.DurationMS
+	}
+	if sumMS > totalMS+0.000001 {
+		t.Errorf("timeline phases total %.6fms exceeds request total %.6fms", sumMS, totalMS)
 	}
 }
 

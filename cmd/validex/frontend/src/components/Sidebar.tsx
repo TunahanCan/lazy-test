@@ -5,14 +5,15 @@ import {
   importedEndpointTabID,
   importedRequestURL,
 } from "../lib/openapi";
+import { useLocale, useTranslation } from "../i18n";
 import type { BootstrapData, HTTPMethod, RequestTab } from "../lib/types";
 import { cn } from "../lib/utils";
 import { useWorkspaceStore } from "../stores/workspace";
-import { Button, MethodBadge } from "./ui";
+import { Button, MethodBadge } from "../shared/ui";
 
 const sections = [
-  { id: "requests", label: "Requests", icon: FileJson2 },
-  { id: "apis", label: "APIs", icon: Waypoints },
+  { id: "requests", labelKey: "sidebar.requests", icon: FileJson2 },
+  { id: "apis", labelKey: "sidebar.apis", icon: Waypoints },
 ] as const;
 
 const sidebarRowHeight = 31;
@@ -67,6 +68,7 @@ function RequestContext({
   node: SidebarNode;
   children: React.ReactNode;
 }) {
+  const t = useTranslation();
   const openTab = useWorkspaceStore((state) => state.openTab);
 
   return (
@@ -78,7 +80,7 @@ function RequestContext({
             className="menu-item"
             onSelect={() => openSidebarNode(node, openTab)}
           >
-            <FileJson2 size={15} /> Open request
+            <FileJson2 size={15} /> {t("sidebar.openRequest")}
           </ContextMenu.Item>
         </ContextMenu.Content>
       </ContextMenu.Portal>
@@ -87,6 +89,7 @@ function RequestContext({
 }
 
 export function Sidebar({ bootstrap: _bootstrap }: { bootstrap: BootstrapData }) {
+  const { locale, t } = useLocale();
   const [query, setQuery] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const [viewport, setViewport] = useState({ scrollTop: 0, height: 0 });
@@ -99,13 +102,13 @@ export function Sidebar({ bootstrap: _bootstrap }: { bootstrap: BootstrapData })
     section === "apis" ? (importedSpec?.endpoints.length ?? 0) : tabs.length;
 
   const visibleNodes = useMemo<SidebarNode[]>(() => {
-    const normalized = query.trim().toLocaleLowerCase("tr");
+    const normalized = query.trim().toLocaleLowerCase(locale);
     if (section === "apis") {
       if (!importedSpec) return [];
       return importedSpec.endpoints
         .filter((endpoint) =>
           `${endpoint.summary} ${endpoint.method} ${endpoint.path} ${endpoint.tags.join(" ")}`
-            .toLocaleLowerCase("tr")
+            .toLocaleLowerCase(locale)
             .includes(normalized),
         )
         .map((endpoint) => ({
@@ -123,7 +126,7 @@ export function Sidebar({ bootstrap: _bootstrap }: { bootstrap: BootstrapData })
     return tabs
       .filter((tab) =>
         `${tab.name} ${tab.method} ${tab.url}`
-          .toLocaleLowerCase("tr")
+          .toLocaleLowerCase(locale)
           .includes(normalized),
       )
       .map((tab) => ({
@@ -133,7 +136,7 @@ export function Sidebar({ bootstrap: _bootstrap }: { bootstrap: BootstrapData })
         url: tab.url,
         openApi: tab.openApi,
       }));
-  }, [importedSpec, query, section, tabs]);
+  }, [importedSpec, locale, query, section, tabs]);
 
   useEffect(() => {
     const scrollElement = scrollRef.current;
@@ -167,9 +170,9 @@ export function Sidebar({ bootstrap: _bootstrap }: { bootstrap: BootstrapData })
     }));
 
   return (
-    <aside className="sidebar" aria-label="Request navigation">
-      <nav className="sidebar-sections" aria-label="Request sections">
-        {sections.map(({ id, label, icon: Icon }) => {
+    <aside className="sidebar" aria-label={t("sidebar.navigation")}>
+      <nav className="sidebar-sections" aria-label={t("sidebar.sections")}>
+        {sections.map(({ id, labelKey, icon: Icon }) => {
           const count =
             id === "apis" ? (importedSpec?.endpoints.length ?? 0) : tabs.length;
           return (
@@ -181,10 +184,10 @@ export function Sidebar({ bootstrap: _bootstrap }: { bootstrap: BootstrapData })
                 setQuery("");
               }}
               aria-current={section === id ? "page" : undefined}
-              aria-label={label}
+              aria-label={t(labelKey)}
             >
               <Icon size={15} aria-hidden="true" />
-              <span>{label}</span>
+              <span>{t(labelKey)}</span>
               <span className="section-count">{count}</span>
             </button>
           );
@@ -193,8 +196,15 @@ export function Sidebar({ bootstrap: _bootstrap }: { bootstrap: BootstrapData })
 
       {section === "apis" && importedSpec && (
         <div className="sidebar-source" title={importedSpec.title}>
-          <strong>{importedSpec.title || "Imported OpenAPI"}</strong>
-          <span>{importedSpec.endpoints.length} endpoints</span>
+          <strong>{importedSpec.title || t("sidebar.importedOpenAPI")}</strong>
+          <span>
+            {t(
+              importedSpec.endpoints.length === 1
+                ? "sidebar.endpointCount.one"
+                : "sidebar.endpointCount.many",
+              { count: importedSpec.endpoints.length },
+            )}
+          </span>
         </div>
       )}
 
@@ -205,8 +215,16 @@ export function Sidebar({ bootstrap: _bootstrap }: { bootstrap: BootstrapData })
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder={`Search ${section}`}
-              aria-label={`Search ${section}`}
+              placeholder={
+                section === "apis"
+                  ? t("sidebar.searchAPIs")
+                  : t("sidebar.searchRequests")
+              }
+              aria-label={
+                section === "apis"
+                  ? t("sidebar.searchAPIs")
+                  : t("sidebar.searchRequests")
+              }
             />
           </label>
         </div>
@@ -216,7 +234,6 @@ export function Sidebar({ bootstrap: _bootstrap }: { bootstrap: BootstrapData })
         <div
           ref={scrollRef}
           className="tree-scroll"
-          tabIndex={0}
           onScroll={(event) =>
             setViewport({
               scrollTop: event.currentTarget.scrollTop,
@@ -259,27 +276,31 @@ export function Sidebar({ bootstrap: _bootstrap }: { bootstrap: BootstrapData })
           )}
           <strong>
             {query.trim()
-              ? "Eşleşen request bulunamadı"
+              ? t("sidebar.noSearchResult")
               : section === "apis"
-                ? "Henüz OpenAPI içe aktarılmadı"
-                : "Henüz açık request yok"}
+                ? t("sidebar.noImportedOpenAPI")
+                : t("sidebar.noOpenRequest")}
           </strong>
           <span>
             {query.trim()
-              ? "Farklı bir arama terimi deneyin."
+              ? t("sidebar.tryDifferentSearch")
               : section === "apis"
-                ? "New menüsünden OpenAPI dosyanızı içe aktarın."
-                : "İlk API request’inizi oluşturarak başlayın."}
+                ? t("sidebar.importOpenAPIHint")
+                : t("sidebar.createFirstRequestHint")}
           </span>
           {!query.trim() && section === "requests" && (
             <Button
               size="sm"
               variant="primary"
               onClick={() =>
-                openTab({ name: "Untitled request", url: "", dirty: true })
+                openTab({
+                  name: t("chrome.untitledRequest"),
+                  url: "",
+                  dirty: true,
+                })
               }
             >
-              <FilePlus2 size={14} /> New request
+              <FilePlus2 size={14} /> {t("chrome.newRequest")}
             </Button>
           )}
         </div>

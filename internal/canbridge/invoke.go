@@ -28,6 +28,9 @@ var bridgeMethodNames = []string{
 	"AnalyzeThreadDump",
 	"SearchTraceLog",
 	"AnalyzeEndpointCoverage",
+	"RunCollection",
+	"AnalyzeNetwork",
+	"LintOpenAPI",
 }
 
 // Invoke dispatches the small, explicit API exposed to the frontend. Keeping an
@@ -160,6 +163,23 @@ func (b *Bridge) Invoke(method string, encodedArguments string) (result any, err
 			return nil, err
 		}
 		return b.AnalyzeEndpointCoverage(input), nil
+	case "RunCollection":
+		var input CollectionRunInput
+		if err := decodeArguments(encodedArguments, &input); err != nil {
+			return nil, err
+		}
+		return b.RunCollection(input), nil
+	case "AnalyzeNetwork":
+		var input NetworkInspectInput
+		if err := decodeArguments(encodedArguments, &input); err != nil {
+			return nil, err
+		}
+		return b.AnalyzeNetwork(input), nil
+	case "LintOpenAPI":
+		if err := requireNoArguments(encodedArguments); err != nil {
+			return nil, err
+		}
+		return b.LintOpenAPI(), nil
 	default:
 		return nil, fmt.Errorf("canbridge method %q is not registered", method)
 	}

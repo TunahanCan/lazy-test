@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "name": "Validex local smoke",
+  "variables": {
+    "baseUrl": "http://localhost:8080"
+  },
+  "requests": [
+    {
+      "id": "actuator-health",
+      "name": "Actuator health",
+      "method": "GET",
+      "url": "{{baseUrl}}/actuator/health",
+      "headers": {
+        "Accept": "application/json"
+      },
+      "timeoutMs": 5000,
+      "assertions": [
+        {
+          "id": "health-status",
+          "name": "HTTP status is 200",
+          "target": "status",
+          "operator": "equals",
+          "expected": 200
+        },
+        {
+          "id": "health-body",
+          "name": "Actuator status is UP",
+          "target": "json_path",
+          "path": "$.status",
+          "operator": "equals",
+          "expected": "UP"
+        },
+        {
+          "id": "health-duration",
+          "name": "Response is faster than two seconds",
+          "target": "duration_ms",
+          "operator": "less_than",
+          "expected": 2000
+        }
+      ]
+    }
+  ]
+}

@@ -9,6 +9,7 @@ import {
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
+import { LocaleProvider, localeStorageKey } from "../i18n";
 import { backend } from "../lib/backend";
 import type { BootstrapData, ImportedEndpoint } from "../lib/types";
 import {
@@ -41,7 +42,9 @@ const emptyBootstrap: BootstrapData = {
 
 function renderWithProviders(children: ReactNode) {
   return render(
-    <Tooltip.Provider>{children}</Tooltip.Provider>,
+    <LocaleProvider>
+      <Tooltip.Provider>{children}</Tooltip.Provider>
+    </LocaleProvider>,
   );
 }
 
@@ -57,6 +60,7 @@ function importedEndpoints(count: number): ImportedEndpoint[] {
 
 describe("workspace chrome simplification", () => {
   beforeEach(() => {
+    localStorage.clear();
     const tab = createRequestTab({ id: "workspace-chrome-test" });
     useWorkspaceStore.setState({
       activeEnvironmentID: "none",
@@ -109,7 +113,7 @@ describe("workspace chrome simplification", () => {
     expect(screen.getByText("Resource 0")).toBeVisible();
     expect(screen.getByText("Resource 9")).toBeVisible();
 
-    fireEvent.change(screen.getByRole("textbox", { name: "Search apis" }), {
+    fireEvent.change(screen.getByRole("textbox", { name: "Search APIs" }), {
       target: { value: "resource 9" },
     });
     expect(screen.queryByText("Resource 0")).not.toBeInTheDocument();
@@ -137,7 +141,7 @@ describe("workspace chrome simplification", () => {
     expect(screen.queryByRole("tab", { name: "Docs" })).not.toBeInTheDocument();
     expect(screen.queryByText("Resolution order")).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Secret değerlerini göster" }),
+      screen.queryByRole("button", { name: "Show secret values" }),
     ).not.toBeInTheDocument();
     expect(useWorkspaceStore.getState().tabs[0].headers).toEqual([]);
 
@@ -146,7 +150,7 @@ describe("workspace chrome simplification", () => {
     expect(screen.getAllByText("No Auth")).not.toHaveLength(0);
 
     const addAuthorization = screen.getByRole("button", {
-      name: "Authorization header ekle",
+      name: "Add Authorization header",
     });
     fireEvent.click(addAuthorization);
     fireEvent.click(addAuthorization);
@@ -158,14 +162,14 @@ describe("workspace chrome simplification", () => {
         enabled: false,
         key: "Authorization",
         value: "Bearer ",
-        description: "Kullanıcı tarafından eklendi",
+        description: "Added by user",
         source: "Manual",
       });
       expect(current.requestSection).toBe("headers");
     });
-    expect(screen.getByText("Authorization kapalı")).toBeVisible();
+    expect(screen.getByText("Authorization disabled")).toBeVisible();
     expect(
-      screen.getByRole("button", { name: "Headers’ta düzenle" }),
+      screen.getByRole("button", { name: "Edit in Headers" }),
     ).toBeVisible();
     expect(screen.queryByText("Bearer ")).not.toBeInTheDocument();
 
@@ -195,7 +199,7 @@ describe("workspace chrome simplification", () => {
     });
     expect(screen.getByText("{{baseUrl}}")).toBeVisible();
     expect(
-      screen.queryByRole("button", { name: "Secret değerlerini göster" }),
+      screen.queryByRole("button", { name: "Show secret values" }),
     ).not.toBeInTheDocument();
   });
 
@@ -213,13 +217,13 @@ describe("workspace chrome simplification", () => {
     expect(screen.getByText("3 open requests")).toBeVisible();
     expect(screen.getByText("1 running")).toBeVisible();
     expect(screen.getByText("1 failed")).toBeVisible();
-    expect(screen.getByText("Draft edited")).toBeVisible();
+    expect(screen.getByText("Draft saved locally")).toBeVisible();
     expect(screen.queryByText("Connected")).not.toBeInTheDocument();
     expect(screen.queryByText("Workspace saved")).not.toBeInTheDocument();
     expect(screen.queryByText("main")).not.toBeInTheDocument();
   });
 
-  it("opens at most eight imported endpoints and reports the actual count", async () => {
+  it("loads imported endpoints into the API browser without opening tabs", async () => {
     vi.spyOn(backend, "importOpenAPI").mockResolvedValueOnce({
       specId: "commerce-spec",
       path: "/tmp/openapi.yaml",
@@ -244,18 +248,18 @@ describe("workspace chrome simplification", () => {
     expect(
       await screen.findByRole("status", undefined, { timeout: 2_000 }),
     ).toHaveTextContent(
-      "Commerce API · 8 endpoint sekmede açıldı; 10 endpoint APIs bölümünde erişilebilir",
+      "Commerce API · 10 endpoints loaded. Open them from the APIs section.",
     );
-    expect(useWorkspaceStore.getState().tabs).toHaveLength(9);
-    expect(
-      useWorkspaceStore.getState().tabs.slice(1).every(
-        (tab) => tab.headers.length === 0,
-      ),
-    ).toBe(true);
+    expect(useWorkspaceStore.getState().tabs).toHaveLength(1);
     expect(
       useWorkspaceStore.getState().latestImportedSpec?.endpoints,
     ).toHaveLength(10);
     expect(useWorkspaceStore.getState().sidebarSection).toBe("apis");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Dismiss notification" }),
+    );
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
   it("shows rejected imports as an accessible alert", async () => {
@@ -274,7 +278,7 @@ describe("workspace chrome simplification", () => {
     );
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "OpenAPI içe aktarılamadı: native dialog unavailable",
+      "Couldn’t import OpenAPI: native dialog unavailable",
     );
   });
 
@@ -289,11 +293,26 @@ describe("workspace chrome simplification", () => {
     expect(screen.queryByText("Open history")).not.toBeInTheDocument();
     expect(screen.queryByText("Open collections")).not.toBeInTheDocument();
     expect(screen.queryByText("workspace items indexed")).not.toBeInTheDocument();
-    const footer = screen.getByText("9 available commands").closest(
+    const footer = screen.getByText("10 available commands").closest(
       ".palette-footer",
     );
     expect(footer).not.toHaveTextContent("Navigate");
     expect(footer).not.toHaveTextContent("Open");
+
+    const search = screen.getByRole("combobox", {
+      name: "Search command palette",
+    });
+    const options = screen.getAllByRole("option");
+    expect(options[0]).toHaveAttribute("aria-selected", "true");
+    expect(options.every((option) => option.tabIndex === -1)).toBe(true);
+    fireEvent.keyDown(search, { key: "ArrowDown" });
+    expect(options[1]).toHaveAttribute("aria-selected", "true");
+    fireEvent.keyDown(search, { key: "Enter" });
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Command palette" }),
+      ).not.toBeInTheDocument(),
+    );
   });
 
   it("reveals bootstrap technical details inside the error screen", async () => {
@@ -302,13 +321,35 @@ describe("workspace chrome simplification", () => {
     );
     renderWithProviders(<App />);
 
-    expect(await screen.findByText("Workspace açılamadı")).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Teknik ayrıntı" }));
+    expect(await screen.findByText("Couldn’t open workspace")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Technical details" }));
 
     await waitFor(() =>
       expect(
         screen.getByText(/Error: bridge initialization failed/),
       ).toBeVisible(),
     );
+  });
+
+  it("switches the full chrome language from settings and persists it", async () => {
+    renderWithProviders(<TopBar bootstrap={emptyBootstrap} />);
+
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "Layout and settings" }),
+      {
+        button: 0,
+        ctrlKey: false,
+        pointerType: "mouse",
+      },
+    );
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: /Türkçe/ }),
+    );
+
+    expect(screen.getByText("Komutlarda ara…")).toBeVisible();
+    await waitFor(() => {
+      expect(localStorage.getItem(localeStorageKey)).toBe("tr");
+      expect(document.documentElement.lang).toBe("tr");
+    });
   });
 });

@@ -9,11 +9,12 @@ import {
   ShieldAlert,
   Variable,
 } from "lucide-react";
+import { useTranslation } from "../i18n";
 import type { BootstrapData, RequestTab } from "../lib/types";
 import { missingVariables } from "../lib/schemas";
 import { isSecretKey } from "../lib/secrets";
 import { useWorkspaceStore } from "../stores/workspace";
-import { Button, IconButton } from "./ui";
+import { Button, IconButton } from "../shared/ui";
 
 export function ContextPanel({
   bootstrap,
@@ -22,6 +23,7 @@ export function ContextPanel({
   bootstrap: BootstrapData;
   tab?: RequestTab;
 }) {
+  const t = useTranslation();
   const environmentID = useWorkspaceStore((state) => state.activeEnvironmentID);
   const environmentVariables = useWorkspaceStore(
     (state) => state.environmentVariables,
@@ -52,12 +54,12 @@ export function ContextPanel({
       missingVariables(authorizationHeader.value, variables).length === 0,
   );
   const authorizationStatus = authorizationReady
-    ? "Ready"
+    ? t("context.ready")
     : authorizationHeader?.enabled
-      ? "Authorization eksik"
+      ? t("context.authorizationMissing")
       : authorizationHeader
-        ? "Authorization kapalı"
-        : "No Auth";
+        ? t("context.authorizationDisabled")
+        : t("context.noAuth");
 
   const openHeaders = () => {
     if (!currentTab) return;
@@ -86,7 +88,7 @@ export function ContextPanel({
           enabled: false,
           key: "Authorization",
           value: "Bearer ",
-          description: "Kullanıcı tarafından eklendi",
+          description: t("context.userAdded"),
           source: "Manual",
         },
       ],
@@ -98,24 +100,28 @@ export function ContextPanel({
   };
 
   return (
-    <aside className="context-panel" aria-label="Request context">
+    <aside className="context-panel" aria-label={t("context.panel")}>
       <Tabs.Root defaultValue="variables" className="context-tabs">
-        <Tabs.List aria-label="Context views">
+        <Tabs.List aria-label={t("context.views")}>
           <Tabs.Trigger value="variables">
             <Variable size={14} />
-            Variables
+            {t("context.variables")}
           </Tabs.Trigger>
           <Tabs.Trigger value="auth">
             <KeyRound size={14} />
-            Auth
+            {t("context.auth")}
           </Tabs.Trigger>
         </Tabs.List>
 
         <Tabs.Content value="variables" className="context-content">
           <div className="context-heading">
             <div>
-              <span>ACTIVE ENVIRONMENT</span>
-              <strong>{environment?.name}</strong>
+              <span>{t("context.activeEnvironment")}</span>
+              <strong>
+                {environment?.id === "none"
+                  ? t("chrome.noEnvironment")
+                  : environment?.name}
+              </strong>
             </div>
           </div>
           {variableEntries.length > 0 ? (
@@ -131,7 +137,7 @@ export function ContextPanel({
                       </span>
                     </div>
                     <IconButton
-                      label={`${key} değerini kopyala`}
+                      label={t("context.copyVariable", { key })}
                       onClick={() =>
                         void navigator.clipboard?.writeText(
                           secret ? `{{${key}}}` : value,
@@ -146,7 +152,7 @@ export function ContextPanel({
             </div>
           ) : (
             <p className="context-note">
-              Aktif environment herhangi bir variable içermiyor.
+              {t("context.noVariables")}
             </p>
           )}
           {hasSecrets && (
@@ -157,14 +163,13 @@ export function ContextPanel({
             >
               {showSecrets ? <EyeOff size={14} /> : <Eye size={14} />}
               {showSecrets
-                ? "Secret değerlerini gizle"
-                : "Secret değerlerini göster"}
+                ? t("context.hideSecrets")
+                : t("context.showSecrets")}
             </button>
           )}
           {variableEntries.length > 0 && (
             <p className="context-note">
-              Değerleri request içindeki Variables sekmesinden
-              düzenleyebilirsiniz.
+              {t("context.editVariablesHint")}
             </p>
           )}
         </Tabs.Content>
@@ -172,12 +177,12 @@ export function ContextPanel({
         <Tabs.Content value="auth" className="context-content">
           <div className="context-heading">
             <div>
-              <span>REQUEST AUTH</span>
+              <span>{t("context.requestAuth")}</span>
               <strong>{authorizationStatus}</strong>
             </div>
             {authorizationReady && (
               <span className="auth-status ready">
-                <Check size={12} /> Ready
+                <Check size={12} /> {t("context.ready")}
               </span>
             )}
           </div>
@@ -191,13 +196,13 @@ export function ContextPanel({
                   <ShieldAlert size={18} aria-hidden />
                 )}
                 <div>
-                  <strong>Authorization header</strong>
+                  <strong>{t("context.authorizationHeader")}</strong>
                   <span>
                     {authorizationHeader.enabled
                       ? authorizationReady
-                        ? "Etkin · değer gizli"
-                        : "Etkin ancak değer tamamlanmamış"
-                      : "Kapalı · request ile gönderilmez"}
+                        ? t("context.authEnabledHidden")
+                        : t("context.authEnabledIncomplete")
+                      : t("context.authDisabledNotSent")}
                   </span>
                   <code>••••••••••••••••</code>
                 </div>
@@ -207,21 +212,18 @@ export function ContextPanel({
                 onClick={openHeaders}
                 disabled={!currentTab}
               >
-                Headers’ta düzenle
+                {t("context.editInHeaders")}
               </Button>
               <p className="context-note">
-                Secret değer burada gösterilmez. Header yalnız etkinleştirildiğinde
-                request ile gönderilir.
+                {t("context.secretNotShown")}
               </p>
             </>
           ) : (
             <>
               <div className="auth-empty-state">
                 <KeyRound size={20} aria-hidden />
-                <strong>No Auth</strong>
-                <span>
-                  Bu request için kimlik doğrulama header’ı tanımlanmadı.
-                </span>
+                <strong>{t("context.noAuth")}</strong>
+                <span>{t("context.noAuthDescription")}</span>
               </div>
               <Button
                 variant="primary"
@@ -229,11 +231,10 @@ export function ContextPanel({
                 onClick={addAuthorizationHeader}
                 disabled={!currentTab}
               >
-                Authorization header ekle
+                {t("context.addAuthorization")}
               </Button>
               <p className="context-note">
-                Validex header’ı kapalı durumda ekler; siz değer girip
-                etkinleştirene kadar göndermez.
+                {t("context.authorizationOptIn")}
               </p>
             </>
           )}

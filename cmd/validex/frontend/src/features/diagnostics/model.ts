@@ -1,0 +1,457 @@
+import type { SpringErrorAnalysis } from "../../lib/developerTools";
+import type { Locale, TranslationKey } from "../../i18n";
+import type { Translate } from "../../i18n/LocaleProvider";
+import type {
+  CoverageInput,
+  EnvironmentCompareResult,
+  ResponseEnvelope,
+  UserError,
+} from "../../lib/types";
+
+export type DiagnosticsMode =
+  | "spring"
+  | "jwt"
+  | "runtime"
+  | "environments"
+  | "thread-logs"
+  | "coverage";
+
+export interface DiagnosticsNotice {
+  tone: "error" | "success" | "info";
+  text: string;
+  title?: string;
+  hint?: string;
+  technical?: string;
+}
+
+export interface PendingOperation {
+  id: number;
+  inputSignature: string;
+}
+
+export const diagnosticsModes: readonly DiagnosticsMode[] = [
+  "spring",
+  "jwt",
+  "runtime",
+  "environments",
+  "thread-logs",
+  "coverage",
+];
+
+export const defaultMetricNames = [
+  "jvm.memory.used",
+  "jvm.memory.max",
+  "jvm.threads.live",
+  "jvm.threads.blocked",
+  "jvm.gc.pause",
+  "hikaricp.connections.active",
+  "hikaricp.connections.idle",
+  "hikaricp.connections.pending",
+  "lettuce.command.completion",
+  "kafka.consumer.fetch.manager.records.lag.max",
+  "rabbitmq.consumed",
+  "rabbitmq.published",
+].join("\n");
+
+export const environmentMethods = [
+  "GET",
+  "HEAD",
+  "OPTIONS",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+] as const;
+
+const safeEnvironmentMethods: readonly string[] = ["GET", "HEAD", "OPTIONS"];
+
+interface TranslatedDiagnosticsError {
+  message: TranslationKey;
+  hint: TranslationKey;
+}
+
+const translatedDiagnosticsErrors: Readonly<
+  Record<string, TranslatedDiagnosticsError>
+> = {
+  invalid_input: {
+    message: "diagnostics.error.invalidInputMessage",
+    hint: "diagnostics.error.invalidInputHint",
+  },
+  unsafe_method: {
+    message: "diagnostics.error.unsafeMethodMessage",
+    hint: "diagnostics.error.unsafeMethodHint",
+  },
+  request_failed: {
+    message: "diagnostics.error.requestFailedMessage",
+    hint: "diagnostics.error.requestFailedHint",
+  },
+  response_too_large: {
+    message: "diagnostics.error.responseTooLargeMessage",
+    hint: "diagnostics.error.responseTooLargeHint",
+  },
+  invalid_response: {
+    message: "diagnostics.error.invalidResponseMessage",
+    hint: "diagnostics.error.invalidResponseHint",
+  },
+  limit_exceeded: {
+    message: "diagnostics.error.limitExceededMessage",
+    hint: "diagnostics.error.limitExceededHint",
+  },
+  diagnostic_failed: {
+    message: "diagnostics.error.diagnosticFailedMessage",
+    hint: "diagnostics.error.operationHint",
+  },
+  coverage_spec_missing: {
+    message: "diagnostics.error.coverageSpecMissingMessage",
+    hint: "diagnostics.error.coverageSpecMissingHint",
+  },
+};
+
+export function isSafeEnvironmentMethod(method: string): boolean {
+  return safeEnvironmentMethods.includes(method);
+}
+
+export function errorText(error: unknown): string {
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object") {
+    const candidate = error as Partial<UserError>;
+    const text = [candidate.title, candidate.message, candidate.hint]
+      .filter(Boolean)
+      .join(" · ");
+    if (text) return text;
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
+function structuredErrorDetails(error: Partial<UserError>): string | undefined {
+  const details = [error.title, error.message, error.hint, error.technical]
+    .filter((part): part is string => Boolean(part))
+    .join(" · ");
+  return details || undefined;
+}
+
+export function resultIssue(
+  result: { error?: UserError | string } | null,
+  t: Translate,
+): DiagnosticsNotice | null {
+  if (!result?.error) return null;
+  if (typeof result.error === "string") {
+    return {
+      tone: "error",
+      title: t("diagnostics.error.operationTitle"),
+      text: t("diagnostics.error.operationMessage"),
+      technical: result.error,
+    };
+  }
+  if (result.error.code === "backend_unavailable") {
+    return {
+      tone: "error",
+      title: t("diagnostics.error.bridgeTitle"),
+      text: t("diagnostics.error.operationMessage"),
+      hint: t("diagnostics.error.bridgeHint"),
+      technical: structuredErrorDetails(result.error),
+    };
+  }
+  const translated = translatedDiagnosticsErrors[result.error.code];
+  return {
+    tone: "error",
+    title: t("diagnostics.error.operationTitle"),
+    text: translated
+      ? t(translated.message)
+      : t("diagnostics.error.operationMessage"),
+    hint: translated
+      ? t(translated.hint)
+      : t("diagnostics.error.operationHint"),
+    technical: structuredErrorDetails(result.error),
+  };
+}
+
+export function bridgeIssue(
+  error: unknown,
+  message: string,
+  t: Translate,
+): DiagnosticsNotice {
+  return {
+    tone: "error",
+    title: t("diagnostics.error.bridgeTitle"),
+    text: message,
+    hint: t("diagnostics.error.bridgeHint"),
+    technical: errorText(error),
+  };
+}
+
+export function parseHeaders(
+  input: string,
+  t: Translate,
+): Record<string, string> {
+  const value = input.trim();
+  if (!value) return {};
+  if (value.startsWith("{")) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      throw new Error(t("diagnostics.error.headersJSON"));
+    }
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
+      throw new Error(t("diagnostics.error.headersObject"));
+    }
+    const headers: Record<string, string> = {};
+    for (const [key, item] of Object.entries(parsed)) {
+      if (!key.trim() || typeof item !== "string") {
+        throw new Error(t("diagnostics.error.headersText"));
+      }
+      headers[key.trim()] = item;
+    }
+    return headers;
+  }
+  const headers: Record<string, string> = {};
+  value.split("\n").forEach((rawLine, index) => {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) return;
+    const separator = line.indexOf(":");
+    if (separator < 1) {
+      throw new Error(
+        t("diagnostics.error.headerLine", { line: index + 1 }),
+      );
+    }
+    headers[line.slice(0, separator).trim()] = line
+      .slice(separator + 1)
+      .trim();
+  });
+  return headers;
+}
+
+export function parseList(input: string): string[] {
+  return input
+    .split(/[\n,]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+export function formatUnknown(value: unknown): string {
+  if (value === undefined) return "—";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+export function formatEpoch(value: number | undefined, locale: Locale): string {
+  if (value === undefined) return "—";
+  const date = new Date(value * 1000);
+  return Number.isNaN(date.getTime())
+    ? String(value)
+    : date.toLocaleString(locale);
+}
+
+export function formatEnvironmentDuration(
+  response: EnvironmentCompareResult["responses"][number],
+  locale: Locale,
+): string {
+  return `${response.durationMs.toLocaleString(locale)} ms`;
+}
+
+export function responseHeadersText(response?: ResponseEnvelope): string {
+  if (!response) return "";
+  const headers = { ...response.headers };
+  if (
+    response.traceId &&
+    !Object.keys(headers).some((key) =>
+      ["x-trace-id", "x-request-id", "traceparent"].includes(key.toLowerCase()),
+    )
+  ) {
+    headers["X-Trace-ID"] = [response.traceId];
+  }
+  return JSON.stringify(
+    Object.fromEntries(
+      Object.entries(headers).map(([key, values]) => [
+        key,
+        values.join(", "),
+      ]),
+    ),
+    null,
+    2,
+  );
+}
+
+export function componentStatus(value: unknown, t: Translate): string {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object") {
+    const status = (value as { status?: unknown }).status;
+    if (typeof status === "string") return status;
+  }
+  return t("diagnostics.runtime.unknown");
+}
+
+const springSuggestionKeys: Record<
+  SpringErrorAnalysis["category"],
+  readonly [
+    | "diagnostics.spring.advice.problemDetail.1"
+    | "diagnostics.spring.advice.validation.1"
+    | "diagnostics.spring.advice.unauthorized.1"
+    | "diagnostics.spring.advice.forbidden.1"
+    | "diagnostics.spring.advice.notFound.1"
+    | "diagnostics.spring.advice.conflict.1"
+    | "diagnostics.spring.advice.serverError.1"
+    | "diagnostics.spring.advice.httpError.1",
+    | "diagnostics.spring.advice.problemDetail.2"
+    | "diagnostics.spring.advice.validation.2"
+    | "diagnostics.spring.advice.unauthorized.2"
+    | "diagnostics.spring.advice.forbidden.2"
+    | "diagnostics.spring.advice.notFound.2"
+    | "diagnostics.spring.advice.conflict.2"
+    | "diagnostics.spring.advice.serverError.2"
+    | "diagnostics.spring.advice.httpError.2",
+  ]
+> = {
+  "problem-detail": [
+    "diagnostics.spring.advice.problemDetail.1",
+    "diagnostics.spring.advice.problemDetail.2",
+  ],
+  validation: [
+    "diagnostics.spring.advice.validation.1",
+    "diagnostics.spring.advice.validation.2",
+  ],
+  unauthorized: [
+    "diagnostics.spring.advice.unauthorized.1",
+    "diagnostics.spring.advice.unauthorized.2",
+  ],
+  forbidden: [
+    "diagnostics.spring.advice.forbidden.1",
+    "diagnostics.spring.advice.forbidden.2",
+  ],
+  "not-found": [
+    "diagnostics.spring.advice.notFound.1",
+    "diagnostics.spring.advice.notFound.2",
+  ],
+  conflict: [
+    "diagnostics.spring.advice.conflict.1",
+    "diagnostics.spring.advice.conflict.2",
+  ],
+  "server-error": [
+    "diagnostics.spring.advice.serverError.1",
+    "diagnostics.spring.advice.serverError.2",
+  ],
+  "http-error": [
+    "diagnostics.spring.advice.httpError.1",
+    "diagnostics.spring.advice.httpError.2",
+  ],
+};
+
+const springStatusSuggestionKeys = {
+  400: "diagnostics.spring.advice.status400",
+  401: "diagnostics.spring.advice.status401",
+  403: "diagnostics.spring.advice.status403",
+  500: "diagnostics.spring.advice.status500",
+} as const;
+
+export function springAdvice(
+  analysis: SpringErrorAnalysis,
+  t: Translate,
+): string[] {
+  const statusKey =
+    springStatusSuggestionKeys[
+      analysis.status as keyof typeof springStatusSuggestionKeys
+    ];
+  return [
+    ...springSuggestionKeys[analysis.category].map((key) => t(key)),
+    ...(statusKey ? [t(statusKey)] : []),
+  ].filter((item, index, items) => items.indexOf(item) === index);
+}
+
+export function jwtErrorText(error: unknown, t: Translate): string {
+  const message = errorText(error);
+  if (message === "JWT üç bölümden oluşmalıdır.") {
+    return t("diagnostics.jwt.threeParts");
+  }
+  if (message === "JWT bölümü base64url olarak çözülemedi.") {
+    return t("diagnostics.jwt.invalidBase64");
+  }
+  return message;
+}
+
+export function localizeSpringFallbacks(
+  analysis: SpringErrorAnalysis,
+  rawBody: string,
+  t: Translate,
+): SpringErrorAnalysis {
+  let body: Record<string, unknown> = {};
+  try {
+    const parsed: unknown = JSON.parse(rawBody);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      body = parsed as Record<string, unknown>;
+    }
+  } catch {
+    // Invalid response bodies are still useful for status-based diagnostics.
+  }
+  const hasText = (...names: string[]) =>
+    names.some(
+      (name) => typeof body[name] === "string" && body[name].trim() !== "",
+    );
+  const titleKeys = {
+    "problem-detail": "diagnostics.spring.defaultTitle.problemDetail",
+    validation: "diagnostics.spring.defaultTitle.validation",
+    unauthorized: "diagnostics.spring.defaultTitle.unauthorized",
+    forbidden: "diagnostics.spring.defaultTitle.forbidden",
+    "not-found": "diagnostics.spring.defaultTitle.notFound",
+    conflict: "diagnostics.spring.defaultTitle.conflict",
+    "server-error": "diagnostics.spring.defaultTitle.serverError",
+    "http-error": "diagnostics.spring.defaultTitle.httpError",
+  } as const;
+  return {
+    ...analysis,
+    title: hasText("title", "error")
+      ? analysis.title
+      : t(titleKeys[analysis.category]),
+    detail: hasText("detail", "message", "error_description")
+      ? analysis.detail
+      : t("diagnostics.spring.noDetails"),
+  };
+}
+
+export function parseKnownEndpoints(
+  input: string,
+  t: Translate,
+): CoverageInput["known"] {
+  return input
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"))
+    .map((line, index) => {
+      const match = line.match(/^([A-Za-z-]+)\s+(\S+)$/);
+      if (!match) {
+        throw new Error(
+          t("diagnostics.error.knownLine", { line: index + 1 }),
+        );
+      }
+      return { method: match[1].toUpperCase(), path: match[2] };
+    });
+}
+
+export function parseObservedCalls(
+  input: string,
+  t: Translate,
+): CoverageInput["observed"] {
+  return input
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"))
+    .map((line, index) => {
+      const match = line.match(/^([A-Za-z-]+)\s+(\S+?)(?:\s+\[(\d+)])?$/);
+      if (!match) {
+        throw new Error(
+          t("diagnostics.error.observedLine", { line: index + 1 }),
+        );
+      }
+      const count = match[3] ? Number(match[3]) : 1;
+      if (!Number.isSafeInteger(count) || count < 1) {
+        throw new Error(
+          t("diagnostics.error.observedCount", { line: index + 1 }),
+        );
+      }
+      return { method: match[1].toUpperCase(), path: match[2], count };
+    });
+}

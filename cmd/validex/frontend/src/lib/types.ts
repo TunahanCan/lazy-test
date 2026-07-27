@@ -14,7 +14,8 @@ export type WorkspaceView =
   | "mock"
   | "json"
   | "diagnostics"
-  | "protocols";
+  | "protocols"
+  | "automation";
 
 export interface KeyValue {
   id: string;
@@ -433,6 +434,136 @@ export interface CoverageResult {
     observedPaths?: string[];
   }>;
   unknownObserved?: Array<{ method: string; path: string; count: number }>;
+  error?: UserError;
+}
+
+export interface CollectionRunInput {
+  operationId: string;
+  definition: string;
+  variables: Record<string, string>;
+}
+
+export interface CollectionAssertion {
+  id?: string;
+  name?: string;
+  target: "status" | "header" | "body" | "json_path" | "duration_ms";
+  operator:
+    | "equals"
+    | "not_equals"
+    | "contains"
+    | "exists"
+    | "not_exists"
+    | "less_than"
+    | "greater_than"
+    | "matches";
+  path?: string;
+  expected?: unknown;
+}
+
+export interface CollectionAssertionResult {
+  assertion: CollectionAssertion;
+  passed: boolean;
+  actual?: unknown;
+  message?: string;
+  error?: string;
+}
+
+export interface CollectionRequestResult {
+  id?: string;
+  name?: string;
+  method: string;
+  url: string;
+  statusCode?: number;
+  headers?: Record<string, string[]>;
+  headersTruncated?: boolean;
+  body?: string;
+  bodyTruncated?: boolean;
+  durationMs: number;
+  assertions: CollectionAssertionResult[];
+  passed: boolean;
+  failure?: {
+    code: string;
+    message: string;
+    hint?: string;
+  };
+}
+
+export interface CollectionRunReport {
+  name?: string;
+  startedAt: string;
+  durationMs: number;
+  results: CollectionRequestResult[];
+  passed: number;
+  failed: number;
+}
+
+export interface CollectionRunResult {
+  report?: CollectionRunReport;
+  error?: UserError;
+}
+
+export interface NetworkInspectInput {
+  operationId: string;
+  url: string;
+  timeoutMs: number;
+  maxRedirects: number;
+  insecureSkipVerify: boolean;
+}
+
+export interface DNSLookup {
+  host: string;
+  ips: string[];
+  durationMs: number;
+}
+
+export interface RedirectHop {
+  url: string;
+  method: string;
+  statusCode: number;
+  location?: string;
+  durationMs: number;
+}
+
+export interface NetworkReport {
+  inputUrl: string;
+  dnsLookups: DNSLookup[];
+  hops: RedirectHop[];
+  finalUrl?: string;
+  finalStatusCode?: number;
+  totalDurationMs: number;
+  usedGetFallback: boolean;
+}
+
+export interface NetworkInspectResult {
+  report?: NetworkReport;
+  error?: UserError;
+}
+
+export interface OpenAPILintIssue {
+  code: string;
+  severity: "error" | "warning" | "info";
+  path: string;
+  message: string;
+  hint?: string;
+}
+
+export interface OpenAPILintReport {
+  issues: OpenAPILintIssue[];
+  summary: {
+    paths: number;
+    operations: number;
+    total: number;
+    errors: number;
+    warnings: number;
+    infos: number;
+  };
+  truncated: boolean;
+}
+
+export interface OpenAPILintResult {
+  path: string;
+  report?: OpenAPILintReport;
+  canceled: boolean;
   error?: UserError;
 }
 

@@ -2,6 +2,8 @@ import {
   type ActuatorInspectInput,
   type ActuatorInspectResult,
   type BootstrapData,
+  type CollectionRunInput,
+  type CollectionRunResult,
   type ContractCheckInput,
   type ContractCheckResult,
   type CoverageInput,
@@ -14,6 +16,9 @@ import {
   type LogSearchResult,
   type MockRoute,
   type MockServerSnapshot,
+  type NetworkInspectInput,
+  type NetworkInspectResult,
+  type OpenAPILintResult,
   type RequestInput,
   type SendResult,
   type SSEInput,
@@ -55,6 +60,9 @@ interface CanbridgeAPI {
     caseSensitive: boolean;
   }): Promise<LogSearchResult>;
   AnalyzeEndpointCoverage(input: CoverageInput): Promise<CoverageResult>;
+  RunCollection(input: CollectionRunInput): Promise<CollectionRunResult>;
+  AnalyzeNetwork(input: NetworkInspectInput): Promise<NetworkInspectResult>;
+  LintOpenAPI(): Promise<OpenAPILintResult>;
 }
 
 declare global {
@@ -309,6 +317,30 @@ export const backend = {
       coveragePercent: 0,
       endpoints: [],
       error: backendUnavailable("Endpoint coverage"),
+    };
+  },
+
+  async runCollection(input: CollectionRunInput): Promise<CollectionRunResult> {
+    const native = nativeBridge();
+    if (native) return native.RunCollection(input);
+    return { error: backendUnavailable("Collection Runner") };
+  },
+
+  async analyzeNetwork(
+    input: NetworkInspectInput,
+  ): Promise<NetworkInspectResult> {
+    const native = nativeBridge();
+    if (native) return native.AnalyzeNetwork(input);
+    return { error: backendUnavailable("DNS ve redirect analizi") };
+  },
+
+  async lintOpenAPI(): Promise<OpenAPILintResult> {
+    const native = nativeBridge();
+    if (native) return native.LintOpenAPI();
+    return {
+      path: "",
+      canceled: false,
+      error: backendUnavailable("OpenAPI lint"),
     };
   },
 };

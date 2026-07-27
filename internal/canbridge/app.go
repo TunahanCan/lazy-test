@@ -30,7 +30,9 @@ const (
 )
 
 type AppOptions struct {
+	AppID     string
 	Title     string
+	IconPNG   []byte
 	Width     int
 	Height    int
 	MinWidth  int
@@ -126,6 +128,7 @@ func Run(options AppOptions) error {
 	appContext, cancelApp := context.WithCancel(context.Background())
 	Startup(options.Bridge)(appContext)
 
+	prepareNativeApplication(options.AppID, options.Title)
 	nativeView := webview.New(options.Debug)
 	if nativeView == nil {
 		cancelApp()
@@ -136,6 +139,9 @@ func Run(options AppOptions) error {
 		webview:    nativeView,
 		bridge:     options.Bridge,
 		capability: capability,
+	}
+	if err := applyNativeWindowIcon(nativeView.Window(), options.IconPNG); err != nil {
+		log.Printf("[canbridge:warning] native application icon could not be applied: %v", err)
 	}
 
 	defer nativeView.Destroy()

@@ -1,0 +1,17 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Validex
+GenericName=API Workspace
+GenericName[tr]=API Çalışma Alanı
+Comment=Inspect APIs, OpenAPI contracts, Spring runtimes, and automation results
+Comment[tr]=API'leri, OpenAPI sözleşmelerini, Spring çalışma zamanlarını ve otomasyon sonuçlarını inceleyin
+Exec="@VALIDEX_EXEC@"
+TryExec=@VALIDEX_EXEC@
+Icon=com.validex.Validex
+Terminal=false
+Categories=Development;
+Keywords=API;HTTP;OpenAPI;Spring;JSON;WebSocket;gRPC;
+Keywords[tr]=API;HTTP;OpenAPI;Spring;JSON;WebSocket;gRPC;
+StartupNotify=true
+StartupWMClass=com.validex.Validex

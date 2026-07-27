@@ -28,6 +28,8 @@ var variablePattern = regexp.MustCompile(`\{\{\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*\}
 
 const (
 	maxHTTPResponseBodyBytes   = int64(16 << 20)
+	minHTTPRequestTimeoutMS    = 1
+	maxHTTPRequestTimeoutMS    = 300_000
 	maxCachedOpenAPISpecs      = 8
 	maxObservedCoverageEntries = 10_000
 )
@@ -147,12 +149,20 @@ func (b *Bridge) Bootstrap() BootstrapData {
 }
 
 func (b *Bridge) SendRequest(input RequestInput) SendResult {
+	requestTimeout, timeoutValid := requestTimeoutDuration(input.TimeoutMS)
+	if !timeoutValid {
+		return failed(
+			"invalid_request",
+			"Timeout geçerli değil",
+			"Request gönderilmedi çünkü timeout desteklenen aralığın dışında.",
+			fmt.Sprintf("Timeout değerini %d ile %d ms arasında girin.", minHTTPRequestTimeoutMS, maxHTTPRequestTimeoutMS),
+			"",
+		)
+	}
 	if strings.TrimSpace(input.ID) == "" {
 		input.ID = fmt.Sprintf("request-%d", time.Now().UnixNano())
 	}
-	if input.TimeoutMS <= 0 {
-		input.TimeoutMS = 30_000
-	}
+	started := time.Now()
 
 	resolvedURL, missing := resolveVariables(input.URL, input.Variables)
 	if len(missing) > 0 {
@@ -173,7 +183,7 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 		return failed("invalid_request", "URL fragment içeriyor", "URL’nin # işaretinden sonraki bölümü HTTP request’ine gönderilmez.", "Fragment bölümünü URL’den kaldırın.", "")
 	}
 
-	ctx, cancel := context.WithTimeout(b.operationContext(), time.Duration(input.TimeoutMS)*time.Millisecond)
+	ctx, cancel := context.WithTimeout(b.operationContext(), requestTimeout)
 	operation := &requestOperation{cancel: cancel}
 	b.mu.Lock()
 	if _, exists := b.cancels[input.ID]; exists {
@@ -198,8 +208,7 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 		b.mu.Unlock()
 	}()
 
-	start := time.Now()
-	trace := &requestTrace{start: start}
+	trace := &requestTrace{started: started}
 	ctx = httptrace.WithClientTrace(ctx, trace.clientTrace())
 
 	var body io.Reader
@@ -235,12 +244,13 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 	transport.DisableCompression = true
 	defer transport.CloseIdleConnections()
 	client := &http.Client{
-		Timeout:   time.Duration(input.TimeoutMS) * time.Millisecond,
+		Timeout:   requestTimeout,
 		Transport: transport,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
 	}
+	trace.mark(&trace.requestReady)
 	resp, err := client.Do(req)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -268,7 +278,7 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 		return responseTooLarge()
 	}
 	end := time.Now()
-	duration := end.Sub(start)
+	duration := end.Sub(started)
 	pretty := prettyBody(raw, resp.Header.Get("Content-Type"))
 	traceSnapshot := trace.snapshot()
 	timeline := traceSnapshot.timeline(end)
@@ -561,6 +571,13 @@ func failed(code, title, message, hint, technical string) SendResult {
 	return SendResult{Error: &UserError{Code: code, Title: title, Message: message, Hint: hint, Technical: technical}}
 }
 
+func requestTimeoutDuration(timeoutMS int) (time.Duration, bool) {
+	if timeoutMS < minHTTPRequestTimeoutMS || timeoutMS > maxHTTPRequestTimeoutMS {
+		return 0, false
+	}
+	return time.Duration(timeoutMS) * time.Millisecond, true
+}
+
 func resolveVariables(value string, variables map[string]string) (string, []string) {
 	missingSet := map[string]struct{}{}
 	resolved := variablePattern.ReplaceAllStringFunc(value, func(match string) string {
@@ -607,11 +624,9 @@ func methodAllowsBody(method string) bool {
 
 func prettyBody(raw []byte, contentType string) string {
 	if strings.Contains(strings.ToLower(contentType), "json") || json.Valid(raw) {
-		var value interface{}
-		if json.Unmarshal(raw, &value) == nil {
-			if formatted, err := json.MarshalIndent(value, "", "  "); err == nil {
-				return string(formatted)
-			}
+		var formatted bytes.Buffer
+		if err := json.Indent(&formatted, raw, "", "  "); err == nil {
+			return formatted.String()
 		}
 	}
 	return string(raw)
@@ -673,10 +688,12 @@ func allZeroHex(value string) bool {
 }
 
 type requestTrace struct {
-	mu                                                  sync.Mutex
-	start, dnsStart, dnsDone, connectStart, connectDone time.Time
-	tlsStart, tlsDone, wroteRequest, firstByte          time.Time
-	remoteAddr                                          string
+	mu                                           sync.Mutex
+	started, requestReady, dnsStart, dnsDone     time.Time
+	connectStart, connectDone, tlsStart, tlsDone time.Time
+	gotConn, wroteRequest, firstByte             time.Time
+	connectionReused                             bool
+	remoteAddr                                   string
 }
 
 func (t *requestTrace) clientTrace() *httptrace.ClientTrace {
@@ -688,11 +705,13 @@ func (t *requestTrace) clientTrace() *httptrace.ClientTrace {
 		TLSHandshakeStart: func() { t.mark(&t.tlsStart) },
 		TLSHandshakeDone:  func(_ tls.ConnectionState, _ error) { t.mark(&t.tlsDone) },
 		GotConn: func(info httptrace.GotConnInfo) {
+			t.mu.Lock()
+			t.gotConn = time.Now()
+			t.connectionReused = info.Reused
 			if info.Conn != nil && info.Conn.RemoteAddr() != nil {
-				t.mu.Lock()
 				t.remoteAddr = info.Conn.RemoteAddr().String()
-				t.mu.Unlock()
 			}
+			t.mu.Unlock()
 		},
 		WroteRequest:         func(_ httptrace.WroteRequestInfo) { t.mark(&t.wroteRequest) },
 		GotFirstResponseByte: func() { t.mark(&t.firstByte) },
@@ -706,65 +725,99 @@ func (t *requestTrace) mark(target *time.Time) {
 }
 
 type requestTraceSnapshot struct {
-	start, dnsStart, dnsDone, connectStart, connectDone time.Time
-	tlsStart, tlsDone, wroteRequest, firstByte          time.Time
-	remoteAddr                                          string
+	started, requestReady, dnsStart, dnsDone     time.Time
+	connectStart, connectDone, tlsStart, tlsDone time.Time
+	gotConn, wroteRequest, firstByte             time.Time
+	connectionReused                             bool
+	remoteAddr                                   string
 }
 
 func (t *requestTrace) snapshot() requestTraceSnapshot {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return requestTraceSnapshot{
-		start:        t.start,
-		dnsStart:     t.dnsStart,
-		dnsDone:      t.dnsDone,
-		connectStart: t.connectStart,
-		connectDone:  t.connectDone,
-		tlsStart:     t.tlsStart,
-		tlsDone:      t.tlsDone,
-		wroteRequest: t.wroteRequest,
-		firstByte:    t.firstByte,
-		remoteAddr:   t.remoteAddr,
+		started:          t.started,
+		requestReady:     t.requestReady,
+		dnsStart:         t.dnsStart,
+		dnsDone:          t.dnsDone,
+		connectStart:     t.connectStart,
+		connectDone:      t.connectDone,
+		tlsStart:         t.tlsStart,
+		tlsDone:          t.tlsDone,
+		gotConn:          t.gotConn,
+		wroteRequest:     t.wroteRequest,
+		firstByte:        t.firstByte,
+		connectionReused: t.connectionReused,
+		remoteAddr:       t.remoteAddr,
 	}
 }
 
 func (t requestTraceSnapshot) timeline(end time.Time) []TimelinePhase {
-	total := end.Sub(t.start)
+	total := end.Sub(t.started)
+	if t.started.IsZero() || total < 0 {
+		total = 0
+	}
 	phase := func(id, label string, duration time.Duration, description string) TimelinePhase {
-		ms := float64(duration.Microseconds()) / 1000
+		ms := float64(duration) / float64(time.Millisecond)
 		percent := 0.0
 		if total > 0 {
 			percent = float64(duration) / float64(total) * 100
 		}
 		return TimelinePhase{ID: id, Label: label, DurationMS: ms, Percent: percent, Description: description}
 	}
+
+	// Consume each measured interval in wire order. The cursor clips overlapping
+	// or out-of-order httptrace callbacks so one elapsed interval is never
+	// attributed to more than one phase.
+	cursor := t.started
 	durationBetween := func(start, finish time.Time) time.Duration {
-		if start.IsZero() || finish.IsZero() || finish.Before(start) {
+		if total <= 0 || start.IsZero() || finish.IsZero() {
 			return 0
 		}
+		if start.Before(t.started) {
+			start = t.started
+		}
+		if start.Before(cursor) {
+			start = cursor
+		}
+		if finish.After(end) {
+			finish = end
+		}
+		if !finish.After(start) {
+			return 0
+		}
+		cursor = finish
 		return finish.Sub(start)
 	}
-	waitStart := t.wroteRequest
-	if waitStart.IsZero() {
-		waitStart = t.start
+
+	preparation := durationBetween(t.started, t.requestReady)
+	dns := durationBetween(t.dnsStart, t.dnsDone)
+	tcp := durationBetween(t.connectStart, t.connectDone)
+	tlsHandshake := durationBetween(t.tlsStart, t.tlsDone)
+
+	requestStart := t.gotConn
+	requestDescription := ""
+	if t.connectionReused {
+		// No DNS/TCP/TLS callbacks occur for an idle connection. Attribute the
+		// real acquisition-and-write interval to request dispatch instead.
+		requestStart = t.requestReady
+		requestDescription = "Mevcut bağlantı yeniden kullanıldı."
 	}
-	downloadStart := t.firstByte
-	if downloadStart.IsZero() {
-		downloadStart = end
-	}
-	serverWait := durationBetween(waitStart, downloadStart)
+	requestWrite := durationBetween(requestStart, t.wroteRequest)
+	serverWait := durationBetween(t.wroteRequest, t.firstByte)
+	download := durationBetween(t.firstByte, end)
+
 	waitDescription := ""
 	if total > 0 && float64(serverWait)/float64(total) > .6 {
 		waitDescription = fmt.Sprintf("Toplam sürenin %%%.0f kadarı sunucu yanıtını beklerken geçti.", float64(serverWait)/float64(total)*100)
 	}
 	return []TimelinePhase{
-		phase("variables", "Variable resolution", 0, "Environment ve request değişkenleri çözüldü."),
-		phase("dns", "DNS", durationBetween(t.dnsStart, t.dnsDone), ""),
-		phase("tcp", "TCP connection", durationBetween(t.connectStart, t.connectDone), ""),
-		phase("tls", "TLS handshake", durationBetween(t.tlsStart, t.tlsDone), ""),
-		phase("preparation", "Request preparation", durationBetween(t.start, t.wroteRequest), ""),
+		phase("preparation", "Request preparation", preparation, ""),
+		phase("dns", "DNS", dns, ""),
+		phase("tcp", "TCP connection", tcp, ""),
+		phase("tls", "TLS handshake", tlsHandshake, ""),
+		phase("request", "Request send", requestWrite, requestDescription),
 		phase("server", "Server wait", serverWait, waitDescription),
-		phase("download", "Response download", durationBetween(downloadStart, end), ""),
-		phase("contract", "Contract validation", 0, "Contract doğrulaması isteğe bağlıdır."),
+		phase("download", "Response download", download, ""),
 	}
 }

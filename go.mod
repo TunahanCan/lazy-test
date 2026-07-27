@@ -9,6 +9,8 @@ require (
 	google.golang.org/grpc v1.79.3
 )
 
+replace github.com/webview/webview_go => github.com/lvlrt/webview_go v0.0.0-20250119213827-fc6fe8152db0
+
 require (
 	github.com/go-openapi/jsonpointer v0.22.4 // indirect
 	github.com/go-openapi/swag/jsonname v0.25.4 // indirect

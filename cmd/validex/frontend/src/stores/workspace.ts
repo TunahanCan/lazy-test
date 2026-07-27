@@ -209,13 +209,14 @@ interface WorkspaceState {
     key: string,
     value: string,
   ) => void;
+  removeEnvironmentVariable: (environmentID: string, key: string) => void;
   setActiveTab: (id: string) => void;
   openTab: (tab?: Partial<RequestTab>) => void;
   closeTab: (id: string, force?: boolean) => boolean;
   closeOtherTabs: (id: string) => void;
   closeTabsToRight: (id: string) => void;
   reopenClosedTab: () => void;
-  duplicateTab: (id: string) => void;
+  duplicateTab: (id: string, name: string) => void;
   reorderTab: (fromID: string, toID: string) => void;
   updateTab: (id: string, patch: Partial<RequestTab>) => void;
   setMethod: (id: string, method: HTTPMethod) => void;
@@ -295,6 +296,27 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             userError: undefined,
           })),
         })),
+      removeEnvironmentVariable: (environmentID, key) =>
+        set((state) => {
+          const current = {
+            ...(state.environmentVariables[environmentID] ?? {}),
+          };
+          delete current[key];
+          const environmentVariables = { ...state.environmentVariables };
+          if (Object.keys(current).length > 0) {
+            environmentVariables[environmentID] = current;
+          } else {
+            delete environmentVariables[environmentID];
+          }
+          return {
+            environmentVariables,
+            tabs: state.tabs.map((tab) => ({
+              ...tab,
+              error: false,
+              userError: undefined,
+            })),
+          };
+        }),
       setActiveTab: (id) => set({ activeTabID: id, activeView: "requests" }),
       openTab: (tab = {}) =>
         set((state) => {
@@ -394,13 +416,13 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             activeView: "requests",
           };
         }),
-      duplicateTab: (id) => {
+      duplicateTab: (id, name) => {
         const tab = get().tabs.find((candidate) => candidate.id === id);
         if (tab)
           get().openTab({
             ...tab,
             id: crypto.randomUUID(),
-            name: `${tab.name} copy`,
+            name,
             running: false,
             error: false,
             userError: undefined,
@@ -497,7 +519,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             state.activeView === "mock" ||
             state.activeView === "json" ||
             state.activeView === "diagnostics" ||
-            state.activeView === "protocols"
+            state.activeView === "protocols" ||
+            state.activeView === "automation"
               ? state.activeView
               : "requests",
           leftVisible: resetToWelcome

@@ -1,42 +1,59 @@
 import { AlertCircle, CircleDot, Files, LoaderCircle } from "lucide-react";
+import { useTranslation } from "../i18n";
 import type { BootstrapData } from "../lib/types";
 import { useWorkspaceStore } from "../stores/workspace";
 
 export function StatusBar({ bootstrap }: { bootstrap: BootstrapData }) {
+  const t = useTranslation();
   const tabs = useWorkspaceStore((state) => state.tabs);
   const activeTabID = useWorkspaceStore((state) => state.activeTabID);
   const active = tabs.find((tab) => tab.id === activeTabID);
   const runningCount = tabs.filter((tab) => tab.running).length;
   const failedCount = tabs.filter((tab) => tab.error && !tab.running).length;
   const activeStatus = active?.running
-    ? "Request running"
+    ? t("status.requestRunning")
     : active?.error
-      ? "Request failed"
+      ? t("status.requestFailed")
       : active?.response
-        ? `${active.response.statusCode} response received`
+        ? t("status.responseReceived", {
+            status: active.response.statusCode,
+          })
         : active?.dirty
-          ? "Draft edited"
+          ? t("status.draftSaved")
           : active
-            ? "Request ready"
-            : "No active request";
+            ? t("status.requestReady")
+            : t("status.noActiveRequest");
 
   return (
     <footer className="statusbar">
       <div>
         <span>
           <Files size={12} aria-hidden="true" />
-          {tabs.length} open {tabs.length === 1 ? "request" : "requests"}
+          {t(
+            tabs.length === 1
+              ? "status.openRequest.one"
+              : "status.openRequest.many",
+            { count: tabs.length },
+          )}
         </span>
         {runningCount > 0 && (
           <span>
             <LoaderCircle className="spin" size={12} aria-hidden="true" />
-            {runningCount} running
+            {t(
+              runningCount === 1
+                ? "status.running.one"
+                : "status.running.many",
+              { count: runningCount },
+            )}
           </span>
         )}
         {failedCount > 0 && (
           <span>
             <AlertCircle size={12} aria-hidden="true" />
-            {failedCount} failed
+            {t(
+              failedCount === 1 ? "status.failed.one" : "status.failed.many",
+              { count: failedCount },
+            )}
           </span>
         )}
       </div>

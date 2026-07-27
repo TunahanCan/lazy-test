@@ -2,7 +2,9 @@ package diagnostics
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -186,6 +188,69 @@ func TestDiffMetricSnapshots(t *testing.T) {
 	}
 	if live.Delta == nil || *live.Delta != 5 || live.PercentChange == nil || *live.PercentChange != 50 {
 		t.Fatalf("unexpected live metric delta: %#v", live)
+	}
+}
+
+func TestDiffMetricSnapshotsKeepsAllNumbersFiniteAndJSONSafe(t *testing.T) {
+	t.Parallel()
+	before := MetricSnapshot{Metrics: map[string]MetricSample{
+		"zero.baseline":    {Measurements: map[string]float64{"VALUE": 0}},
+		"percent.overflow": {Measurements: map[string]float64{"VALUE": math.SmallestNonzeroFloat64}},
+		"delta.overflow":   {Measurements: map[string]float64{"VALUE": -math.MaxFloat64}},
+		"nan.before":       {Measurements: map[string]float64{"VALUE": math.NaN()}},
+		"infinite.after":   {Measurements: map[string]float64{"VALUE": 1}},
+	}}
+	after := MetricSnapshot{Metrics: map[string]MetricSample{
+		"zero.baseline":    {Measurements: map[string]float64{"VALUE": 5}},
+		"percent.overflow": {Measurements: map[string]float64{"VALUE": 1}},
+		"delta.overflow":   {Measurements: map[string]float64{"VALUE": math.MaxFloat64}},
+		"nan.before":       {Measurements: map[string]float64{"VALUE": 2}},
+		"infinite.after":   {Measurements: map[string]float64{"VALUE": math.Inf(1)}},
+	}}
+
+	deltas := DiffMetricSnapshots(before, after)
+	byMetric := make(map[string]MetricDelta, len(deltas))
+	for _, delta := range deltas {
+		byMetric[delta.Metric] = delta
+		for field, value := range map[string]*float64{
+			"before":  delta.Before,
+			"after":   delta.After,
+			"delta":   delta.Delta,
+			"percent": delta.PercentChange,
+		} {
+			if value != nil && !isFiniteMetricValue(*value) {
+				t.Fatalf("%s.%s = %v, want a finite value or nil", delta.Metric, field, *value)
+			}
+		}
+	}
+
+	zero := byMetric["zero.baseline"]
+	if zero.Before == nil || *zero.Before != 0 ||
+		zero.After == nil || *zero.After != 5 ||
+		zero.Delta == nil || *zero.Delta != 5 ||
+		zero.PercentChange != nil {
+		t.Fatalf("unexpected zero-baseline delta: %#v", zero)
+	}
+	percentOverflow := byMetric["percent.overflow"]
+	if percentOverflow.Delta == nil || *percentOverflow.Delta != 1 || percentOverflow.PercentChange != nil {
+		t.Fatalf("unexpected percent-overflow delta: %#v", percentOverflow)
+	}
+	deltaOverflow := byMetric["delta.overflow"]
+	if deltaOverflow.Before == nil || deltaOverflow.After == nil ||
+		deltaOverflow.Delta != nil || deltaOverflow.PercentChange != nil {
+		t.Fatalf("unexpected delta-overflow result: %#v", deltaOverflow)
+	}
+	nanBefore := byMetric["nan.before"]
+	if nanBefore.Before != nil || nanBefore.After == nil || nanBefore.Delta != nil {
+		t.Fatalf("unexpected NaN sanitization: %#v", nanBefore)
+	}
+	infiniteAfter := byMetric["infinite.after"]
+	if infiniteAfter.Before == nil || infiniteAfter.After != nil || infiniteAfter.Delta != nil {
+		t.Fatalf("unexpected infinity sanitization: %#v", infiniteAfter)
+	}
+
+	if _, err := json.Marshal(deltas); err != nil {
+		t.Fatalf("json.Marshal(DiffMetricSnapshots()) error = %v", err)
 	}
 }
 

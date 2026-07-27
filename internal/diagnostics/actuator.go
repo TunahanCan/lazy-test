@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"sort"
@@ -338,6 +339,8 @@ func DiffMetricSnapshots(before, after MetricSnapshot) []MetricDelta {
 		delta := MetricDelta{Metric: item.metric, Statistic: item.statistic}
 		beforeValue, beforeOK := before.Metrics[item.metric].Measurements[item.statistic]
 		afterValue, afterOK := after.Metrics[item.metric].Measurements[item.statistic]
+		beforeOK = beforeOK && isFiniteMetricValue(beforeValue)
+		afterOK = afterOK && isFiniteMetricValue(afterValue)
 		if beforeOK {
 			value := beforeValue
 			delta.Before = &value
@@ -348,13 +351,21 @@ func DiffMetricSnapshots(before, after MetricSnapshot) []MetricDelta {
 		}
 		if beforeOK && afterOK {
 			change := afterValue - beforeValue
-			delta.Delta = &change
-			if beforeValue != 0 {
+			if isFiniteMetricValue(change) {
+				delta.Delta = &change
+			}
+			if delta.Delta != nil && beforeValue != 0 {
 				percent := change / beforeValue * 100
-				delta.PercentChange = &percent
+				if isFiniteMetricValue(percent) {
+					delta.PercentChange = &percent
+				}
 			}
 		}
 		result = append(result, delta)
 	}
 	return result
+}
+
+func isFiniteMetricValue(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0)
 }

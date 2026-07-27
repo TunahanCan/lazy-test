@@ -5,8 +5,11 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { toolWorkspaceDefinitions } from "../app/workspaceRegistry";
+import { translate } from "../i18n";
 import { backend } from "../lib/backend";
 import type { BootstrapData } from "../lib/types";
 import {
@@ -72,10 +75,10 @@ describe("AppShell keyboard and layout guards", () => {
   it("fits both side panels and exposes keyboard-operable separators", async () => {
     const { container } = renderShell();
     const leftSeparator = screen.getByRole("separator", {
-      name: "Request panelini yeniden boyutlandır",
+      name: "Resize request panel",
     });
     const rightSeparator = screen.getByRole("separator", {
-      name: "Context panelini yeniden boyutlandır",
+      name: "Resize context panel",
     });
 
     expect(useWorkspaceStore.getState().leftWidth).toBe(440);
@@ -97,6 +100,67 @@ describe("AppShell keyboard and layout guards", () => {
       expect(useWorkspaceStore.getState().rightWidth).toBe(296);
       expect(leftSeparator).toHaveAttribute("aria-valuenow", "280");
     });
+  });
+
+  it("uses dismissible panel drawers on compact screens", async () => {
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 390,
+    });
+    const { container } = renderShell();
+
+    await waitFor(() => {
+      expect(
+        (container.querySelector(".workspace-layout") as HTMLElement).style
+          .gridTemplateColumns,
+      ).toBe("0px 0px minmax(0px, 1fr) 0px 0px");
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show request panel" }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Close request panel" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Close side panel" }),
+    ).toBeVisible();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Close request panel" }),
+    );
+    expect(
+      screen.queryByRole("button", { name: "Close request panel" }),
+    ).not.toBeInTheDocument();
+    expect(useWorkspaceStore.getState().leftVisible).toBe(true);
+  });
+
+  it("keeps the response vertically readable on compact screens", async () => {
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 390,
+    });
+    const tab = createRequestTab({ id: "compact-horizontal" });
+    useWorkspaceStore.setState({
+      tabs: [tab],
+      activeTabID: tab.id,
+      responsePlacement: "horizontal",
+    });
+    const { container } = renderShell();
+
+    await waitFor(() => {
+      expect(container.querySelector(".workspace-layout")).toHaveClass(
+        "compact-layout",
+      );
+    });
+    expect(container.querySelector(".request-workbench")).not.toHaveClass(
+      "response-horizontal",
+    );
+    expect(
+      screen.getByRole("separator", {
+        name: "Resize request and response areas",
+      }),
+    ).toHaveAttribute("aria-orientation", "horizontal");
   });
 
   it("preserves the wider center area required by horizontal responses", async () => {
@@ -147,11 +211,34 @@ describe("AppShell keyboard and layout guards", () => {
     fireEvent.click(screen.getByRole("button", { name: "Import OpenAPI" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "OpenAPI içe aktarılamadı: file dialog unavailable",
+      "Couldn’t import OpenAPI: file dialog unavailable",
     );
   });
 
-  it("keeps every welcome-screen import available in the API browser", async () => {
+  it("leaves the workspace unchanged when OpenAPI selection is canceled", async () => {
+    const importOpenAPI = vi
+      .spyOn(backend, "importOpenAPI")
+      .mockResolvedValueOnce({
+        specId: "",
+        path: "",
+        title: "",
+        version: "",
+        baseUrl: "",
+        endpoints: [],
+        canceled: true,
+      });
+    renderShell();
+
+    fireEvent.click(screen.getByRole("button", { name: "Import OpenAPI" }));
+
+    await waitFor(() => expect(importOpenAPI).toHaveBeenCalledOnce());
+    expect(useWorkspaceStore.getState().latestImportedSpec).toBeUndefined();
+    expect(useWorkspaceStore.getState().tabs).toHaveLength(0);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("loads every welcome-screen endpoint into the API browser without opening tabs", async () => {
     const endpoints = Array.from({ length: 10 }, (_, index) => ({
       id: `operation-${index}`,
       method: "GET" as const,
@@ -173,14 +260,45 @@ describe("AppShell keyboard and layout guards", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Import OpenAPI" }));
 
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Commerce API · 10 endpoints loaded. Open them from the APIs section.",
+    );
     await waitFor(() =>
-      expect(useWorkspaceStore.getState().tabs).toHaveLength(8),
+      expect(useWorkspaceStore.getState().latestImportedSpec?.endpoints).toHaveLength(
+        10,
+      ),
     );
     const state = useWorkspaceStore.getState();
-    expect(state.latestImportedSpec?.endpoints).toHaveLength(10);
-    expect(state.tabs.every((tab) => tab.headers.length === 0)).toBe(true);
+    expect(state.tabs).toHaveLength(0);
     expect(state.sidebarSection).toBe("apis");
     expect(state.leftVisible).toBe(true);
+  });
+
+  it("launches every quick tool from the workspace registry", () => {
+    renderShell();
+
+    const quickTools = screen.getByRole("region", { name: "Quick tools" });
+    expect(within(quickTools).getAllByRole("button")).toHaveLength(
+      toolWorkspaceDefinitions.length,
+    );
+
+    for (const definition of toolWorkspaceDefinitions) {
+      const label = translate("en", definition.labelKey);
+      const description = translate("en", definition.descriptionKey);
+      const launch = within(quickTools).getByRole("button", {
+        name: `Open ${label}`,
+      });
+      expect(launch).toHaveTextContent(label);
+      expect(launch).toHaveTextContent(description);
+
+      launch.focus();
+      expect(launch).toHaveFocus();
+      fireEvent.click(launch);
+      expect(useWorkspaceStore.getState().activeView).toBe(definition.id);
+
+      fireEvent.click(screen.getByRole("button", { name: "Requests" }));
+      expect(useWorkspaceStore.getState().activeView).toBe("requests");
+    }
   });
 
   it("loads developer workspaces on demand and returns to requests", async () => {
@@ -197,7 +315,7 @@ describe("AppShell keyboard and layout guards", () => {
     fireEvent.click(screen.getByRole("button", { name: "Requests" }));
     expect(
       await screen.findByRole("heading", {
-        name: "API çalışmalarınızı tek bir yerde toplayın.",
+        name: "Bring all your API work into one place.",
       }),
     ).toBeVisible();
 

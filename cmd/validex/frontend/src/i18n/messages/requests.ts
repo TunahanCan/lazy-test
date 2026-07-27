@@ -1,0 +1,679 @@
+import { defineMessages } from "./defineMessages";
+
+export const requestMessages = defineMessages(
+  {
+    "requests.untitled": "Untitled request",
+
+    "requests.welcome.eyebrow": "WELCOME TO VALIDEX",
+    "requests.welcome.title": "Bring all your API work into one place.",
+    "requests.welcome.description":
+      "Create your first request manually or import endpoints from an OpenAPI file.",
+    "requests.welcome.newRequest": "New request",
+    "requests.welcome.importing": "Importing…",
+    "requests.welcome.importOpenAPI": "Import OpenAPI",
+    "requests.welcome.quickTools": "Quick tools",
+    "requests.welcome.quickToolsDescription":
+      "Go directly to the workspace you need.",
+    "requests.welcome.openTool": "Open {tool}",
+    "requests.welcome.searchCommands": "Search commands",
+    "requests.welcome.reopenTab": "Reopen tab",
+
+    "requests.tabs.openRequests": "Open requests",
+    "requests.tabs.renameHint": "Double-click to rename",
+    "requests.tabs.localDraft": "Local draft",
+    "requests.tabs.running": "Request running",
+    "requests.tabs.error": "Request error",
+    "requests.tabs.closeNamed": "Close {name} tab",
+    "requests.tabs.cancelBeforeClose":
+      "Cancel the request before closing the tab",
+    "requests.tabs.rename": "Rename",
+    "requests.tabs.duplicate": "Duplicate",
+    "requests.tabs.duplicateName": "{name} copy",
+    "requests.tabs.pin": "Pin tab",
+    "requests.tabs.unpin": "Unpin tab",
+    "requests.tabs.closeOtherClean": "Close other clean tabs",
+    "requests.tabs.closeCleanRight": "Close clean tabs to the right",
+    "requests.tabs.reopenClosed": "Reopen closed tab",
+    "requests.tabs.close": "Close tab",
+    "requests.tabs.new": "New request tab",
+    "requests.tabs.closeDraftTitle": "Close draft tab?",
+    "requests.tabs.closeDraftDescription":
+      "“{name}” was saved locally. Closing it will remove it from the active workspace.",
+    "requests.tabs.closeDraftHint":
+      "You can reopen the most recently closed tab from the command palette.",
+    "requests.tabs.cancel": "Cancel",
+    "requests.tabs.closeDraft": "Close tab",
+    "requests.tabs.renameTitle": "Rename request",
+    "requests.tabs.renameDescription":
+      "A short, distinctive name makes switching between tabs easier.",
+    "requests.tabs.requestName": "Request name",
+    "requests.tabs.newName": "New request name",
+    "requests.tabs.updateName": "Update name",
+
+    "requests.workbench.section.params": "Params",
+    "requests.workbench.section.headers": "Headers",
+    "requests.workbench.section.body": "Body",
+    "requests.workbench.urlPlaceholder":
+      "https://api.example.com/v1/users or {{baseUrl}}/v1/users",
+    "requests.workbench.url": "Request URL",
+    "requests.workbench.missingVariable": "Missing variable",
+    "requests.workbench.cancel": "Cancel",
+    "requests.workbench.send": "Send",
+    "requests.workbench.completeVariables":
+      "Provide values for the missing variables",
+    "requests.workbench.enterValidURL": "Enter a valid HTTP or HTTPS URL",
+    "requests.workbench.moreSendOptions": "More send options",
+    "requests.workbench.copyAsCurl": "Copy as cURL",
+    "requests.workbench.missingVariables": "Missing variables: {variables}",
+    "requests.workbench.settings": "Request settings",
+    "requests.workbench.queryCount.one": "Params, {count} query parameter",
+    "requests.workbench.queryCount.many": "Params, {count} query parameters",
+    "requests.workbench.templateVariables": "Template variables",
+    "requests.workbench.workspace": "Workspace",
+    "requests.workbench.bodyUnavailable":
+      "{method} requests do not send a body. Choose POST, PUT, PATCH, or DELETE to use a body.",
+    "requests.workbench.resize": "Resize request and response areas",
+
+    "requests.validation.urlRequired": "Request URL is required.",
+    "requests.validation.urlWhitespace":
+      "The URL cannot contain leading or trailing spaces.",
+    "requests.validation.urlScheme":
+      "The URL must explicitly start with http:// or https://.",
+    "requests.validation.httpOnly": "Only HTTP and HTTPS URLs are supported.",
+    "requests.validation.userInfo":
+      "The URL cannot contain user credentials. Configure authentication in Headers.",
+    "requests.validation.fragment": "The URL cannot contain a fragment (#…).",
+    "requests.validation.invalidURL": "Enter a valid HTTP or HTTPS URL.",
+    "requests.validation.invalidMethod": "The HTTP method is invalid.",
+
+    "requests.error.operationChanged.title":
+      "Request no longer matches the OpenAPI operation",
+    "requests.error.operationChanged.message":
+      "The edited URL path does not match {path}.",
+    "requests.error.operationChanged.hint":
+      "Restore the URL path to compare this response with the operation, or open a new tab from the OpenAPI file.",
+    "requests.error.contractCheck.title":
+      "Contract check couldn’t be completed",
+    "requests.error.contractCheck.message":
+      "An HTTP response was received, but the OpenAPI comparison could not run.",
+    "requests.error.emptyResponse.title": "Request couldn’t be completed",
+    "requests.error.emptyResponse.message":
+      "The backend did not return a valid response.",
+    "requests.error.emptyResponse.hint":
+      "Restart the application and try the request again.",
+    "requests.error.bridge.title": "Backend connection lost",
+    "requests.error.bridge.message":
+      "The request could not be sent to the native backend.",
+    "requests.error.bridge.hint": "Restart the application and try again.",
+    "requests.error.cancelNotFound.title": "Running request not found",
+    "requests.error.cancelNotFound.message":
+      "The backend did not find an active operation for this request.",
+    "requests.error.cancelNotFound.hint":
+      "Send the request again or restart the application.",
+    "requests.error.cancelFailed.title": "Couldn’t cancel request",
+    "requests.error.cancelFailed.message":
+      "The native backend did not respond to the cancellation command.",
+    "requests.error.cancelFailed.hint":
+      "Restart the application and try again.",
+    "requests.error.invalidRequest.title": "Invalid request",
+    "requests.error.invalidRequest.message":
+      "The method, URL, headers, body, or timeout is not valid.",
+    "requests.error.invalidRequest.hint":
+      "Review the request fields and try again.",
+    "requests.error.missingVariables.title": "Missing variables",
+    "requests.error.missingVariables.message":
+      "The request contains one or more variables without a value.",
+    "requests.error.missingVariables.hint":
+      "Provide the missing values in the active environment.",
+    "requests.error.alreadyRunning.title": "Request already running",
+    "requests.error.alreadyRunning.message":
+      "Another operation with the same request ID is still running.",
+    "requests.error.alreadyRunning.hint":
+      "Cancel the running request or wait for it to finish.",
+    "requests.error.canceled.title": "Request canceled",
+    "requests.error.canceled.message": "The request was stopped by the user.",
+    "requests.error.canceled.hint":
+      "The URL and form values remain available in this tab.",
+    "requests.error.timeout.title": "Request timed out",
+    "requests.error.timeout.message":
+      "The target did not respond before the request timeout.",
+    "requests.error.timeout.hint":
+      "Increase the timeout or check whether the target service is reachable.",
+    "requests.error.network.title": "Couldn’t reach server",
+    "requests.error.network.message":
+      "A network connection could not be established.",
+    "requests.error.network.hint":
+      "Check the base URL, VPN, proxy, and server status.",
+    "requests.error.failed.title": "Request failed",
+    "requests.error.failed.message":
+      "An unexpected connection error occurred.",
+    "requests.error.failed.hint":
+      "Compare the technical details with the service logs.",
+    "requests.error.responseRead.title": "Couldn’t read response",
+    "requests.error.responseRead.message":
+      "The server responded, but the response body could not be completed.",
+    "requests.error.responseRead.hint":
+      "Check the connection and send the request again.",
+    "requests.error.responseTooLarge.title": "Response exceeds limit",
+    "requests.error.responseTooLarge.message":
+      "The response body exceeded the safety limit, so the download was stopped.",
+    "requests.error.responseTooLarge.hint":
+      "Request a smaller data set or add pagination or filters to the endpoint.",
+
+    "requests.editor.method.select": "Select HTTP method",
+    "requests.editor.method.search": "Search method",
+    "requests.editor.query.label": "Query parameters",
+    "requests.editor.query.title": "Query parameters",
+    "requests.editor.query.description":
+      "Detected from the URL · changes are written directly to the URL.",
+    "requests.editor.query.add": "Add param",
+    "requests.editor.column.key": "Key",
+    "requests.editor.column.value": "Value",
+    "requests.editor.column.type": "Type",
+    "requests.editor.column.source": "Source",
+    "requests.editor.query.nameAt": "Query parameter {index} name",
+    "requests.editor.query.valueAt": "Query parameter {index} value",
+    "requests.editor.query.detected": "Detected from URL",
+    "requests.editor.query.deleteAt": "Delete query parameter {index}",
+    "requests.editor.query.empty":
+      "There are no query parameters in the URL. Add ?key=value to the URL or use “Add param”.",
+    "requests.editor.query.namePlaceholder": "Param name",
+    "requests.editor.query.newName": "New query parameter name",
+    "requests.editor.query.newValue": "New query parameter value",
+    "requests.editor.query.confirmAdd": "Add",
+    "requests.editor.query.cancelAdd": "Cancel adding query parameter",
+    "requests.editor.query.nameRequired":
+      "The query parameter name cannot be empty.",
+
+    "requests.editor.variables.title": "{scope} variables",
+    "requests.editor.variables.description":
+      "Used for variables in the URL, headers, and body.",
+    "requests.editor.variables.add": "Add variable",
+    "requests.editor.variables.removeOverride":
+      "Remove the {key} variable override",
+    "requests.editor.variables.environmentDefault": "Environment default",
+    "requests.editor.variables.name": "{key} variable name",
+    "requests.editor.variables.value": "{key} variable value",
+    "requests.editor.variables.empty":
+      "There are no variables yet. Add a value first if you plan to use an expression such as {{baseUrl}} in the URL.",
+    "requests.editor.variables.namePlaceholder": "Variable name",
+    "requests.editor.variables.newName": "New variable name",
+    "requests.editor.variables.newValue": "New variable value",
+    "requests.editor.variables.confirmAdd": "Add",
+    "requests.editor.variables.cancelAdd": "Cancel adding variable",
+    "requests.editor.variables.invalidName":
+      "The variable name must start with a letter or _.",
+    "requests.editor.variables.duplicate": "This variable already exists.",
+    "requests.editor.type.secret": "Secret",
+    "requests.editor.type.string": "String",
+    "requests.editor.source.override": "{scope} override",
+    "requests.editor.source.default": "Default",
+    "requests.editor.source.manual": "Manual",
+    "requests.editor.source.openapi": "OpenAPI",
+    "requests.editor.source.environment": "Environment",
+    "requests.editor.source.extracted": "Extracted",
+    "requests.editor.source.generated": "Generated",
+
+    "requests.editor.headers.title": "Request headers",
+    "requests.editor.headers.description":
+      "Repeated header names are supported.",
+    "requests.editor.headers.add": "Add header",
+    "requests.editor.headers.enabledAt": "Header {index} enabled",
+    "requests.editor.headers.namePlaceholder": "Header name",
+    "requests.editor.headers.nameAt": "Header {index} name",
+    "requests.editor.headers.valuePlaceholder": "Value or {{variable}}",
+    "requests.editor.headers.valueAt": "Header {index} value",
+    "requests.editor.headers.delete": "Delete header",
+    "requests.editor.headers.empty":
+      "No headers added. Validex does not add headers to the request automatically.",
+
+    "requests.editor.body.title": "JSON / raw body",
+    "requests.editor.body.format": "Format",
+    "requests.editor.body.minify": "Minify",
+    "requests.editor.body.invalidJSON":
+      "The JSON syntax is invalid. Fix the incorrect line.",
+    "requests.editor.body.minifyFailed":
+      "Couldn’t minify JSON; check the syntax.",
+    "requests.editor.body.loading": "Preparing editor…",
+
+    "requests.response.section.body": "Body",
+    "requests.response.section.headers": "Headers",
+    "requests.response.section.cookies": "Cookies",
+    "requests.response.section.timeline": "Timeline",
+    "requests.response.section.raw": "Raw",
+    "requests.response.section.contract": "Contract",
+    "requests.response.viewerLoading": "Preparing response viewer…",
+    "requests.response.formatted": "Formatted response",
+    "requests.response.copied": "Copied",
+    "requests.response.copyBody": "Copy body",
+    "requests.response.noHeaders.title": "This response has no headers",
+    "requests.response.noHeaders.description":
+      "Headers returned by the server will appear here.",
+    "requests.response.header": "Header",
+    "requests.response.value": "Value",
+    "requests.response.noCookies.title": "This response has no cookies",
+    "requests.response.noCookies.description":
+      "Set-Cookie headers will appear here with their security and expiry details.",
+    "requests.response.cookie": "Cookie",
+    "requests.response.valueAndAttributes": "Value and attributes",
+    "requests.response.cookie.domain": "Domain {value}",
+    "requests.response.cookie.path": "Path {value}",
+    "requests.response.cookie.expires": "Expires {value}",
+    "requests.response.finding.missing": "Missing field",
+    "requests.response.finding.extra": "Extra field",
+    "requests.response.finding.enum": "Enum violation",
+    "requests.response.finding.type": "Type or constraint",
+    "requests.response.contract.pending.title": "Contract check pending",
+    "requests.response.contract.pending.description":
+      "Requests opened from OpenAPI are compared with the actual response schema after they are sent.",
+    "requests.response.contract.ok.title":
+      "Response matches the OpenAPI contract",
+    "requests.response.contract.ok.description":
+      "No missing fields, extra fields, type differences, schema constraint violations, or enum differences were found for {method} {path}.",
+    "requests.response.contract.drift.one": "{count} contract difference found",
+    "requests.response.contract.drift.many":
+      "{count} contract differences found",
+    "requests.response.contract.truncated": "first 1000 shown",
+    "requests.response.contract.driftDescription":
+      "The response is usable, but the following fields do not match the OpenAPI schema.",
+    "requests.response.contract.jsonPath": "JSON path",
+    "requests.response.contract.difference": "Difference",
+    "requests.response.contract.expected": "Expected",
+    "requests.response.contract.actual": "Actual",
+    "requests.response.contract.specUnavailable.title":
+      "OpenAPI contract unavailable",
+    "requests.response.contract.specUnavailable.message":
+      "The OpenAPI document for this request is no longer in memory.",
+    "requests.response.contract.specUnavailable.hint":
+      "Import the OpenAPI file again.",
+    "requests.response.contract.schemaUnavailable.title":
+      "No JSON schema to compare",
+    "requests.response.contract.schemaUnavailable.message":
+      "No matching JSON media schema was found for the {status} response with content type {contentType}.",
+    "requests.response.contract.schemaUnavailable.hint":
+      "Add a JSON schema under this status or default response using the actual response media type.",
+    "requests.response.contract.operationUnavailable.title":
+      "OpenAPI operation unavailable",
+    "requests.response.contract.operationUnavailable.message":
+      "{method} {path} was not found in this document.",
+    "requests.response.timeline.preparation": "Request preparation",
+    "requests.response.timeline.dns": "DNS",
+    "requests.response.timeline.tcp": "TCP connection",
+    "requests.response.timeline.tls": "TLS handshake",
+    "requests.response.timeline.request": "Request send",
+    "requests.response.timeline.server": "Server wait",
+    "requests.response.timeline.download": "Response download",
+    "requests.response.timeline.reused": "Existing connection reused.",
+    "requests.response.timeline.slow":
+      "{percent}% of the total time was spent waiting for the server response.",
+    "requests.response.label": "Response",
+    "requests.response.unknownContentType": "Unknown content type",
+    "requests.response.sending": "Sending…",
+    "requests.response.canceled": "Canceled",
+    "requests.response.failed": "Request failed",
+    "requests.response.traceCopy": "Copy Trace ID",
+    "requests.response.views": "Response views",
+    "requests.response.loading.title": "Sending request…",
+    "requests.response.loading.description":
+      "You can stop it with the Cancel button above.",
+    "requests.response.technicalDetails": "Technical details",
+    "requests.response.empty.title": "No response yet",
+    "requests.response.empty.description":
+      "After you send the request, its status, duration, body, headers, and detailed timeline will appear here.",
+
+    "requests.openapiImport.empty": "{title} · No usable endpoints found.",
+    "requests.openapiImport.loaded.one":
+      "{title} · {count} endpoint loaded. Open it from the APIs section.",
+    "requests.openapiImport.loaded.many":
+      "{title} · {count} endpoints loaded. Open them from the APIs section.",
+    "requests.openapiImport.failed":
+      "Couldn’t import OpenAPI: {details}",
+    "requests.openapiImport.unexpected": "An unexpected error occurred.",
+    "requests.openapiImport.runtimeUnavailable":
+      "File picker unavailable: The desktop runtime is not ready yet.",
+    "requests.openapiImport.fileDialogFailed":
+      "Couldn’t select file: The system file picker did not complete.",
+    "requests.openapiImport.invalid":
+      "Couldn’t import OpenAPI: The file is not a valid OpenAPI document.",
+  },
+  {
+    "requests.untitled": "Adsız istek",
+
+    "requests.welcome.eyebrow": "VALIDEX’E HOŞ GELDİNİZ",
+    "requests.welcome.title": "Tüm API çalışmalarınızı tek bir yerde toplayın.",
+    "requests.welcome.description":
+      "İlk isteğinizi elle oluşturun veya endpoint’leri bir OpenAPI dosyasından içe aktarın.",
+    "requests.welcome.newRequest": "Yeni istek",
+    "requests.welcome.importing": "İçe aktarılıyor…",
+    "requests.welcome.importOpenAPI": "OpenAPI içe aktar",
+    "requests.welcome.quickTools": "Hızlı araçlar",
+    "requests.welcome.quickToolsDescription":
+      "İhtiyacınız olan çalışma alanına doğrudan geçin.",
+    "requests.welcome.openTool": "{tool} aracını aç",
+    "requests.welcome.searchCommands": "Komutlarda ara",
+    "requests.welcome.reopenTab": "Sekmeyi yeniden aç",
+
+    "requests.tabs.openRequests": "Açık istekler",
+    "requests.tabs.renameHint": "Yeniden adlandırmak için çift tıklayın",
+    "requests.tabs.localDraft": "Yerel taslak",
+    "requests.tabs.running": "İstek çalışıyor",
+    "requests.tabs.error": "İstek hatası",
+    "requests.tabs.closeNamed": "{name} sekmesini kapat",
+    "requests.tabs.cancelBeforeClose":
+      "Sekmeyi kapatmadan önce isteği iptal edin",
+    "requests.tabs.rename": "Yeniden adlandır",
+    "requests.tabs.duplicate": "Çoğalt",
+    "requests.tabs.duplicateName": "{name} kopyası",
+    "requests.tabs.pin": "Sekmeyi sabitle",
+    "requests.tabs.unpin": "Sekme sabitlemesini kaldır",
+    "requests.tabs.closeOtherClean": "Diğer temiz sekmeleri kapat",
+    "requests.tabs.closeCleanRight": "Sağdaki temiz sekmeleri kapat",
+    "requests.tabs.reopenClosed": "Kapatılan sekmeyi yeniden aç",
+    "requests.tabs.close": "Sekmeyi kapat",
+    "requests.tabs.new": "Yeni istek sekmesi",
+    "requests.tabs.closeDraftTitle": "Taslak sekme kapatılsın mı?",
+    "requests.tabs.closeDraftDescription":
+      "“{name}” yerel olarak kaydedildi. Kapatırsanız etkin çalışma alanından kaldırılacak.",
+    "requests.tabs.closeDraftHint":
+      "Son kapatılan sekmeyi komut paletinden yeniden açabilirsiniz.",
+    "requests.tabs.cancel": "İptal",
+    "requests.tabs.closeDraft": "Sekmeyi kapat",
+    "requests.tabs.renameTitle": "İsteği yeniden adlandır",
+    "requests.tabs.renameDescription":
+      "Kısa ve ayırt edilebilir bir ad, sekmeler arasında geçişi kolaylaştırır.",
+    "requests.tabs.requestName": "İstek adı",
+    "requests.tabs.newName": "Yeni istek adı",
+    "requests.tabs.updateName": "Adı güncelle",
+
+    "requests.workbench.section.params": "Parametreler",
+    "requests.workbench.section.headers": "Header’lar",
+    "requests.workbench.section.body": "Body",
+    "requests.workbench.urlPlaceholder":
+      "https://api.example.com/v1/users veya {{baseUrl}}/v1/users",
+    "requests.workbench.url": "İstek URL’si",
+    "requests.workbench.missingVariable": "Eksik değişken",
+    "requests.workbench.cancel": "İptal",
+    "requests.workbench.send": "Gönder",
+    "requests.workbench.completeVariables":
+      "Eksik değişken değerlerini tamamlayın",
+    "requests.workbench.enterValidURL":
+      "Geçerli bir HTTP veya HTTPS URL’si girin",
+    "requests.workbench.moreSendOptions": "Diğer gönderme seçenekleri",
+    "requests.workbench.copyAsCurl": "cURL olarak kopyala",
+    "requests.workbench.missingVariables": "Eksik değişkenler: {variables}",
+    "requests.workbench.settings": "İstek ayarları",
+    "requests.workbench.queryCount.one": "Parametreler, {count} sorgu parametresi",
+    "requests.workbench.queryCount.many":
+      "Parametreler, {count} sorgu parametresi",
+    "requests.workbench.templateVariables": "Şablon değişkenleri",
+    "requests.workbench.workspace": "Çalışma alanı",
+    "requests.workbench.bodyUnavailable":
+      "{method} istekleri body göndermez. Body kullanmak için POST, PUT, PATCH veya DELETE seçin.",
+    "requests.workbench.resize": "İstek ve yanıt alanlarını yeniden boyutlandır",
+
+    "requests.validation.urlRequired": "İstek URL’si gerekli.",
+    "requests.validation.urlWhitespace":
+      "URL’nin başında veya sonunda boşluk bulunamaz.",
+    "requests.validation.urlScheme":
+      "URL açıkça http:// veya https:// ile başlamalı.",
+    "requests.validation.httpOnly":
+      "Yalnızca HTTP ve HTTPS URL’leri desteklenir.",
+    "requests.validation.userInfo":
+      "URL kullanıcı bilgisi içeremez. Kimlik doğrulamayı Header’lar üzerinden yönetin.",
+    "requests.validation.fragment": "URL fragment (#…) içeremez.",
+    "requests.validation.invalidURL":
+      "Geçerli bir HTTP veya HTTPS URL’si girin.",
+    "requests.validation.invalidMethod": "HTTP metodu geçersiz.",
+
+    "requests.error.operationChanged.title":
+      "İstek artık OpenAPI operation ile eşleşmiyor",
+    "requests.error.operationChanged.message":
+      "Düzenlenen URL path’i {path} ile eşleşmiyor.",
+    "requests.error.operationChanged.hint":
+      "Bu yanıtı operation ile karşılaştırmak için URL path’ini geri alın veya OpenAPI dosyasından yeni bir sekme açın.",
+    "requests.error.contractCheck.title":
+      "Contract kontrolü tamamlanamadı",
+    "requests.error.contractCheck.message":
+      "HTTP yanıtı alındı ancak OpenAPI karşılaştırması çalışmadı.",
+    "requests.error.emptyResponse.title": "İstek tamamlanamadı",
+    "requests.error.emptyResponse.message":
+      "Backend geçerli bir yanıt döndürmedi.",
+    "requests.error.emptyResponse.hint":
+      "Uygulamayı yeniden başlatıp isteği tekrar deneyin.",
+    "requests.error.bridge.title": "Backend bağlantısı koptu",
+    "requests.error.bridge.message":
+      "İstek native backend’e iletilemedi.",
+    "requests.error.bridge.hint":
+      "Uygulamayı yeniden başlatıp tekrar deneyin.",
+    "requests.error.cancelNotFound.title": "Çalışan istek bulunamadı",
+    "requests.error.cancelNotFound.message":
+      "Backend bu istek için etkin bir işlem bulamadı.",
+    "requests.error.cancelNotFound.hint":
+      "İsteği yeniden gönderin veya uygulamayı yeniden başlatın.",
+    "requests.error.cancelFailed.title": "İstek iptal edilemedi",
+    "requests.error.cancelFailed.message":
+      "Native backend iptal komutuna yanıt vermedi.",
+    "requests.error.cancelFailed.hint":
+      "Uygulamayı yeniden başlatıp tekrar deneyin.",
+    "requests.error.invalidRequest.title": "İstek geçersiz",
+    "requests.error.invalidRequest.message":
+      "Metot, URL, header’lar, body veya timeout geçerli değil.",
+    "requests.error.invalidRequest.hint":
+      "İstek alanlarını kontrol edip tekrar deneyin.",
+    "requests.error.missingVariables.title": "Eksik değişkenler",
+    "requests.error.missingVariables.message":
+      "İstek, değeri tanımlanmamış bir veya daha fazla değişken içeriyor.",
+    "requests.error.missingVariables.hint":
+      "Eksik değerleri etkin ortamda tanımlayın.",
+    "requests.error.alreadyRunning.title": "İstek zaten çalışıyor",
+    "requests.error.alreadyRunning.message":
+      "Aynı istek ID’sine sahip başka bir işlem hâlâ çalışıyor.",
+    "requests.error.alreadyRunning.hint":
+      "Çalışan isteği iptal edin veya tamamlanmasını bekleyin.",
+    "requests.error.canceled.title": "İstek iptal edildi",
+    "requests.error.canceled.message": "İstek kullanıcı tarafından durduruldu.",
+    "requests.error.canceled.hint":
+      "URL ve form değerleri bu sekmede korunuyor.",
+    "requests.error.timeout.title": "İstek zaman aşımına uğradı",
+    "requests.error.timeout.message":
+      "Hedef, istek zaman aşımı dolmadan yanıt vermedi.",
+    "requests.error.timeout.hint":
+      "Timeout değerini artırın veya hedef servisin erişilebilirliğini kontrol edin.",
+    "requests.error.network.title": "Sunucuya ulaşılamadı",
+    "requests.error.network.message": "Ağ bağlantısı kurulamadı.",
+    "requests.error.network.hint":
+      "Base URL, VPN, proxy ve sunucu durumunu kontrol edin.",
+    "requests.error.failed.title": "İstek başarısız",
+    "requests.error.failed.message":
+      "Beklenmeyen bir bağlantı hatası oluştu.",
+    "requests.error.failed.hint":
+      "Teknik ayrıntıyı servis loglarıyla karşılaştırın.",
+    "requests.error.responseRead.title": "Yanıt okunamadı",
+    "requests.error.responseRead.message":
+      "Sunucu yanıt verdi ancak yanıt body’si tamamlanamadı.",
+    "requests.error.responseRead.hint":
+      "Bağlantıyı kontrol edip isteği yeniden gönderin.",
+    "requests.error.responseTooLarge.title": "Yanıt sınırı aştı",
+    "requests.error.responseTooLarge.message":
+      "Yanıt body’si güvenlik sınırını aştığı için indirme durduruldu.",
+    "requests.error.responseTooLarge.hint":
+      "Daha küçük bir veri kümesi isteyin veya endpoint’e sayfalama ya da filtre ekleyin.",
+
+    "requests.editor.method.select": "HTTP metodu seç",
+    "requests.editor.method.search": "Metotta ara",
+    "requests.editor.query.label": "Sorgu parametreleri",
+    "requests.editor.query.title": "Sorgu parametreleri",
+    "requests.editor.query.description":
+      "URL’den algılandı · değişiklikler doğrudan URL’ye yazılır.",
+    "requests.editor.query.add": "Parametre ekle",
+    "requests.editor.column.key": "Anahtar",
+    "requests.editor.column.value": "Değer",
+    "requests.editor.column.type": "Tür",
+    "requests.editor.column.source": "Kaynak",
+    "requests.editor.query.nameAt": "{index}. sorgu parametresinin adı",
+    "requests.editor.query.valueAt": "{index}. sorgu parametresinin değeri",
+    "requests.editor.query.detected": "URL’den algılandı",
+    "requests.editor.query.deleteAt": "{index}. sorgu parametresini sil",
+    "requests.editor.query.empty":
+      "URL’de sorgu parametresi yok. URL’ye ?key=value ekleyin veya “Parametre ekle”yi kullanın.",
+    "requests.editor.query.namePlaceholder": "Parametre adı",
+    "requests.editor.query.newName": "Yeni sorgu parametresinin adı",
+    "requests.editor.query.newValue": "Yeni sorgu parametresinin değeri",
+    "requests.editor.query.confirmAdd": "Ekle",
+    "requests.editor.query.cancelAdd":
+      "Sorgu parametresi eklemeyi iptal et",
+    "requests.editor.query.nameRequired":
+      "Sorgu parametresinin adı boş bırakılamaz.",
+
+    "requests.editor.variables.title": "{scope} değişkenleri",
+    "requests.editor.variables.description":
+      "URL, header ve body içindeki değişkenlerde kullanılır.",
+    "requests.editor.variables.add": "Değişken ekle",
+    "requests.editor.variables.removeOverride":
+      "{key} değişken override’ını kaldır",
+    "requests.editor.variables.environmentDefault": "Ortam varsayılanı",
+    "requests.editor.variables.name": "{key} değişkeninin adı",
+    "requests.editor.variables.value": "{key} değişkeninin değeri",
+    "requests.editor.variables.empty":
+      "Henüz değişken yok. URL’de {{baseUrl}} gibi bir ifade kullanacaksanız önce değerini ekleyin.",
+    "requests.editor.variables.namePlaceholder": "Değişken adı",
+    "requests.editor.variables.newName": "Yeni değişken adı",
+    "requests.editor.variables.newValue": "Yeni değişken değeri",
+    "requests.editor.variables.confirmAdd": "Ekle",
+    "requests.editor.variables.cancelAdd": "Değişken eklemeyi iptal et",
+    "requests.editor.variables.invalidName":
+      "Değişken adı harf veya _ ile başlamalıdır.",
+    "requests.editor.variables.duplicate": "Bu değişken zaten mevcut.",
+    "requests.editor.type.secret": "Gizli",
+    "requests.editor.type.string": "Metin",
+    "requests.editor.source.override": "{scope} override",
+    "requests.editor.source.default": "Varsayılan",
+    "requests.editor.source.manual": "Elle",
+    "requests.editor.source.openapi": "OpenAPI",
+    "requests.editor.source.environment": "Ortam",
+    "requests.editor.source.extracted": "Çıkarılan",
+    "requests.editor.source.generated": "Üretilen",
+
+    "requests.editor.headers.title": "İstek header’ları",
+    "requests.editor.headers.description":
+      "Tekrarlanan header adları desteklenir.",
+    "requests.editor.headers.add": "Header ekle",
+    "requests.editor.headers.enabledAt": "{index}. header etkin",
+    "requests.editor.headers.namePlaceholder": "Header adı",
+    "requests.editor.headers.nameAt": "{index}. header adı",
+    "requests.editor.headers.valuePlaceholder": "Değer veya {{variable}}",
+    "requests.editor.headers.valueAt": "{index}. header değeri",
+    "requests.editor.headers.delete": "Header’ı sil",
+    "requests.editor.headers.empty":
+      "Header eklenmedi. Validex isteğe otomatik header eklemez.",
+
+    "requests.editor.body.title": "JSON / raw body",
+    "requests.editor.body.format": "Biçimlendir",
+    "requests.editor.body.minify": "Küçült",
+    "requests.editor.body.invalidJSON":
+      "JSON sözdizimi geçerli değil. Hatalı satırı düzeltin.",
+    "requests.editor.body.minifyFailed":
+      "JSON küçültülemedi; sözdizimini kontrol edin.",
+    "requests.editor.body.loading": "Editör hazırlanıyor…",
+
+    "requests.response.section.body": "Body",
+    "requests.response.section.headers": "Header’lar",
+    "requests.response.section.cookies": "Cookie’ler",
+    "requests.response.section.timeline": "Zaman çizelgesi",
+    "requests.response.section.raw": "Ham",
+    "requests.response.section.contract": "Contract",
+    "requests.response.viewerLoading": "Yanıt görüntüleyici hazırlanıyor…",
+    "requests.response.formatted": "Biçimlendirilmiş yanıt",
+    "requests.response.copied": "Kopyalandı",
+    "requests.response.copyBody": "Body’yi kopyala",
+    "requests.response.noHeaders.title": "Bu yanıt header içermiyor",
+    "requests.response.noHeaders.description":
+      "Sunucudan header döndüğünde burada listelenir.",
+    "requests.response.header": "Header",
+    "requests.response.value": "Değer",
+    "requests.response.noCookies.title": "Bu yanıt cookie içermiyor",
+    "requests.response.noCookies.description":
+      "Set-Cookie header’ları alındığında güvenlik ve süre bilgileriyle burada listelenir.",
+    "requests.response.cookie": "Cookie",
+    "requests.response.valueAndAttributes": "Değer ve nitelikler",
+    "requests.response.cookie.domain": "Domain {value}",
+    "requests.response.cookie.path": "Path {value}",
+    "requests.response.cookie.expires": "Bitiş {value}",
+    "requests.response.finding.missing": "Eksik alan",
+    "requests.response.finding.extra": "Fazladan alan",
+    "requests.response.finding.enum": "Enum ihlali",
+    "requests.response.finding.type": "Tip veya kısıt",
+    "requests.response.contract.pending.title": "Contract kontrolü bekleniyor",
+    "requests.response.contract.pending.description":
+      "OpenAPI’den açılan istek gönderildiğinde gerçek yanıt şemasıyla karşılaştırılır.",
+    "requests.response.contract.ok.title":
+      "Yanıt OpenAPI contract ile uyumlu",
+    "requests.response.contract.ok.description":
+      "{method} {path} için eksik alan, fazladan alan, tip farkı, şema kısıtı ihlali veya enum farkı bulunmadı.",
+    "requests.response.contract.drift.one": "{count} contract farkı bulundu",
+    "requests.response.contract.drift.many": "{count} contract farkı bulundu",
+    "requests.response.contract.truncated": "ilk 1000 gösteriliyor",
+    "requests.response.contract.driftDescription":
+      "Yanıt kullanılabilir; aşağıdaki alanlar OpenAPI şemasıyla uyuşmuyor.",
+    "requests.response.contract.jsonPath": "JSON path",
+    "requests.response.contract.difference": "Fark",
+    "requests.response.contract.expected": "Beklenen",
+    "requests.response.contract.actual": "Gerçek",
+    "requests.response.contract.specUnavailable.title":
+      "OpenAPI contract bulunamadı",
+    "requests.response.contract.specUnavailable.message":
+      "Bu isteğin OpenAPI dokümanı artık bellekte değil.",
+    "requests.response.contract.specUnavailable.hint":
+      "OpenAPI dosyasını yeniden içe aktarın.",
+    "requests.response.contract.schemaUnavailable.title":
+      "Karşılaştırılacak JSON şeması yok",
+    "requests.response.contract.schemaUnavailable.message":
+      "{status} yanıtı için {contentType} content type ile eşleşen JSON media şeması bulunamadı.",
+    "requests.response.contract.schemaUnavailable.hint":
+      "Bu status veya default yanıt altına gerçek response media type ile eşleşen bir JSON şeması ekleyin.",
+    "requests.response.contract.operationUnavailable.title":
+      "OpenAPI operation bulunamadı",
+    "requests.response.contract.operationUnavailable.message":
+      "{method} {path} bu dokümanda bulunamadı.",
+    "requests.response.timeline.preparation": "İstek hazırlığı",
+    "requests.response.timeline.dns": "DNS",
+    "requests.response.timeline.tcp": "TCP bağlantısı",
+    "requests.response.timeline.tls": "TLS el sıkışması",
+    "requests.response.timeline.request": "İstek gönderimi",
+    "requests.response.timeline.server": "Sunucu bekleme",
+    "requests.response.timeline.download": "Yanıt indirme",
+    "requests.response.timeline.reused": "Mevcut bağlantı yeniden kullanıldı.",
+    "requests.response.timeline.slow":
+      "Toplam sürenin %{percent} kadarı sunucu yanıtını beklerken geçti.",
+    "requests.response.label": "Yanıt",
+    "requests.response.unknownContentType": "Bilinmeyen content type",
+    "requests.response.sending": "Gönderiliyor…",
+    "requests.response.canceled": "İptal edildi",
+    "requests.response.failed": "İstek başarısız",
+    "requests.response.traceCopy": "Trace ID’yi kopyala",
+    "requests.response.views": "Yanıt görünümleri",
+    "requests.response.loading.title": "İstek gönderiliyor…",
+    "requests.response.loading.description":
+      "Üstteki İptal düğmesiyle durdurabilirsiniz.",
+    "requests.response.technicalDetails": "Teknik ayrıntılar",
+    "requests.response.empty.title": "Henüz yanıt yok",
+    "requests.response.empty.description":
+      "İsteği gönderdiğinizde status, süre, body, header ve ayrıntılı zaman çizelgesi burada görünecek.",
+
+    "requests.openapiImport.empty":
+      "{title} · Açılabilir endpoint bulunamadı.",
+    "requests.openapiImport.loaded.one":
+      "{title} · {count} endpoint yüklendi. API’ler bölümünden açabilirsiniz.",
+    "requests.openapiImport.loaded.many":
+      "{title} · {count} endpoint yüklendi. API’ler bölümünden açabilirsiniz.",
+    "requests.openapiImport.failed":
+      "OpenAPI içe aktarılamadı: {details}",
+    "requests.openapiImport.unexpected": "Beklenmeyen bir hata oluştu.",
+    "requests.openapiImport.runtimeUnavailable":
+      "Dosya seçici açılamadı: Desktop runtime henüz hazır değil.",
+    "requests.openapiImport.fileDialogFailed":
+      "Dosya seçilemedi: Sistem dosya seçicisi tamamlanamadı.",
+    "requests.openapiImport.invalid":
+      "OpenAPI içe aktarılamadı: Dosya geçerli bir OpenAPI dokümanı değil.",
+  },
+);

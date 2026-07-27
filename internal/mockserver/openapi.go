@@ -184,37 +184,135 @@ func preferredMediaType(content openapi3.Content) *openapi3.MediaType {
 	return nil
 }
 
-const maxGeneratedArrayItems = 1000
+const (
+	maxGeneratedArrayItems           = 1000
+	maxGeneratedSchemaDepth          = 20
+	maxGeneratedSampleNodes          = int64(10_000)
+	maxGeneratedSampleEstimatedBytes = int64(1 << 20)
+
+	// CodeSampleGenerationLimitExceeded identifies safe mock-example generation
+	// limits without requiring callers to parse an error string.
+	CodeSampleGenerationLimitExceeded = "sample_generation_limit_exceeded"
+
+	sampleBudgetNodes          = "nodes"
+	sampleBudgetEstimatedBytes = "estimated_bytes"
+)
+
+// SampleGenerationLimitError is safe to surface to an end user and exposes
+// stable fields for callers that want to branch on the exhausted budget.
+type SampleGenerationLimitError struct {
+	Code      string `json:"code"`
+	Budget    string `json:"budget"`
+	Limit     int64  `json:"limit"`
+	Attempted int64  `json:"attempted"`
+	Message   string `json:"message"`
+	Hint      string `json:"hint,omitempty"`
+}
+
+func (e *SampleGenerationLimitError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.Hint == "" {
+		return e.Message
+	}
+	return e.Message + " " + e.Hint
+}
+
+type sampleGenerationBudget struct {
+	nodeLimit      int64
+	byteLimit      int64
+	nodesUsed      int64
+	estimatedBytes int64
+}
+
+func (b *sampleGenerationBudget) consumeNode() error {
+	attempted := b.nodesUsed + 1
+	if attempted > b.nodeLimit {
+		return &SampleGenerationLimitError{
+			Code:      CodeSampleGenerationLimitExceeded,
+			Budget:    sampleBudgetNodes,
+			Limit:     b.nodeLimit,
+			Attempted: attempted,
+			Message:   fmt.Sprintf("The OpenAPI response schema exceeds the safe mock-example node limit of %d.", b.nodeLimit),
+			Hint:      "Reduce nested properties, array minItems, or repeated schema references.",
+		}
+	}
+	b.nodesUsed = attempted
+	return nil
+}
+
+func (b *sampleGenerationBudget) consumeBytes(count int64) error {
+	attempted := b.estimatedBytes + count
+	if attempted > b.byteLimit {
+		return &SampleGenerationLimitError{
+			Code:      CodeSampleGenerationLimitExceeded,
+			Budget:    sampleBudgetEstimatedBytes,
+			Limit:     b.byteLimit,
+			Attempted: attempted,
+			Message:   fmt.Sprintf("The generated OpenAPI mock example exceeds the safe estimated size limit of %d bytes.", b.byteLimit),
+			Hint:      "Reduce property names, examples, defaults, or generated collection sizes.",
+		}
+	}
+	b.estimatedBytes = attempted
+	return nil
+}
+
+type schemaSampleVisitor struct {
+	activeSchemas map[*openapi3.Schema]bool
+	budget        sampleGenerationBudget
+}
+
+func newSchemaSampleVisitor(nodeLimit, byteLimit int64) *schemaSampleVisitor {
+	return &schemaSampleVisitor{
+		activeSchemas: make(map[*openapi3.Schema]bool),
+		budget: sampleGenerationBudget{
+			nodeLimit: nodeLimit,
+			byteLimit: byteLimit,
+		},
+	}
+}
 
 func sampleFromSchema(
 	ref *openapi3.SchemaRef,
-	seen map[*openapi3.Schema]bool,
+	activeSchemas map[*openapi3.Schema]bool,
 	depth int,
 ) (any, error) {
-	if ref == nil || ref.Value == nil || depth > 20 {
-		return nil, nil
+	visitor := newSchemaSampleVisitor(maxGeneratedSampleNodes, maxGeneratedSampleEstimatedBytes)
+	if activeSchemas != nil {
+		visitor.activeSchemas = activeSchemas
+	}
+	return visitor.visit(ref, depth)
+}
+
+func (v *schemaSampleVisitor) visit(ref *openapi3.SchemaRef, depth int) (any, error) {
+	if ref == nil || ref.Value == nil || depth > maxGeneratedSchemaDepth {
+		return v.literal(nil)
+	}
+	if err := v.budget.consumeNode(); err != nil {
+		return nil, err
 	}
 	schema := ref.Value
-	if seen[schema] {
-		return nil, nil
+	if v.activeSchemas[schema] {
+		return v.literal(nil)
 	}
-	seen[schema] = true
-	defer delete(seen, schema)
+	v.activeSchemas[schema] = true
+	defer delete(v.activeSchemas, schema)
 
 	if schema.Example != nil {
-		return schema.Example, nil
+		return v.literal(schema.Example)
 	}
 	if schema.Default != nil {
-		return schema.Default, nil
+		return v.literal(schema.Default)
 	}
 	if len(schema.Enum) > 0 {
-		return schema.Enum[0], nil
+		return v.literal(schema.Enum[0])
 	}
 	if len(schema.AllOf) > 0 {
 		merged := make(map[string]any)
 		var fallback any
 		for _, child := range schema.AllOf {
-			value, err := sampleFromSchema(child, seen, depth+1)
+			value, err := v.visit(child, depth+1)
 			if err != nil {
 				return nil, err
 			}
@@ -232,10 +330,10 @@ func sampleFromSchema(
 		return fallback, nil
 	}
 	if len(schema.OneOf) > 0 {
-		return sampleFromSchema(schema.OneOf[0], seen, depth+1)
+		return v.visit(schema.OneOf[0], depth+1)
 	}
 	if len(schema.AnyOf) > 0 {
-		return sampleFromSchema(schema.AnyOf[0], seen, depth+1)
+		return v.visit(schema.AnyOf[0], depth+1)
 	}
 
 	schemaType := ""
@@ -264,8 +362,22 @@ func sampleFromSchema(
 			names = append(names, name)
 		}
 		sort.Strings(names)
-		for _, name := range names {
-			value, err := sampleFromSchema(schema.Properties[name], seen, depth+1)
+		if err := v.budget.consumeBytes(2); err != nil {
+			return nil, err
+		}
+		for index, name := range names {
+			encodedName, err := json.Marshal(name)
+			if err != nil {
+				return nil, fmt.Errorf("encode property name %q: %w", name, err)
+			}
+			propertyBytes := int64(len(encodedName) + 1)
+			if index > 0 {
+				propertyBytes++
+			}
+			if err := v.budget.consumeBytes(propertyBytes); err != nil {
+				return nil, fmt.Errorf("property %q: %w", name, err)
+			}
+			value, err := v.visit(schema.Properties[name], depth+1)
 			if err != nil {
 				return nil, fmt.Errorf("property %q: %w", name, err)
 			}
@@ -274,22 +386,27 @@ func sampleFromSchema(
 		return object, nil
 	case "array":
 		count := 1
-		if schema.MinItems > 1 {
-			count = int(schema.MinItems)
-		}
 		if schema.MaxItems != nil && *schema.MaxItems == 0 {
 			count = 0
-		}
-		if count > maxGeneratedArrayItems {
+		} else if schema.MinItems > maxGeneratedArrayItems {
 			return nil, fmt.Errorf(
 				"minItems %d exceeds the safe generated-example limit %d",
 				schema.MinItems,
 				maxGeneratedArrayItems,
 			)
+		} else if schema.MinItems > 1 {
+			count = int(schema.MinItems)
+		}
+		arrayBytes := int64(2)
+		if count > 1 {
+			arrayBytes += int64(count - 1)
+		}
+		if err := v.budget.consumeBytes(arrayBytes); err != nil {
+			return nil, err
 		}
 		array := make([]any, count)
 		for index := range array {
-			value, err := sampleFromSchema(schema.Items, seen, depth+1)
+			value, err := v.visit(schema.Items, depth+1)
 			if err != nil {
 				return nil, fmt.Errorf("array item: %w", err)
 			}
@@ -309,7 +426,7 @@ func sampleFromSchema(
 				value--
 			}
 		}
-		return value, nil
+		return v.literal(value)
 	case "number":
 		value := 1.0
 		if schema.Min != nil {
@@ -323,29 +440,40 @@ func sampleFromSchema(
 				value = math.Nextafter(value, math.Inf(-1))
 			}
 		}
-		return value, nil
+		return v.literal(value)
 	case "boolean":
-		return true, nil
+		return v.literal(true)
 	case "string":
 		switch schema.Format {
 		case "date":
-			return "2024-01-01", nil
+			return v.literal("2024-01-01")
 		case "date-time":
-			return "2024-01-01T00:00:00Z", nil
+			return v.literal("2024-01-01T00:00:00Z")
 		case "email":
-			return "user@example.com", nil
+			return v.literal("user@example.com")
 		case "uuid":
-			return "00000000-0000-4000-8000-000000000000", nil
+			return v.literal("00000000-0000-4000-8000-000000000000")
 		case "uri", "url":
-			return "https://example.com", nil
+			return v.literal("https://example.com")
 		case "ipv4":
-			return "127.0.0.1", nil
+			return v.literal("127.0.0.1")
 		default:
-			return "string", nil
+			return v.literal("string")
 		}
 	case "null":
-		return nil, nil
+		return v.literal(nil)
 	default:
-		return map[string]any{}, nil
+		return v.literal(map[string]any{})
 	}
+}
+
+func (v *schemaSampleVisitor) literal(value any) (any, error) {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil, fmt.Errorf("estimate generated value: %w", err)
+	}
+	if err := v.budget.consumeBytes(int64(len(encoded))); err != nil {
+		return nil, err
+	}
+	return value, nil
 }

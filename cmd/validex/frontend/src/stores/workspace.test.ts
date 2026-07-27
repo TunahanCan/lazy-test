@@ -356,7 +356,9 @@ describe("workspace persistence", () => {
       activeTabID: running.id,
     });
 
-    useWorkspaceStore.getState().duplicateTab(running.id);
+    useWorkspaceStore
+      .getState()
+      .duplicateTab(running.id, "Untitled request copy");
 
     const duplicate = useWorkspaceStore.getState().tabs[1];
     expect(duplicate.id).not.toBe(running.id);

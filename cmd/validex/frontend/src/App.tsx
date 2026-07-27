@@ -1,28 +1,14 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { LoaderCircle } from "lucide-react";
+import { useApplyResolvedTheme } from "./app/useResolvedTheme";
 import { AppShell } from "./components/AppShell";
-import { EmptyState } from "./components/ui";
+import { useTranslation } from "./i18n";
 import { useBootstrap } from "./lib/queries";
-import { useWorkspaceStore } from "./stores/workspace";
-
-function useTheme() {
-  const theme = useWorkspaceStore((state) => state.theme);
-
-  useEffect(() => {
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const apply = () => {
-      const isDark = theme === "dark" || (theme === "system" && media.matches);
-      document.documentElement.dataset.theme = isDark ? "dark" : "light";
-      document.documentElement.style.colorScheme = isDark ? "dark" : "light";
-    };
-    apply();
-    media.addEventListener("change", apply);
-    return () => media.removeEventListener("change", apply);
-  }, [theme]);
-}
+import { EmptyState } from "./shared/ui";
 
 export function App() {
-  useTheme();
+  useApplyResolvedTheme();
+  const t = useTranslation();
   const [showBootstrapError, setShowBootstrapError] = useState(false);
   const bootstrap = useBootstrap();
 
@@ -30,7 +16,7 @@ export function App() {
     return (
       <main className="center-screen" aria-busy="true">
         <LoaderCircle className="spin" size={22} aria-hidden="true" />
-        <span>Workspace hazırlanıyor…</span>
+        <span>{t("app.workspacePreparing")}</span>
       </main>
     );
   }
@@ -38,27 +24,31 @@ export function App() {
   if (bootstrap.isError || !bootstrap.data) {
     const technicalError =
       bootstrap.error instanceof Error
-        ? `${bootstrap.error.name}: ${bootstrap.error.message}`
-        : bootstrap.error
-          ? String(bootstrap.error)
-          : "Başlangıç servisi ayrıntı sağlamadı.";
+          ? `${bootstrap.error.name}: ${bootstrap.error.message}`
+          : bootstrap.error
+            ? String(bootstrap.error)
+            : t("app.bootstrap.noDetails");
     return (
       <main className="center-screen">
         <EmptyState
           icon="error"
-          title="Workspace açılamadı"
+          title={t("app.bootstrap.title")}
           description={
             showBootstrapError
-              ? `Validex başlangıç verilerini yükleyemedi. Çalışmalarınız değiştirilmedi. Teknik ayrıntı: ${technicalError}`
-              : "Validex başlangıç verilerini yükleyemedi. Çalışmalarınız değiştirilmedi."
+              ? t("app.bootstrap.descriptionWithDetails", {
+                  details: technicalError,
+                })
+              : t("app.bootstrap.description")
           }
-          primaryLabel="Yeniden dene"
+          primaryLabel={t("app.bootstrap.retry")}
           onPrimary={() => {
             setShowBootstrapError(false);
             void bootstrap.refetch();
           }}
           secondaryLabel={
-            showBootstrapError ? "Ayrıntıyı gizle" : "Teknik ayrıntı"
+            showBootstrapError
+              ? t("app.bootstrap.hideDetails")
+              : t("app.bootstrap.showDetails")
           }
           onSecondary={() => setShowBootstrapError((visible) => !visible)}
         />

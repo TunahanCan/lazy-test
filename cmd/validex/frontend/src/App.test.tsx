@@ -9,6 +9,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
+import { LocaleProvider, localeStorageKey } from "./i18n";
 import { backend } from "./lib/backend";
 import type { SendResult } from "./lib/types";
 import {
@@ -45,9 +46,11 @@ const successfulSendResult: SendResult = {
 
 function renderApp() {
   return render(
-    <Tooltip.Provider>
-      <App />
-    </Tooltip.Provider>,
+    <LocaleProvider>
+      <Tooltip.Provider>
+        <App />
+      </Tooltip.Provider>
+    </LocaleProvider>,
   );
 }
 
@@ -83,6 +86,17 @@ describe("Validex workspace", () => {
     expect(screen.getByRole("tab", { name: "Params" })).toBeVisible();
   });
 
+  it("restores the Turkish interface preference across the request workspace", async () => {
+    localStorage.setItem(localeStorageKey, "tr");
+    renderApp();
+
+    expect(await screen.findByLabelText("Validex ana sayfa")).toBeVisible();
+    expect(screen.getByLabelText("İstek URL’si")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Gönder" })).toBeDisabled();
+    expect(screen.getByRole("tab", { name: "Parametreler" })).toBeVisible();
+    expect(document.documentElement.lang).toBe("tr");
+  });
+
   it("adds Authorization only after opt-in and syncs it into Headers", async () => {
     renderApp();
     await screen.findByLabelText("Validex home");
@@ -95,7 +109,7 @@ describe("Validex workspace", () => {
     expect(useWorkspaceStore.getState().tabs[0].headers).toEqual([]);
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Authorization header ekle" }),
+      screen.getByRole("button", { name: "Add Authorization header" }),
     );
 
     const requestSettings = screen.getByRole("tablist", {
@@ -106,11 +120,11 @@ describe("Validex workspace", () => {
         within(requestSettings).getByRole("tab", { name: "Headers" }),
       ).toHaveAttribute("aria-selected", "true"),
     );
-    expect(screen.getByLabelText("1. header adı")).toHaveValue(
+    expect(screen.getByLabelText("Header 1 name")).toHaveValue(
       "Authorization",
     );
-    expect(screen.getByLabelText("1. header değeri")).toHaveValue("Bearer ");
-    expect(screen.getByLabelText("1. header etkin")).not.toBeChecked();
+    expect(screen.getByLabelText("Header 1 value")).toHaveValue("Bearer ");
+    expect(screen.getByLabelText("Header 1 enabled")).not.toBeChecked();
     expect(useWorkspaceStore.getState().tabs[0].headers[0]).toMatchObject({
       enabled: false,
       key: "Authorization",
@@ -125,10 +139,12 @@ describe("Validex workspace", () => {
 
     expect(
       await screen.findByRole("heading", {
-        name: "API çalışmalarınızı tek bir yerde toplayın.",
+        name: "Bring all your API work into one place.",
       }),
     ).toBeVisible();
-    const welcome = screen.getByRole("main");
+    const welcome = screen.getByRole("region", {
+      name: "Bring all your API work into one place.",
+    });
     expect(
       within(welcome).getByRole("button", { name: "New request" }),
     ).toBeVisible();
@@ -146,7 +162,7 @@ describe("Validex workspace", () => {
     expect(
       await screen.findByRole("dialog", { name: "Command palette" }),
     ).toBeVisible();
-    expect(screen.getByRole("button", { name: /New request/i })).toBeVisible();
+    expect(screen.getByRole("option", { name: /New request/i })).toBeVisible();
   });
 
   it("keeps the pasted URL unchanged without accidental form submits", async () => {
@@ -166,14 +182,14 @@ describe("Validex workspace", () => {
     expect(url).toHaveValue(pastedURL);
 
     const methodButton = screen.getByRole("button", {
-      name: "HTTP method seç",
+      name: "Select HTTP method",
     });
     expect(methodButton).toHaveAttribute("type", "button");
     fireEvent.click(methodButton);
     expect(sendSpy).not.toHaveBeenCalled();
     fireEvent.keyDown(document, { key: "Escape" });
     expect(
-      screen.getByRole("button", { name: "Diğer gönderme seçenekleri" }),
+      screen.getByRole("button", { name: "More send options" }),
     ).toHaveAttribute("type", "button");
 
     fireEvent.blur(url);
@@ -207,7 +223,7 @@ describe("Validex workspace", () => {
     fireEvent.change(url, { target: { value: "http://localhost:8080/health" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
-    expect(await screen.findByText("Backend bağlantısı koptu")).toBeVisible();
+    expect(await screen.findByText("Backend connection lost")).toBeVisible();
     expect(
       useWorkspaceStore.getState().tabs[0].running,
     ).toBe(false);
@@ -215,7 +231,9 @@ describe("Validex workspace", () => {
     fireEvent.change(url, {
       target: { value: "http://localhost:8081/health" },
     });
-    expect(screen.queryByText("Backend bağlantısı koptu")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Backend connection lost"),
+    ).not.toBeInTheDocument();
     expect(useWorkspaceStore.getState().tabs[0].error).toBe(false);
   });
 
@@ -230,7 +248,7 @@ describe("Validex workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
 
-    expect(await screen.findByText("Çalışan request bulunamadı")).toBeVisible();
+    expect(await screen.findByText("Running request not found")).toBeVisible();
     expect(useWorkspaceStore.getState().tabs[0].running).toBe(false);
   });
 
@@ -246,7 +264,7 @@ describe("Validex workspace", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
-    expect(await screen.findByText("Backend bağlantısı koptu")).toBeVisible();
+    expect(await screen.findByText("Backend connection lost")).toBeVisible();
     expect(screen.queryByText("200 OK")).not.toBeInTheDocument();
     expect(useWorkspaceStore.getState().tabs[0].response).toBeUndefined();
   });
@@ -256,7 +274,7 @@ describe("Validex workspace", () => {
     const sendSpy = vi.spyOn(backend, "sendRequest");
     renderApp();
 
-    const baseURL = await screen.findByLabelText("baseUrl variable değeri");
+    const baseURL = await screen.findByLabelText("baseUrl variable value");
     fireEvent.change(baseURL, {
       target: { value: "http://127.0.0.1:18081" },
     });

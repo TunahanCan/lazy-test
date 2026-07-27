@@ -1,23 +1,22 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
-  Activity,
-  Braces,
   FilePlus2,
   FileJson2,
   LayoutPanelLeft,
   Moon,
-  RadioTower,
   RotateCcw,
   Search,
-  ServerCog,
   Sun,
   Waypoints,
 } from "lucide-react";
+import { toolWorkspaceDefinitions } from "../app/workspaceRegistry";
+import { useTranslation } from "../i18n";
+import { shortcutLabel } from "../lib/shortcuts";
 import type { BootstrapData } from "../lib/types";
 import { fuzzyMatch } from "../lib/utils";
+import { Kbd } from "../shared/ui";
 import { useWorkspaceStore } from "../stores/workspace";
-import { Kbd } from "./ui";
 
 interface CommandItem {
   id: string;
@@ -30,7 +29,9 @@ interface CommandItem {
 }
 
 export function CommandPalette({ bootstrap }: { bootstrap: BootstrapData }) {
+  const t = useTranslation();
   const [query, setQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
   const open = useWorkspaceStore((state) => state.commandPaletteOpen);
   const setOpen = useWorkspaceStore((state) => state.setCommandPaletteOpen);
   const openTab = useWorkspaceStore((state) => state.openTab);
@@ -47,18 +48,22 @@ export function CommandPalette({ bootstrap }: { bootstrap: BootstrapData }) {
     () => [
       {
         id: "new-request",
-        label: "New request",
-        group: "Create",
+        label: t("chrome.newRequest"),
+        group: t("palette.group.create"),
         keywords: "request istek yeni",
-        shortcut: "⌘ N",
+        shortcut: shortcutLabel("N"),
         icon: FilePlus2,
         action: () =>
-          openTab({ name: "Untitled request", url: "", dirty: true }),
+          openTab({
+            name: t("chrome.untitledRequest"),
+            url: "",
+            dirty: true,
+          }),
       },
       {
         id: "open-requests",
-        label: "Open requests",
-        group: "Navigate",
+        label: t("palette.openRequests"),
+        group: t("palette.group.navigate"),
         keywords: "request istek sidebar",
         icon: FileJson2,
         action: () => {
@@ -71,8 +76,8 @@ export function CommandPalette({ bootstrap }: { bootstrap: BootstrapData }) {
         ? [
             {
               id: "open-imported-apis",
-              label: "Open imported APIs",
-              group: "Navigate",
+              label: t("palette.openImportedAPIs"),
+              group: t("palette.group.navigate"),
               keywords: "openapi endpoints api sidebar",
               icon: Waypoints,
               action: () => {
@@ -83,58 +88,42 @@ export function CommandPalette({ bootstrap }: { bootstrap: BootstrapData }) {
             } satisfies CommandItem,
           ]
         : []),
-      {
-        id: "open-mock-server",
-        label: "Open Mock Server",
-        group: "Developer Tools",
-        keywords: "mock server openapi response",
-        icon: ServerCog,
-        action: () => setActiveView("mock"),
-      },
-      {
-        id: "open-json-lab",
-        label: "Open JSON Lab",
-        group: "Developer Tools",
-        keywords: "json format diff path schema",
-        icon: Braces,
-        action: () => setActiveView("json"),
-      },
-      {
-        id: "open-diagnostics",
-        label: "Open Diagnostics",
-        group: "Developer Tools",
-        keywords: "spring actuator jwt trace thread coverage environment",
-        icon: Activity,
-        action: () => setActiveView("diagnostics"),
-      },
-      {
-        id: "open-protocols",
-        label: "Open Protocols",
-        group: "Developer Tools",
-        keywords: "sse websocket grpc",
-        icon: RadioTower,
-        action: () => setActiveView("protocols"),
-      },
+      ...toolWorkspaceDefinitions.map(
+        (definition) =>
+          ({
+            id: `open-${definition.id}`,
+            label: t("palette.openWorkspace", {
+              workspace: t(definition.labelKey),
+            }),
+            group: t("palette.group.developerTools"),
+            keywords: definition.keywords,
+            icon: definition.icon,
+            action: () => setActiveView(definition.id),
+          }) satisfies CommandItem,
+      ),
       {
         id: "toggle-theme",
-        label: theme === "dark" ? "Use light theme" : "Use dark theme",
-        group: "Appearance",
+        label:
+          theme === "dark"
+            ? t("palette.useLightTheme")
+            : t("palette.useDarkTheme"),
+        group: t("palette.group.appearance"),
         keywords: "theme dark light tema",
         icon: theme === "dark" ? Sun : Moon,
         action: () => setTheme(theme === "dark" ? "light" : "dark"),
       },
       {
         id: "toggle-sidebar",
-        label: "Toggle request panel",
-        group: "Appearance",
+        label: t("palette.toggleRequestPanel"),
+        group: t("palette.group.appearance"),
         keywords: "sidebar panel layout",
         icon: LayoutPanelLeft,
         action: toggleLeft,
       },
       {
         id: "reset-layout",
-        label: "Reset panel layout",
-        group: "Appearance",
+        label: t("palette.resetPanelLayout"),
+        group: t("palette.group.appearance"),
         keywords: "panel reset default layout",
         icon: RotateCcw,
         action: resetLayout,
@@ -148,6 +137,7 @@ export function CommandPalette({ bootstrap }: { bootstrap: BootstrapData }) {
       setActiveView,
       setSidebarSection,
       setTheme,
+      t,
       theme,
       toggleLeft,
     ],
@@ -159,6 +149,10 @@ export function CommandPalette({ bootstrap }: { bootstrap: BootstrapData }) {
       query,
     ),
   );
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [open, query]);
 
   const runCommand = async (command: CommandItem) => {
     setOpen(false);
@@ -177,9 +171,11 @@ export function CommandPalette({ bootstrap }: { bootstrap: BootstrapData }) {
       <Dialog.Portal>
         <Dialog.Overlay className="dialog-overlay palette-overlay" />
         <Dialog.Content className="command-palette">
-          <Dialog.Title className="sr-only">Command palette</Dialog.Title>
+          <Dialog.Title className="sr-only">
+            {t("palette.title")}
+          </Dialog.Title>
           <Dialog.Description className="sr-only">
-            Uygulama komutlarını fuzzy search ile bulun.
+            {t("palette.description")}
           </Dialog.Description>
           <div className="palette-search">
             <Search size={18} aria-hidden="true" />
@@ -187,18 +183,61 @@ export function CommandPalette({ bootstrap }: { bootstrap: BootstrapData }) {
               autoFocus
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder={`Search ${bootstrap.workspaceName} commands…`}
-              aria-label="Command palette ara"
+              placeholder={t("palette.search", {
+                workspace: bootstrap.workspaceName,
+              })}
+              aria-label={t("palette.searchAria")}
+              role="combobox"
+              aria-autocomplete="list"
+              aria-controls="command-palette-results"
+              aria-expanded={open}
+              aria-activedescendant={
+                filtered[activeIndex]
+                  ? `command-option-${filtered[activeIndex].id}`
+                  : undefined
+              }
+              onKeyDown={(event) => {
+                if (event.key === "ArrowDown" && filtered.length > 0) {
+                  event.preventDefault();
+                  setActiveIndex((current) => (current + 1) % filtered.length);
+                }
+                if (event.key === "ArrowUp" && filtered.length > 0) {
+                  event.preventDefault();
+                  setActiveIndex(
+                    (current) =>
+                      (current - 1 + filtered.length) % filtered.length,
+                  );
+                }
+                if (
+                  event.key === "Enter" &&
+                  filtered[activeIndex] !== undefined
+                ) {
+                  event.preventDefault();
+                  void runCommand(filtered[activeIndex]);
+                }
+              }}
             />
             <Kbd>ESC</Kbd>
           </div>
-          <div className="palette-results">
+          <div
+            id="command-palette-results"
+            className="palette-results"
+            role="listbox"
+            aria-label={t("palette.title")}
+          >
             {filtered.length ? (
-              filtered.map((command) => {
+              filtered.map((command, index) => {
                 const Icon = command.icon;
                 return (
                   <button
+                    id={`command-option-${command.id}`}
                     key={command.id}
+                    type="button"
+                    role="option"
+                    tabIndex={-1}
+                    aria-selected={index === activeIndex}
+                    className={index === activeIndex ? "active" : undefined}
+                    onPointerMove={() => setActiveIndex(index)}
                     onClick={() => void runCommand(command)}
                   >
                     <span className="palette-icon">
@@ -214,12 +253,19 @@ export function CommandPalette({ bootstrap }: { bootstrap: BootstrapData }) {
               })
             ) : (
               <div className="palette-empty">
-                “{query}” için eşleşen komut bulunamadı.
+                {t("palette.noResult", { query })}
               </div>
             )}
           </div>
           <div className="palette-footer">
-            <span>{filtered.length} available commands</span>
+            <span>
+              {t(
+                filtered.length === 1
+                  ? "palette.available.one"
+                  : "palette.available.many",
+                { count: filtered.length },
+              )}
+            </span>
           </div>
         </Dialog.Content>
       </Dialog.Portal>
