@@ -1,4 +1,4 @@
-package wailsapp
+package canbridge
 
 // MockRoute is the desktop bridge representation of one deterministic mock
 // response.

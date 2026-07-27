@@ -35,9 +35,7 @@ jobs:
       - name: Test Go packages
         run: |
           go test ./...
-          go test -tags wails ./internal/wailsapp ./cmd/validex
           go vet ./...
-          go vet -tags wails ./internal/wailsapp ./cmd/validex
 
   native-macos:
     runs-on: macos-latest
@@ -55,14 +53,10 @@ jobs:
           cache: npm
           cache-dependency-path: cmd/validex/frontend/package-lock.json
 
-      - name: Install Wails
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+      - name: Test native bridge
+        run: |
+          go test -tags canbridge ./internal/canbridge ./cmd/validex
+          go vet -tags canbridge ./internal/canbridge ./cmd/validex
 
       - name: Build native application
-        working-directory: cmd/validex
-        run: |
-          go_bin="$(go env GOBIN)"
-          if [ -z "$go_bin" ]; then
-            go_bin="$(go env GOPATH)/bin"
-          fi
-          "$go_bin/wails" build -clean -m -nosyncgomod
+        run: make build

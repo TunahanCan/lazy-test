@@ -1,7 +1,6 @@
-//go:build wails
-
-// Package wailsapp exposes the typed application boundary consumed by the Wails frontend.
-package wailsapp
+// Package canbridge exposes the typed application boundary consumed by the
+// Validex frontend.
+package canbridge
 
 import (
 	"bytes"
@@ -23,8 +22,6 @@ import (
 
 	"validex/internal/core"
 	"validex/internal/mockserver"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 var variablePattern = regexp.MustCompile(`\{\{\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*\}\}`)
@@ -56,6 +53,7 @@ type Bridge struct {
 	observed        map[string]int
 	observedOrder   []string
 	observedNext    int
+	filePicker      filePicker
 }
 
 func NewBridge() *Bridge {
@@ -70,6 +68,7 @@ func NewBridge() *Bridge {
 		mock:            mockserver.New(mockserver.Options{}),
 		observed:        map[string]int{},
 		observedOrder:   make([]string, 0, maxObservedCoverageEntries),
+		filePicker:      systemFilePicker{},
 	}
 }
 
@@ -329,11 +328,9 @@ func (b *Bridge) ImportOpenAPI() ImportSpecResult {
 	if ctx == nil {
 		return ImportSpecResult{Error: &UserError{Code: "runtime_unavailable", Title: "Dosya seçici açılamadı", Message: "Desktop runtime henüz hazır değil."}}
 	}
-	path, err := runtime.OpenFileDialog(ctx, runtime.OpenDialogOptions{
-		Title: "OpenAPI dosyası seç",
-		Filters: []runtime.FileFilter{
-			{DisplayName: "OpenAPI", Pattern: "*.yaml;*.yml;*.json"},
-		},
+	path, err := b.filePicker.Open(ctx, fileDialogOptions{
+		Title:      "OpenAPI dosyası seç",
+		Extensions: []string{"yaml", "yml", "json"},
 	})
 	if err != nil {
 		return ImportSpecResult{Error: &UserError{Code: "file_dialog_failed", Title: "Dosya seçilemedi", Message: "Sistem dosya seçicisi tamamlanamadı.", Technical: err.Error()}}

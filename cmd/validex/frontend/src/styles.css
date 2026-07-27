@@ -281,14 +281,12 @@ kbd {
   border-bottom: 1px solid var(--border);
   background: var(--surface);
   -webkit-app-region: drag;
-  --wails-draggable: drag;
 }
 
 .topbar button,
 .topbar input,
 .topbar select {
   -webkit-app-region: no-drag;
-  --wails-draggable: no-drag;
 }
 
 .brand {

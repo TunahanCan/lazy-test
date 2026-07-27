@@ -1,76 +1,65 @@
-WAILS_VERSION := v2.12.0
-GO_BIN := $(shell go env GOBIN)
-ifeq ($(GO_BIN),)
-GO_BIN := $(shell go env GOPATH)/bin
-endif
-WAILS_BIN := $(GO_BIN)/wails
 APP_DIR := cmd/validex
 FRONTEND_DIR := $(APP_DIR)/frontend
+BUILD_DIR := $(APP_DIR)/build/bin
+DEV_URL := http://127.0.0.1:34116
+HOST_GOOS := $(shell go env GOOS)
 
-.PHONY: tools dev build test
+.PHONY: frontend-deps dev build test
 
-tools:
-	go install github.com/wailsapp/wails/v2/cmd/wails@$(WAILS_VERSION)
+frontend-deps:
+	cd $(FRONTEND_DIR) && npm ci
 
-dev: tools
-	cd $(APP_DIR) && $(WAILS_BIN) dev -m -nosyncgomod
-
-build: tools
-	cd $(APP_DIR) && $(WAILS_BIN) build -clean -m -nosyncgomod
+dev: frontend-deps
 	@set -eu; \
-	if [ "$$(uname -s)" = "Darwin" ]; then \
-		app="$(APP_DIR)/build/bin/Validex.app"; \
-		binary="$$app/Contents/MacOS/validex"; \
-		identity="$${MACOS_SIGN_IDENTITY:-}"; \
-		if [ "$$identity" = "-" ]; then \
-			echo "error: MACOS_SIGN_IDENTITY gerçek bir Apple signing identity olmalı"; \
+	cd $(FRONTEND_DIR) && npm run dev & \
+	vite_pid=$$!; \
+	trap 'kill "$$vite_pid" 2>/dev/null || true' EXIT INT TERM; \
+	attempt=0; \
+	until curl --fail --silent --show-error $(DEV_URL) >/dev/null 2>&1; do \
+		attempt=$$((attempt + 1)); \
+		if ! kill -0 "$$vite_pid" 2>/dev/null; then \
+			wait "$$vite_pid"; \
 			exit 1; \
 		fi; \
-		if [ -z "$$identity" ]; then \
-			identity_output="$$(security find-identity -v -p codesigning)"; \
-			identities="$$(echo "$$identity_output" | awk -F '"' '/"Apple Development:/ { print $$2 }')"; \
-			count="$$(echo "$$identities" | sed '/^$$/d' | wc -l | tr -d ' ')"; \
-			if [ "$$count" = "1" ]; then \
-				identity="$$identities"; \
-			elif [ "$$count" = "0" ]; then \
-				if [ "$${MACOS_SIGN_REQUIRED:-0}" = "1" ]; then \
-					echo "error: macOS signing identity bulunamadı"; \
-					exit 1; \
-				fi; \
-				echo "warning: macOS signing identity bulunamadı; Wails ad-hoc imzası korunuyor"; \
-				exit 0; \
-			else \
-				echo "error: birden fazla macOS signing identity bulundu; MACOS_SIGN_IDENTITY seçin"; \
-				exit 1; \
-			fi; \
+		if [ "$$attempt" -ge 100 ]; then \
+			echo "Vite development server did not start at $(DEV_URL)" >&2; \
+			exit 1; \
 		fi; \
-		test -x "$$binary"; \
-		timestamp_arg="--timestamp=none"; \
-		case "$$identity" in \
-			Developer\ ID\ Application:*) timestamp_arg="--timestamp" ;; \
-		esac; \
-		codesign --force --options runtime "$$timestamp_arg" --sign "$$identity" "$$binary"; \
-		codesign --force --options runtime "$$timestamp_arg" --sign "$$identity" "$$app"; \
-		codesign --verify --deep --strict --verbose=2 "$$app"; \
-		validate_signature() { \
-			signature="$$(codesign -dvvv "$$1" 2>&1)"; \
-			echo "$$signature" | grep -q '^Authority='; \
-			team="$$(echo "$$signature" | sed -n 's/^TeamIdentifier=//p' | head -n 1)"; \
-			test -n "$$team"; \
-			test "$$team" != "not set"; \
-			if echo "$$signature" | grep -q '^Signature=adhoc'; then \
-				echo "error: $$1 ad-hoc imzalı kaldı" >&2; \
-				return 1; \
-			fi; \
-			echo "$$team"; \
-		}; \
-		app_team="$$(validate_signature "$$app")"; \
-		binary_team="$$(validate_signature "$$binary")"; \
-		test "$$app_team" = "$$binary_team"; \
-		echo "macOS app signed: $$identity"; \
-	fi
+		sleep 0.1; \
+	done; \
+	CANBRIDGE_DEV_URL=$(DEV_URL) go run -tags canbridge ./$(APP_DIR)
 
-test:
-	cd $(FRONTEND_DIR) && npm ci && npm run typecheck && npm test
+build: frontend-deps
+	cd $(FRONTEND_DIR) && npm run build
+ifeq ($(HOST_GOOS),darwin)
+	@set -eu; \
+	rm -rf "$(APP_DIR)/build/bin/Validex.app"; \
+	mkdir -p "$(APP_DIR)/build/bin/Validex.app/Contents/MacOS"; \
+	mkdir -p "$(APP_DIR)/build/bin/Validex.app/Contents/Resources"; \
+	go build -tags canbridge -o "$(APP_DIR)/build/bin/Validex.app/Contents/MacOS/validex" ./$(APP_DIR); \
+	cp "$(APP_DIR)/build/darwin/Info.plist" "$(APP_DIR)/build/bin/Validex.app/Contents/Info.plist"; \
+	mkdir -p "$(APP_DIR)/build/bin/Validex.iconset"; \
+	sips -z 16 16 "$(APP_DIR)/build/appicon.png" --out "$(APP_DIR)/build/bin/Validex.iconset/icon_16x16.png" >/dev/null; \
+	sips -z 32 32 "$(APP_DIR)/build/appicon.png" --out "$(APP_DIR)/build/bin/Validex.iconset/icon_16x16@2x.png" >/dev/null; \
+	sips -z 32 32 "$(APP_DIR)/build/appicon.png" --out "$(APP_DIR)/build/bin/Validex.iconset/icon_32x32.png" >/dev/null; \
+	sips -z 64 64 "$(APP_DIR)/build/appicon.png" --out "$(APP_DIR)/build/bin/Validex.iconset/icon_32x32@2x.png" >/dev/null; \
+	sips -z 128 128 "$(APP_DIR)/build/appicon.png" --out "$(APP_DIR)/build/bin/Validex.iconset/icon_128x128.png" >/dev/null; \
+	sips -z 256 256 "$(APP_DIR)/build/appicon.png" --out "$(APP_DIR)/build/bin/Validex.iconset/icon_128x128@2x.png" >/dev/null; \
+	sips -z 256 256 "$(APP_DIR)/build/appicon.png" --out "$(APP_DIR)/build/bin/Validex.iconset/icon_256x256.png" >/dev/null; \
+	sips -z 512 512 "$(APP_DIR)/build/appicon.png" --out "$(APP_DIR)/build/bin/Validex.iconset/icon_256x256@2x.png" >/dev/null; \
+	sips -z 512 512 "$(APP_DIR)/build/appicon.png" --out "$(APP_DIR)/build/bin/Validex.iconset/icon_512x512.png" >/dev/null; \
+	cp "$(APP_DIR)/build/appicon.png" "$(APP_DIR)/build/bin/Validex.iconset/icon_512x512@2x.png"; \
+	iconutil -c icns "$(APP_DIR)/build/bin/Validex.iconset" -o "$(APP_DIR)/build/bin/Validex.app/Contents/Resources/iconfile.icns"; \
+	rm -rf "$(APP_DIR)/build/bin/Validex.iconset"
+else ifeq ($(HOST_GOOS),windows)
+	mkdir -p $(BUILD_DIR)
+	go build -tags canbridge -ldflags="-H windowsgui" -o $(BUILD_DIR)/validex.exe ./$(APP_DIR)
+else
+	mkdir -p $(BUILD_DIR)
+	go build -tags canbridge -o $(BUILD_DIR)/validex ./$(APP_DIR)
+endif
+
+test: frontend-deps
+	cd $(FRONTEND_DIR) && npm run typecheck && npm test
 	go test ./...
-	go test -tags wails ./internal/wailsapp ./cmd/validex
+	go test -tags canbridge ./internal/canbridge ./cmd/validex

@@ -1,6 +1,6 @@
 # Validex
 
-Validex, Java backend geliştiricileri için hazırlanmış bir Wails masaüstü API
+Validex, Java backend geliştiricileri için hazırlanmış bir masaüstü API
 inceleme ve tanılama aracıdır. HTTP request gönderir; OpenAPI contract farklarını,
 Spring Boot çalışma zamanı verilerini ve farklı ortamların response’larını aynı
 uygulamada incelemeye yardımcı olur.
@@ -12,7 +12,10 @@ Gereksinimler:
 - Go 1.24 veya üzeri
 - Node.js `^20.19.0` veya `>=22.12.0`
 - npm ve `make`
-- İşletim sisteminiz için [Wails v2 gereksinimleri](https://wails.io/docs/gettingstarted/installation)
+- macOS’ta Xcode Command Line Tools ve sistem WebKit’i
+- Windows’ta C++14 toolchain ve WebView2 Runtime
+- Linux’ta GTK 3 ile WebKitGTK 4.0 geliştirme paketleri; native dosya seçici
+  için `zenity` veya `kdialog`
 
 Projeyi geliştirme modunda açmak için kök dizinde:
 
@@ -20,8 +23,10 @@ Projeyi geliştirme modunda açmak için kök dizinde:
 make dev
 ```
 
-Bu komut sabitlenen Wails `v2.12.0` aracını kurar, React frontend’i ve Go
-backend’i birlikte başlatır, ardından Validex masaüstü penceresini açar.
+Bu komut Vite geliştirme sunucusunu ve Go backend’i birlikte başlatır, ardından
+Validex’i sistem WebView’i içindeki masaüstü penceresinde açar. React dosyaları
+Vite’tan gelir; Go çağrıları HTTP yerine native `canbridge` IPC kanalından
+geçer.
 
 Production build:
 
@@ -35,9 +40,23 @@ make build
 open cmd/validex/build/bin/Validex.app
 ```
 
-> Yalnız `npm run dev` çalıştırmak native Wails backend’ini başlatmaz. Mock
+`make build`, Apple Development kimliği aramaz ve proje tarafından ek bir
+Keychain veya `codesign` adımı çalıştırmaz.
+
+> Yalnız `npm run dev` çalıştırmak native canbridge backend’ini başlatmaz. Mock
 > server, dosya seçici, protokol ve Runtime, Environments, Thread & Logs,
 > Coverage gibi native tanılama araçları için `make dev` kullanın.
+
+Production frontend’i binary’ye gömülür ve kalıcı WebView origin’i için yalnız
+`127.0.0.1:34117` origin’inde, aynı host için kesin istek kontrolüyle servis
+edilir. Bu sunucu Go RPC taşımaz; backend çağrıları native WebView IPC kullanır.
+Sabit origin workspace `localStorage` verisini sonraki açılışlarda korur. Port
+doluysa ikinci uygulama örneği başlatılmaz; terminalden çalıştırıldığında port
+hatası doğrudan gösterilir.
+
+Önceki masaüstü runtime origin’inde kaydedilmiş workspace, canbridge origin’ine
+otomatik taşınamaz; runtime değişiminden sonraki ilk açılışta yerel workspace bir
+kez sıfırlanır.
 
 ## Uygulamayı kullanma
 
@@ -175,7 +194,7 @@ korunur.
 
 ```text
 cmd/validex/
-├── main.go                         Wails masaüstü girişi
+├── main.go                         canbridge masaüstü girişi
 └── frontend/src/
     ├── components/                 Request ve developer tool ekranları
     ├── lib/backend.ts              Tüm native çağrılar için typed adapter
@@ -187,7 +206,7 @@ internal/
 ├── mockserver/                     Loopback HTTP mock server
 ├── diagnostics/                    Actuator, ortam, thread, log ve coverage
 ├── protocols/                      SSE, WebSocket ve gRPC istemcileri
-└── wailsapp/                       UI ile Go arasındaki typed bridge
+└── canbridge/                      Native IPC, lifecycle ve typed bridge
 ```
 
 Ana request akışı:
@@ -195,7 +214,7 @@ Ana request akışı:
 ```text
 React form
   → lib/backend.ts
-  → Wails Bridge
+  → canbridge native IPC
   → net/http
   → response + timeline
   → varsa OpenAPI contract kontrolü
@@ -214,30 +233,15 @@ Tüm kontroller:
 make test
 ```
 
-Bu hedef TypeScript typecheck, Vitest, normal Go testleri ve `wails` build tag’li
-bridge testlerini çalıştırır. Hedefli komutlar için
+Bu hedef TypeScript typecheck, Vitest, normal Go testleri ve `canbridge` build
+tag’li native runtime derleme testlerini çalıştırır. Hedefli komutlar için
 [test rehberine](examples/testlerin-nasil-calistigi.md) bakın.
 
 Ek kalite kontrolleri:
 
 ```bash
 go test -race ./...
-go test -race -tags wails ./internal/wailsapp
+go test -race -tags canbridge ./internal/canbridge
 go vet ./...
-go vet -tags wails ./internal/wailsapp ./cmd/validex
-```
-
-### macOS imzalama
-
-`make build`, sistemde tek Apple Development kimliği bulursa uygulamayı onunla
-imzalar. Açık kimlik seçimi:
-
-```bash
-MACOS_SIGN_IDENTITY="Apple Development: ..." make build
-```
-
-İmzasız build’in başarısız olması isteniyorsa:
-
-```bash
-MACOS_SIGN_REQUIRED=1 make build
+go vet -tags canbridge ./internal/canbridge ./cmd/validex
 ```

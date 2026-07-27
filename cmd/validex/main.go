@@ -1,39 +1,36 @@
-//go:build wails
+//go:build canbridge
 
 package main
 
 import (
 	"embed"
+	"flag"
 	"log"
+	"os"
 
-	"validex/internal/wailsapp"
-
-	"github.com/wailsapp/wails/v2"
-	"github.com/wailsapp/wails/v2/pkg/options"
-	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"validex/internal/canbridge"
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
 
 func main() {
-	bridge := wailsapp.NewBridge()
+	devURL := flag.String("dev-url", os.Getenv("CANBRIDGE_DEV_URL"), "Vite development server URL")
+	debug := flag.Bool("debug", false, "enable native WebView developer tools")
+	flag.Parse()
 
-	err := wails.Run(&options.App{
-		Title:             "Validex",
-		Width:             1440,
-		Height:            900,
-		MinWidth:          1080,
-		MinHeight:         700,
-		DisableResize:     false,
-		Frameless:         false,
-		StartHidden:       false,
-		HideWindowOnClose: false,
-		BackgroundColour:  &options.RGBA{R: 16, G: 20, B: 27, A: 255},
-		AssetServer:       &assetserver.Options{Assets: assets},
-		OnStartup:         wailsapp.Startup(bridge),
-		OnShutdown:        wailsapp.Shutdown(bridge),
-		Bind:              []interface{}{bridge},
+	bridge := canbridge.NewBridge()
+	err := canbridge.Run(canbridge.AppOptions{
+		Title:     "Validex",
+		Width:     1440,
+		Height:    900,
+		MinWidth:  1080,
+		MinHeight: 700,
+		Debug:     *debug || *devURL != "",
+		DevURL:    *devURL,
+		Assets:    assets,
+		AssetRoot: "frontend/dist",
+		Bridge:    bridge,
 	})
 	if err != nil {
 		log.Fatal(err)

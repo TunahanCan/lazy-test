@@ -2,9 +2,7 @@ node_modules/
 dist/*
 !dist/.gitkeep
 coverage/
-wailsjs/
 *.local
-package.json.md5
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts

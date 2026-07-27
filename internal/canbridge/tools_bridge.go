@@ -1,6 +1,4 @@
-//go:build wails
-
-package wailsapp
+package canbridge
 
 import (
 	"context"
@@ -15,8 +13,6 @@ import (
 	"validex/internal/diagnostics"
 	"validex/internal/mockserver"
 	"validex/internal/protocols"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 const maxWebSocketBridgeMessageBytes = 1 << 20
@@ -83,11 +79,9 @@ func (b *Bridge) ImportMockOpenAPI() MockServerSnapshot {
 			Message: "Desktop runtime henüz hazır değil.",
 		}}
 	}
-	path, err := runtime.OpenFileDialog(ctx, runtime.OpenDialogOptions{
-		Title: "Mock route üretilecek OpenAPI dosyasını seç",
-		Filters: []runtime.FileFilter{
-			{DisplayName: "OpenAPI", Pattern: "*.yaml;*.yml;*.json"},
-		},
+	path, err := b.filePicker.Open(ctx, fileDialogOptions{
+		Title:      "Mock route üretilecek OpenAPI dosyasını seç",
+		Extensions: []string{"yaml", "yml", "json"},
 	})
 	if err != nil {
 		return MockServerSnapshot{Error: &UserError{

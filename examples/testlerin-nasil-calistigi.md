@@ -18,7 +18,7 @@ npm test
 
 cd ../../..
 go test ./...
-go test -tags wails ./internal/wailsapp ./cmd/validex
+go test -tags canbridge ./internal/canbridge ./cmd/validex
 ```
 
 ## Frontend
@@ -77,16 +77,16 @@ Mock route, Actuator, environment, SSE, WebSocket ve gRPC network akışları ye
 test sunucularıyla doğrulanır. OpenAPI örnekleri, thread dump, log ve coverage
 analizleri deterministik fixture’larla kontrol edilir.
 
-Wails bridge ve masaüstü giriş paketini kontrol etmek için:
+canbridge native IPC ve masaüstü giriş paketini kontrol etmek için:
 
 ```bash
-go test -tags wails ./internal/wailsapp ./cmd/validex
+go test -tags canbridge ./internal/canbridge ./cmd/validex
 ```
 
 Tek bridge testi:
 
 ```bash
-go test -tags wails ./internal/wailsapp \
+go test -tags canbridge ./internal/canbridge \
   -run TestMockServerBridgeLifecycleAndHitSnapshot -v
 ```
 
@@ -96,7 +96,7 @@ Değişiklik tesliminden önce önerilen ek kontroller:
 
 ```bash
 go test -race ./...
-go test -race -tags wails ./internal/wailsapp
+go test -race -tags canbridge ./internal/canbridge
 go vet ./...
-go vet -tags wails ./internal/wailsapp ./cmd/validex
+go vet -tags canbridge ./internal/canbridge ./cmd/validex
 ```

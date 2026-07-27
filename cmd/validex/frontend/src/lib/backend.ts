@@ -23,7 +23,7 @@ import {
   type WebSocketResult,
 } from "./types";
 
-interface WailsBridge {
+interface CanbridgeAPI {
   Bootstrap(): Promise<BootstrapData>;
   SendRequest(input: RequestInput): Promise<SendResult>;
   CancelRequest(requestID: string): Promise<boolean>;
@@ -59,10 +59,8 @@ interface WailsBridge {
 
 declare global {
   interface Window {
-    go?: {
-      wailsapp?: {
-        Bridge?: WailsBridge;
-      };
+    canbridge?: {
+      Bridge?: CanbridgeAPI;
     };
   }
 }
@@ -93,8 +91,8 @@ const developmentBootstrap: BootstrapData = {
   ],
 };
 
-function nativeBridge(): WailsBridge | undefined {
-  return window.go?.wailsapp?.Bridge;
+function nativeBridge(): CanbridgeAPI | undefined {
+  return window.canbridge?.Bridge;
 }
 
 export const backend = {
@@ -102,7 +100,7 @@ export const backend = {
     const native = nativeBridge();
     if (native) return native.Bootstrap();
     if (import.meta.env.DEV) return developmentBootstrap;
-    throw new Error("Wails backend binding is unavailable.");
+    throw new Error("canbridge backend binding is unavailable.");
   },
 
   async sendRequest(input: RequestInput): Promise<SendResult> {
@@ -113,7 +111,7 @@ export const backend = {
         code: "backend_unavailable",
         title: "Desktop backend bağlantısı yok",
         message: "Request gönderimi Validex masaüstü backend’ine ulaşamadı.",
-        hint: "Gerçek istek göndermek için uygulamayı `make dev` ile Wails içinde açın.",
+        hint: "Gerçek istek göndermek için uygulamayı `make dev` ile canbridge içinde açın.",
       },
     };
   },
@@ -140,7 +138,7 @@ export const backend = {
         code: "backend_unavailable",
         title: "Dosya seçici kullanılamıyor",
         message: "OpenAPI içe aktarma Validex masaüstü backend’inde çalışır.",
-        hint: "Uygulamayı `make dev` ile Wails içinde açın.",
+        hint: "Uygulamayı `make dev` ile canbridge içinde açın.",
       },
     };
   },
@@ -320,7 +318,7 @@ function backendUnavailable(feature: string) {
     code: "backend_unavailable",
     title: `${feature} kullanılamıyor`,
     message: "Bu araç Validex masaüstü backend’inde çalışır.",
-    hint: "Uygulamayı Wails masaüstü sürümüyle açın.",
+    hint: "Uygulamayı canbridge masaüstü sürümüyle açın.",
   };
 }
 

@@ -1,4 +1,4 @@
-package wailsapp
+package canbridge
 
 // KeyValue preserves header order and allows repeated header names.
 type KeyValue struct {

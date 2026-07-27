@@ -1,6 +1,4 @@
-//go:build wails
-
-package wailsapp
+package canbridge
 
 import (
 	"context"
