@@ -1,43 +1,102 @@
 # Validex
 
-Validex, HTTP API istekleri hazırlayıp göndermek, yanıtları incelemek ve çalışan
-isteklerden Java test kodu üretmek için geliştirilmiş bir masaüstü
-uygulamasıdır.
+Validex, HTTP API istekleri hazırlamak, göndermek, yanıtları incelemek ve açık
+istekten Java test/client ya da contract başlangıç dosyaları üretmek için
+geliştirilmiş bir masaüstü uygulamasıdır.
 
-Uygulama [Wails v2](https://wails.io/) ile çalışır. Arayüz React ve TypeScript,
-native işlemler ile HTTP çağrıları Go ile geliştirilmiştir.
+Uygulama [Wails v2](https://wails.io/) ile çalışır. Arayüz React ve TypeScript
+ile, native işlemler ve HTTP çağrıları Go ile geliştirilmiştir.
 
-## Neler yapabilir?
+## Mevcut özellikler
+
+### HTTP çalışma alanı
 
 - GET, POST, PUT, PATCH, DELETE, OPTIONS ve HEAD istekleri gönderir.
-- `localhost:8080` gibi şemasız adresleri otomatik olarak geçerli HTTP/HTTPS
-  URL’lerine dönüştürür.
-- URL, header ve body içinde `{{variable}}` kullanımını destekler.
-- Çalışan isteği iptal eder ve anlaşılır ağ/timeout hata mesajları gösterir.
-- Response body, status, süre, boyut, header, cookie, TLS ve timeline
-  bilgilerini gösterir.
-- Birden fazla request’i sekmelerde açık tutar.
-- OpenAPI 3 YAML veya JSON dosyalarını içe aktarır.
-- Çalışan request ve response üzerinden Java test/client başlangıç kodu üretir.
-- REST Assured, MockMvc, WebTestClient, WireMock, Spring Cloud Contract,
-  Java HttpClient, Spring RestClient ve Spring WebClient çıktıları sunar.
-- Üretilen tek dosyayı kaydeder veya Maven/Gradle proje iskeleti oluşturur.
-- Açık/koyu tema ile yeniden boyutlandırılabilir panel yerleşimini hatırlar.
+- URL, header ve request body içinde `{{variable}}` değişkenlerini çözer.
+- `localhost:8080` gibi şemasız yerel adreslere `http://`, genel adreslere
+  `https://` ekler. Yalnız HTTP ve HTTPS URL’lerini kabul eder.
+- Tekrarlanan header adlarını destekler.
+- JSON body için `Content-Type` verilmemişse
+  `application/json` header’ını otomatik ekler.
+- İstek sürerken **Cancel** ile native HTTP çağrısını iptal eder.
+- Eksik değişkeni ve geçersiz URL’yi göndermeden önce belirtir; ağ ve timeout
+  hatalarını response alanında gösterir.
+- Açık isteği tanımlı değişkenleri çözerek cURL komutu olarak kopyalar.
+
+### Response inceleme
+
+- Status kodu, süre, boyut, content type ve HTTP protokolünü gösterir.
+- Formatlanmış body ve ham response body arasında geçiş sağlar.
+- Response header ve cookie’lerini listeler.
+- DNS, bağlantı, TLS ve sunucu bekleme aşamalarını timeline üzerinde gösterir.
+- Uzak adresi, TLS özetini ve response’ta bulunan trace kimliğini gösterir.
+
+### Workspace
+
+- Birden fazla isteği sekmelerde açık tutar.
+- Sekmeleri sabitleme, çoğaltma, sıralama ve kapatılan sekmeyi yeniden açma
+  işlemlerini destekler. Temiz, sabitlenmemiş ve çalışmayan sekmeler topluca
+  kapatılabilir.
+- Sistem, açık ve koyu tema seçenekleri sunar.
+- Sol/sağ panellerin görünürlüğünü ve genişliğini, response panelinin
+  konumunu ve boyutunu ayarlamaya izin verir.
+- Komut paletini `⌘ K`, yeni isteği `⌘ N`, son kapatılan sekmeyi `⇧ ⌘ T` ile
+  açar.
+
+Workspace durumu cihazdaki WebView `localStorage` alanında tutulur. İstek
+taslakları, secret anahtarı olarak tanınmayan environment değerleri, sekmeler,
+tema ve panel düzeni uygulama yeniden açıldığında geri yüklenir. Response, hata
+ve çalışan istek durumu saklanmaz.
+
+Secret olarak tanınan environment anahtarlarının değerleri saklanmaz. Secret
+header’lara doğrudan yazılan değerler `localStorage`’a yazılan kopyada
+temizlenir ve ilgili header devre dışı bırakılır; `Bearer {{token}}` gibi yalnız
+değişken referansı içeren değerler korunur. URL ve body sekme taslağının
+parçası olarak saklanır.
+
+### OpenAPI içe aktarma
+
+- OpenAPI 3 YAML, YML veya JSON dosyasını native dosya seçiciyle açar.
+- Dokümanı parse eder ve doğrular.
+- İlk server adresi değişken içermeyen mutlak bir HTTP/HTTPS URL’siyse endpoint
+  path’ini bu adresle birleştirir; aksi durumda düzenlenebilir `{{baseUrl}}`
+  değişkenini kullanır.
+- Sıralanan endpoint’lerin ilk 8 tanesini method ve URL içeren istek sekmeleri
+  olarak açar.
+- Bildirimde açılan endpoint sayısını, 8’den fazla endpoint bulunduğunda toplam
+  sayıyı da gösterir.
+
+### Kod üretimi
+
+Aktif isteği ve varsa son response’u kullanarak şu hedefler için başlangıç
+dosyaları üretir:
+
+- REST Assured
+- MockMvc
+- WebTestClient
+- WireMock
+- Spring Cloud Contract
+- Java HttpClient
+- Spring RestClient
+- Spring WebClient
+
+Üretilen dosyanın önizlemesini gösterir, içeriği panoya kopyalar veya native
+dosya seçiciyle tek dosya kaydeder. Maven ya da Gradle seçimine göre test
+kaynağı, yardımcı sınıflar, fixture/resource dosyaları ve build dosyasından
+oluşan bir proje klasörü de dışa aktarabilir.
 
 ## Gereksinimler
 
-Projeyi çalıştırmadan önce sistemde şunlar bulunmalıdır:
-
 - Go 1.24 veya üzeri
-- Node.js 22
-- npm
+- Node.js `^20.19.0` veya `>=22.12.0` ve npm
 - `make`
-- İşletim sisteminin Wails için gereken native derleme araçları
+- Kullanılan işletim sistemi için Wails native derleme araçları
 
-Wails aracını ayrıca elle kurmanız gerekmez. `make dev` ve `make build`,
-projede kullanılan Wails `v2.12.0` sürümünü otomatik kurar.
+`make dev` ve `make build`, projede sabitlenen Wails `v2.12.0` aracını
+`$(go env GOPATH)/bin/wails` yolundan çalıştırır. Özel bir `GOBIN` ayarı farklı
+bir dizini göstermemelidir.
 
-## Çalıştırma
+## Geliştirme modunda çalıştırma
 
 Projenin kök dizininde:
 
@@ -45,154 +104,109 @@ Projenin kök dizininde:
 make dev
 ```
 
-Bu komut:
+Bu hedef frontend bağımlılıklarını `npm ci` ile kurar, Vite geliştirme
+sunucusunu ve Go backend’i başlatır, ardından Validex masaüstü penceresini açar.
 
-1. Wails aracını kurar.
-2. Frontend bağımlılıklarını hazırlar.
-3. Vite geliştirme sunucusunu ve Go backend’i başlatır.
-4. Validex masaüstü penceresini açar.
-
-İlk çalıştırmada Go ve npm bağımlılıkları indirileceği için açılış biraz uzun
-sürebilir. Sonraki çalıştırmalar daha hızlıdır.
-
-### `make` olmadan çalıştırma
+`make` kullanmadan aynı akışı başlatmak için:
 
 ```bash
 go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
 cd cmd/validex
-wails dev -m -nosyncgomod
+"$(go env GOPATH)/bin/wails" dev -m -nosyncgomod
 ```
 
-`wails` komutu bulunamazsa Go binary dizininin (`go env GOPATH` çıktısı
-altındaki `bin`) `PATH` içinde olduğundan emin olun.
+## Kullanım
 
-## Uygulama nasıl kullanılır?
+1. Karşılama ekranındaki **New request** butonuyla bir istek sekmesi açın.
+2. HTTP methodunu seçin ve URL’yi yazın.
+3. Gerekirse **Variables**, **Headers** ve **Body** alanlarını düzenleyin.
+   Authorization değeri **Headers** bölümünde `Authorization` header’ı olarak
+   eklenir.
+4. **Send** ile isteği gönderin. Çalışan isteği **Cancel** ile durdurabilirsiniz.
+5. Response panelindeki **Body**, **Headers**, **Cookies**, **Timeline** ve
+   **Raw** görünümlerini inceleyin.
+6. Send menüsünden **Copy as cURL** veya **Generate Java test** işlemini seçin.
 
-1. Karşılama ekranındaki **New request** butonunu kullanın. Açık bir çalışma
-   alanındaysanız üst menüdeki **New → New request** yolu da kullanılabilir.
-2. HTTP methodunu ve URL’yi girin.
-3. Gerekirse **Variables → Add variable** ile değişken ekleyin; Headers veya
-   Body alanlarını düzenleyin.
-4. Üst bölümdeki **Send** butonuna basın.
-5. Alt response panelinden body, header, cookie ve timeline bilgilerini
-   inceleyin.
-6. Çalışan isteği durdurmak için **Cancel** butonunu kullanın.
+OpenAPI dosyası açmak için karşılama ekranındaki **Import OpenAPI** butonunu ya
+da üst menüdeki **New → Import OpenAPI** yolunu kullanın.
 
-Environment seçildiğinde `{{baseUrl}}` gibi değişkenler request gönderilmeden
-önce çözülür:
+## Native build
 
-```text
-{{baseUrl}}/v1/users
-```
-
-`localhost:8080/health` ve `10.0.0.5:8080/health` gibi yerel adreslere
-`http://`, genel domain’lere ise `https://` otomatik eklenir. Yalnız HTTP ve
-HTTPS protokolleri desteklenir.
-
-Adı token, parola, API key veya Authorization olarak tanınan environment ve
-header değerleri tarayıcı depolamasına yazılmaz. Uygulamayı yeniden açtığınızda
-bu değerleri tekrar girmeniz gerekir. Hassas verileri URL veya request body
-içine doğrudan yazmayın; bu alanlar workspace ile birlikte saklanır.
-
-OpenAPI dosyası eklemek için karşılama ekranındaki veya üst menüdeki
-**Import OpenAPI** seçeneğini kullanın. Arayüzü kalabalıklaştırmamak için en
-fazla ilk 8 endpoint sekmede açılır; bildirimde dosyada bulunan toplam endpoint
-sayısı da gösterilir. Java kodu üretmek için **Send** butonunun yanındaki açılır
-menüden **Generate Java test** seçeneğini açın.
-
-## Native uygulama oluşturma
-
-Production build almak için projenin kök dizininde:
+Kullanılan işletim sistemi için production build oluşturmak üzere:
 
 ```bash
 make build
 ```
 
-Çıktılar `cmd/validex/build/bin` dizinine yazılır.
-
-macOS uygulamasını açmak için:
+Build çıktısı `cmd/validex/build/bin` dizinine yazılır. macOS çıktısını açmak
+için:
 
 ```bash
 open cmd/validex/build/bin/Validex.app
 ```
 
-Windows ve Linux çıktıları da build alınan işletim sisteminde aynı `bin`
-dizini altında oluşturulur.
-
 ### macOS imzalama
 
-`make build`, sistemde yalnızca bir Apple Development sertifikası bulursa
-uygulamayı yerel geliştirme için otomatik olarak imzalar. Birden fazla
-sertifika varsa veya Developer ID kullanacaksanız imza kimliğini açıkça seçin:
+`make build`, sistemde tek bir Apple Development kimliği bulursa uygulamayı bu
+kimlikle imzalar. Kimliği açıkça seçmek için:
 
 ```bash
 MACOS_SIGN_IDENTITY="Apple Development: ..." make build
 ```
 
-İmzalı build zorunluysa şu komutu kullanın:
+Geçerli bir imza kimliği olmadan build’in başarılı sayılmaması için:
 
 ```bash
 MACOS_SIGN_REQUIRED=1 make build
 ```
 
-Dış dağıtım için Developer ID imzasına ek olarak notarization ve stapling
-ayrıca yapılandırılmalıdır.
-
 ## Testler
 
-Tüm frontend ve Go kontrollerini çalıştırmak için:
+Projenin Makefile’da tanımlı test ve typecheck akışını çalıştırmak için:
 
 ```bash
 make test
 ```
 
-Bu komut TypeScript typecheck, Vitest testleri, Go paket testleri ve Wails
-bridge testlerini çalıştırır.
+Bu hedef sırasıyla frontend bağımlılıklarını kurar, TypeScript typecheck ve
+Vitest testlerini çalıştırır, ardından normal Go paketlerini test eder. Son
+adımda `wails` build tag’li bridge testlerini çalıştırır ve masaüstü giriş
+paketini derler.
 
-## Proje yapısı
+Hedefli test komutları için
+[test çalışma rehberine](examples/testlerin-nasil-calistigi.md) bakın.
+
+## Aktif uygulama mimarisi
 
 ```text
 cmd/validex/
-├── main.go                 Wails uygulama girişi
-├── wails.json              Native build ayarları
-├── build/                  İkon ve platform kaynakları
-└── frontend/               React + TypeScript arayüzü
+├── main.go                    Wails girişi ve frontend embed
+├── wails.json                 Uygulama ve build ayarları
+├── build/                     Native ikon, plist ve build çıktıları
+└── frontend/
+    └── src/
+        ├── components/        Ekranlar ve kullanıcı akışları
+        ├── lib/backend.ts     Tek typed native backend adapter’ı
+        ├── lib/               Query, schema ve OpenAPI yardımcıları
+        └── stores/            Workspace durumu ve secret filtreleme
 
-internal/wailsapp/           Typed Wails bridge ve native işlemler
-internal/core/               OpenAPI ve ortak API işlevleri
-internal/appsvc/             Gelecekte bağlanacak uygulama servisleri
-internal/lt/                 Gelecekte bağlanacak load-test engine
-internal/tcp/                Gelecekte bağlanacak TCP engine
-internal/config/             Yeniden kullanılabilir yapılandırma modelleri
-internal/report/             Yeniden kullanılabilir raporlama paketleri
+internal/wailsapp/             Aktif Wails bridge ve native işlemler
+internal/core/openapi.go       Bridge’in kullandığı OpenAPI yükleyici
+Makefile                       Dev, build ve test giriş noktaları
 ```
 
-Temel çalışma akışı:
+Production çağrı akışı:
 
 ```text
-React arayüzü
-    → typed frontend adapter
-    → Wails binding
-    → Go bridge
-    → HTTP / OpenAPI / native dosya işlemleri
+React bileşeni
+    → src/lib/backend.ts
+    → Wails tarafından üretilen binding
+    → internal/wailsapp.Bridge
+    → net/http, internal/core.LoadOpenAPI veya native dosya işlemleri
 ```
 
-Frontend componentleri Wails runtime’ını doğrudan çağırmaz. Backend çağrıları
-`cmd/validex/frontend/src/lib/backend.ts` içindeki typed adapter üzerinden
-`internal/wailsapp` bridge’ine gider.
-
-## Mevcut durum
-
-HTTP request gönderme, iptal, OpenAPI import ve Java proje export işlemleri
-native uygulamada gerçek backend ile çalışır.
-
-Bilinen sınırlar:
-
-- Açık sekmeler, environment değerleri ve arayüz yerleşimi cihazdaki WebView
-  depolamasında tutulur; dosya veya bulut ile senkronize edilmez.
-- OAuth 2.0, mTLS, keychain ve proxy entegrasyonu tamamlanmamıştır.
-- OpenAPI importu henüz kalıcı bir collection oluşturmaz; tek importta en fazla
-  8 endpoint çalışma sekmesi olarak açılır.
-- Üretilen Java proje iskeletleri henüz Maven/Gradle ile otomatik derlenerek
-  doğrulanmamaktadır.
-- Windows ve Linux native paketleri henüz CI üzerinde doğrulanmamaktadır.
+Frontend native runtime’ı bileşenlerden doğrudan çağırmaz. Bootstrap, istek ve
+OpenAPI işlemlerinin durumunu TanStack Query yönetir; kod üreticisinin kaydetme
+işlemleri typed adapter’ı doğrudan kullanır. Altı backend işlemi bu adapter
+üzerinden geçer: bootstrap, istek gönderme, istek iptali, OpenAPI içe aktarma,
+tek dosya kaydetme ve proje klasörü dışa aktarma.

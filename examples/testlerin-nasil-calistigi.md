@@ -1,119 +1,104 @@
-# Testler Nasıl Çalışıyor? (Adım Adım)
+# Validex Testlerini Çalıştırma
 
-Bu doküman `validex` içindeki testleri **teker teker**, neyi doğruladıklarını ve hangi komutla çalıştırabileceğini açıklar.
+Bu doküman, repoda bulunan frontend, Go ve Wails bridge testlerinin mevcut
+çalıştırma komutlarını açıklar.
 
-> Kapsam: Şu an repoda gerçek unit testler `internal/tcp/tcp_test.go` içinde bulunuyor.
+## Tüm test akışı
 
----
+Projenin kök dizininde:
 
-## 1) Tüm testleri tek seferde çalıştırma
+```bash
+make test
+```
+
+`make test` şu adımları sırasıyla çalıştırır:
+
+```bash
+cd cmd/validex/frontend
+npm ci
+npm run typecheck
+npm test
+
+cd ../../..
+go test ./...
+go test -tags wails ./internal/wailsapp ./cmd/validex
+```
+
+- `npm run typecheck`, TypeScript kaynaklarını çıktı üretmeden kontrol eder.
+- `npm test`, Vitest testlerini tek sefer çalıştırır.
+- `go test ./...`, normal build tag’leriyle Go paket testlerini çalıştırır.
+- Son komut, `wails` build tag’li bridge testlerini çalıştırır ve masaüstü
+  giriş paketini derler.
+
+## Frontend testleri
+
+Frontend testleri `cmd/validex/frontend/src` altındaki `*.test.ts` ve
+`*.test.tsx` dosyalarındadır.
+
+Testlerin doğruladığı ana alanlar:
+
+| Alan | Test dosyaları |
+| --- | --- |
+| Uygulama açılışı, URL düzenleme, gönderme ve hata akışı | `App.test.tsx` |
+| Request değişkenleri, header’lar ve cURL üretimi | `components/RequestWorkbench.test.tsx` |
+| Response görünümleri ve timeline | `components/ResponsePanel.test.tsx` |
+| Sekme kapatma, pin ve çalışan istek güvenliği | `components/RequestTabs.test.tsx`, `stores/workspace.test.ts` |
+| Panel düzeni, OpenAPI importu ve komut paleti | `components/AppShell.test.tsx`, `components/WorkspaceChrome.test.tsx` |
+| Java/contract dosyası üretimi | `components/CodeGeneratorDialog.test.ts` |
+| URL şeması ve OpenAPI URL oluşturma | `lib/schemas.test.ts`, `lib/openapi.test.ts` |
+| Ortak UI davranışı | `components/ui.test.tsx` |
+
+Tüm frontend testlerini doğrudan çalıştırmak için:
+
+```bash
+cd cmd/validex/frontend
+npm ci
+npm test
+```
+
+Tek bir dosyayı çalıştırmak için dosya yolunu Vitest’e verin:
+
+```bash
+npm test -- src/components/RequestWorkbench.test.tsx
+```
+
+Değişiklikleri izleyerek test çalıştırmak için:
+
+```bash
+npm run test:watch
+```
+
+Yalnız TypeScript kontrolünü çalıştırmak için:
+
+```bash
+npm run typecheck
+```
+
+## Go testleri
+
+Normal Go paket testlerini projenin kökünden çalıştırmak için:
 
 ```bash
 go test ./...
 ```
 
-Bu komut tüm paketleri gezer; test dosyası olan paketlerde testleri çalıştırır. Bu projede aktif test paketi `internal/tcp` olduğu için asıl doğrulama burada yapılır.
-
----
-
-## 2) Testleri tek tek çalıştırma
-
-### 2.1 `TestRunSuccess`
+Native HTTP gönderme, URL normalizasyonu, değişken çözme, timeout, bilinmeyen
+iptal kimliği, path traversal koruması ve atomik dosya yazma davranışları
+`internal/wailsapp/bridge_test.go` içinde, `wails` build tag’iyle test edilir:
 
 ```bash
-go test ./internal/tcp -run TestRunSuccess -v
+go test -tags wails ./internal/wailsapp -v
 ```
 
-**Ne yapar?**
-1. Geçici bir dummy TCP server açar (`startDummy`).
-2. Server bağlantı kurulduğunda `BANNER\n` döner.
-3. Test senaryosu şu adımları koşar:
-   - `connect`
-   - `read` (banner bekler ve `contains: BANNER` assert eder)
-   - `write` (`PING\n` gönderir)
-   - `read` (echo’da `regex: PING` doğrular)
-   - `close`
-4. `Run(...)` sonucunun `OK=true` olduğunu doğrular.
-
-**Neyi garanti eder?**
-- TCP runner’ın temel connect/read/write/close akışını başarıyla çalıştırdığını.
-- Basit `contains` ve `regex` assertion’larının doğru davrandığını.
-
----
-
-### 2.2 `TestEvaluateAssertJSON`
+Tek bir bridge testini çalıştırmak için:
 
 ```bash
-go test ./internal/tcp -run TestEvaluateAssertJSON -v
+go test -tags wails ./internal/wailsapp \
+  -run TestSendRequestReturnsRichResponse -v
 ```
 
-**Ne yapar?**
-- JSON gövdesi üzerinde assertion motorunu test eder:
-  - `JSONPath`: `$.a.b[0].name`
-  - `JMESPath`: `a.b[0].name`
-  - `LenRange`: gövde boyunun aralıkta olması
-  - `Not`: negatif assertion (`contains: zzz` olmamalı)
-
-**Neyi garanti eder?**
-- TCP assertion katmanındaki JSON odaklı kontrollerin doğru çalıştığını.
-
----
-
-### 2.3 `TestDialTimeout`
+Masaüstü giriş paketini de aynı build tag’iyle derleyip kontrol etmek için:
 
 ```bash
-go test ./internal/tcp -run TestDialTimeout -v
+go test -tags wails ./internal/wailsapp ./cmd/validex
 ```
-
-**Ne yapar?**
-1. Ulaşılamaz bir IP/port’a kısa timeout ile `connect` denemesi yapar.
-2. `Run(...)` çağrısının **hata döndürmesini** bekler.
-
-**Neyi garanti eder?**
-- Ağ erişimi yoksa timeout/retry davranışının hata ürettiğini.
-- “Bağlanamama” durumunun sessizce başarılı sayılmadığını.
-
----
-
-### 2.4 `TestBreaker`
-
-```bash
-go test ./internal/tcp -run TestBreaker -v
-```
-
-**Ne yapar?**
-1. Failure eşiği düşük bir breaker oluşturur.
-2. Bir hata kaydı (`context.DeadlineExceeded`) düşer.
-3. Breaker state’inin `closed` olmaktan çıkmasını bekler.
-
-**Neyi garanti eder?**
-- Circuit breaker mekanizmasının hata sonrası devreyi açabildiğini.
-
----
-
-## 3) Pratik debug komutları
-
-```bash
-# Sadece tcp paketi
-go test ./internal/tcp -v
-
-# Belirli bir test + race detector
-go test ./internal/tcp -run TestRunSuccess -race -v
-
-# Tekrar sayısı (flaky kontrol)
-go test ./internal/tcp -run TestRunSuccess -count=20
-```
-
----
-
-## 4) CI/CD önerisi
-
-Pipeline’da minimum şu akış önerilir:
-
-```bash
-go test ./internal/tcp -v
-go test ./... 
-```
-
-- İlk komut kritik paketi hızlı geri bildirim için ayrı çalıştırır.
-- İkinci komut tüm repo taramasını tamamlar.
