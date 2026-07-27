@@ -6,6 +6,86 @@ import type {
   ResponsePlacement,
   ThemePreference,
 } from "../lib/types";
+import {
+  isSecretKey,
+  isSafeSecretReference,
+} from "../lib/secrets";
+
+export const workspaceStorageKey = "validex:workspace:validex-workspace";
+
+const legacyWorkspaceStorageKeys = [
+  "validex:workspace:sample-workspace",
+  "lazytest:workspace:sample-workspace",
+];
+
+function sanitizePersistedWorkspace(rawWorkspace: string): string | undefined {
+  try {
+    const persisted = JSON.parse(rawWorkspace) as {
+      state?: Partial<WorkspaceState>;
+      version?: number;
+    };
+    if (
+      !persisted ||
+      typeof persisted !== "object" ||
+      !persisted.state ||
+      typeof persisted.state !== "object"
+    ) {
+      return undefined;
+    }
+
+    const state = persisted.state;
+    return JSON.stringify({
+      ...persisted,
+      state: {
+        ...state,
+        environmentVariables: withoutSecretVariables(
+          state.environmentVariables ?? {},
+        ),
+        tabs: Array.isArray(state.tabs)
+          ? state.tabs.map(persistedTab)
+          : state.tabs,
+        recentlyClosed: Array.isArray(state.recentlyClosed)
+          ? state.recentlyClosed.map(persistedTab)
+          : state.recentlyClosed,
+      },
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+function removeLegacyWorkspaceStorage(storage: Storage): void {
+  for (const legacyKey of legacyWorkspaceStorageKeys) {
+    storage.removeItem(legacyKey);
+  }
+}
+
+export function migrateLegacyWorkspaceStorage(storage: Storage): void {
+  const currentWorkspace = storage.getItem(workspaceStorageKey);
+  if (currentWorkspace !== null) {
+    const sanitizedWorkspace = sanitizePersistedWorkspace(currentWorkspace);
+    if (sanitizedWorkspace === undefined) return;
+    storage.setItem(workspaceStorageKey, sanitizedWorkspace);
+    if (storage.getItem(workspaceStorageKey) !== sanitizedWorkspace) return;
+    removeLegacyWorkspaceStorage(storage);
+    return;
+  }
+
+  for (const legacyKey of legacyWorkspaceStorageKeys) {
+    const legacyWorkspace = storage.getItem(legacyKey);
+    if (legacyWorkspace === null) continue;
+    const sanitizedWorkspace = sanitizePersistedWorkspace(legacyWorkspace);
+    if (sanitizedWorkspace === undefined) continue;
+    storage.setItem(workspaceStorageKey, sanitizedWorkspace);
+    if (storage.getItem(workspaceStorageKey) !== sanitizedWorkspace) return;
+    removeLegacyWorkspaceStorage(storage);
+    return;
+  }
+}
+
+if (typeof localStorage !== "undefined") {
+  migrateLegacyWorkspaceStorage(localStorage);
+}
 
 const defaultHeaders = [
   {
@@ -26,19 +106,45 @@ const defaultHeaders = [
   },
 ];
 
+function withoutSecretVariables(
+  environments: Record<string, Record<string, string>>,
+) {
+  return Object.fromEntries(
+    Object.entries(environments).map(([environmentID, variables]) => [
+      environmentID,
+      Object.fromEntries(
+        Object.entries(variables).filter(([key]) => !isSecretKey(key)),
+      ),
+    ]),
+  );
+}
+
+function persistedTab(tab: RequestTab): RequestTab {
+  return {
+    ...tab,
+    running: false,
+    error: false,
+    response: undefined,
+    userError: undefined,
+    headers: (tab.headers ?? []).map((header) => {
+      if (!isSecretKey(header.key) || isSafeSecretReference(header.value)) {
+        return header;
+      }
+      return { ...header, enabled: false, value: "" };
+    }),
+  };
+}
+
 export function createRequestTab(
   overrides: Partial<RequestTab> = {},
 ): RequestTab {
   const id = overrides.id ?? crypto.randomUUID();
   return {
     id,
-    name: "List users",
+    name: "Untitled request",
     method: "GET",
-    url: "{{baseUrl}}/v1/users",
-    body: `{
-  "name": "Ada Lovelace",
-  "email": "ada@example.com"
-}`,
+    url: "",
+    body: "",
     headers: defaultHeaders.map((header) => ({ ...header })),
     dirty: false,
     running: false,
@@ -53,6 +159,7 @@ export function createRequestTab(
 interface WorkspaceState {
   workspaceID: string;
   activeEnvironmentID: string;
+  environmentVariables: Record<string, Record<string, string>>;
   tabs: RequestTab[];
   activeTabID: string;
   recentlyClosed: RequestTab[];
@@ -73,6 +180,11 @@ interface WorkspaceState {
     | "flows"
     | "history";
   setEnvironment: (id: string) => void;
+  setEnvironmentVariable: (
+    environmentID: string,
+    key: string,
+    value: string,
+  ) => void;
   setActiveTab: (id: string) => void;
   openTab: (tab?: Partial<RequestTab>) => void;
   closeTab: (id: string, force?: boolean) => boolean;
@@ -100,11 +212,24 @@ interface WorkspaceState {
 
 const firstTab = createRequestTab({ id: "request-list-users" });
 
+function isUntouchedLegacyDemoRequest(tabs: RequestTab[] | undefined): boolean {
+  if (tabs?.length !== 1) return false;
+  const [tab] = tabs;
+  return (
+    tab.id === "request-list-users" &&
+    tab.name === "List users" &&
+    tab.url === "{{baseUrl}}/v1/users" &&
+    tab.body.includes("Ada Lovelace") &&
+    !tab.dirty
+  );
+}
+
 export const useWorkspaceStore = create<WorkspaceState>()(
   persist(
     (set, get) => ({
-      workspaceID: "sample-workspace",
-      activeEnvironmentID: "development",
+      workspaceID: "validex-workspace",
+      activeEnvironmentID: "none",
+      environmentVariables: {},
       tabs: [firstTab],
       activeTabID: firstTab.id,
       recentlyClosed: [],
@@ -120,6 +245,21 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       codeGeneratorOpen: false,
       sidebarSection: "collections",
       setEnvironment: (id) => set({ activeEnvironmentID: id }),
+      setEnvironmentVariable: (environmentID, key, value) =>
+        set((state) => ({
+          environmentVariables: {
+            ...state.environmentVariables,
+            [environmentID]: {
+              ...(state.environmentVariables[environmentID] ?? {}),
+              [key]: value,
+            },
+          },
+          tabs: state.tabs.map((tab) => ({
+            ...tab,
+            error: false,
+            userError: undefined,
+          })),
+        })),
       setActiveTab: (id) => set({ activeTabID: id }),
       openTab: (tab = {}) =>
         set((state) => {
@@ -226,19 +366,43 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       setSidebarSection: (sidebarSection) => set({ sidebarSection }),
     }),
     {
-      name: "lazytest:workspace:sample-workspace",
+      name: workspaceStorageKey,
+      version: 3,
       storage: createJSONStorage(() => localStorage),
+      migrate: (persistedState, persistedVersion) => {
+        const state = persistedState as Partial<WorkspaceState>;
+        const resetLegacyDemo =
+          persistedVersion === 0 && isUntouchedLegacyDemoRequest(state.tabs);
+        const tabs = resetLegacyDemo
+          ? [createRequestTab({ id: "request-list-users" })]
+          : (state.tabs ?? []).map(persistedTab);
+        return {
+          ...state,
+          workspaceID: "validex-workspace",
+          activeEnvironmentID: resetLegacyDemo
+            ? "none"
+            : (state.activeEnvironmentID ?? "none"),
+          environmentVariables: withoutSecretVariables(
+            state.environmentVariables ?? {},
+          ),
+          tabs,
+          activeTabID: resetLegacyDemo
+            ? tabs[0].id
+            : (state.activeTabID ?? tabs[0]?.id ?? ""),
+          recentlyClosed: (state.recentlyClosed ?? []).map(persistedTab),
+          sidebarSection:
+            state.sidebarSection === "history" ? "history" : "collections",
+        } as WorkspaceState;
+      },
       partialize: (state) => ({
         workspaceID: state.workspaceID,
         activeEnvironmentID: state.activeEnvironmentID,
-        tabs: state.tabs.map((tab) => ({
-          ...tab,
-          running: false,
-          response: undefined,
-          userError: undefined,
-        })),
+        environmentVariables: withoutSecretVariables(
+          state.environmentVariables,
+        ),
+        tabs: state.tabs.map(persistedTab),
         activeTabID: state.activeTabID,
-        recentlyClosed: state.recentlyClosed,
+        recentlyClosed: state.recentlyClosed.map(persistedTab),
         leftVisible: state.leftVisible,
         rightVisible: state.rightVisible,
         leftWidth: state.leftWidth,

@@ -126,6 +126,7 @@ type ImportSpecResult struct {
 	Path      string             `json:"path"`
 	Title     string             `json:"title"`
 	Version   string             `json:"version"`
+	BaseURL   string             `json:"baseUrl"`
 	Endpoints []ImportedEndpoint `json:"endpoints"`
 	Canceled  bool               `json:"canceled"`
 	Error     *UserError         `json:"error,omitempty"`

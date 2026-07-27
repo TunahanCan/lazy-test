@@ -8,13 +8,11 @@ import {
   Import,
   LayoutPanelLeft,
   Moon,
-  Play,
   RotateCcw,
   Search,
-  Settings,
-  Sparkles,
   Sun,
 } from "lucide-react";
+import { importedRequestURL } from "../lib/openapi";
 import { useImportOpenAPI } from "../lib/queries";
 import type { BootstrapData } from "../lib/types";
 import { fuzzyMatch } from "../lib/utils";
@@ -41,7 +39,6 @@ export function CommandPalette({ bootstrap }: { bootstrap: BootstrapData }) {
   const theme = useWorkspaceStore((state) => state.theme);
   const setTheme = useWorkspaceStore((state) => state.setTheme);
   const setSidebarSection = useWorkspaceStore((state) => state.setSidebarSection);
-  const setRunnerOpen = useWorkspaceStore((state) => state.setRunnerOpen);
   const setCodeGeneratorOpen = useWorkspaceStore(
     (state) => state.setCodeGeneratorOpen,
   );
@@ -73,20 +70,12 @@ export function CommandPalette({ bootstrap }: { bootstrap: BootstrapData }) {
                 id: `${endpoint.id}-${crypto.randomUUID()}`,
                 name: endpoint.summary || endpoint.path,
                 method: endpoint.method,
-                url: `{{baseUrl}}${endpoint.path}`,
+                url: importedRequestURL(result.baseUrl, endpoint.path),
                 dirty: false,
               }),
             );
           }
         },
-      },
-      {
-        id: "run-collection",
-        label: "Run collection",
-        group: "Run",
-        keywords: "runner collection test run",
-        icon: Play,
-        action: () => setRunnerOpen(true),
       },
       {
         id: "open-history",
@@ -114,15 +103,6 @@ export function CommandPalette({ bootstrap }: { bootstrap: BootstrapData }) {
         action: () => setCodeGeneratorOpen(true),
       },
       {
-        id: "format-body",
-        label: "Format request body",
-        group: "Developer",
-        keywords: "json format prettify body",
-        shortcut: "⇧ ⌥ F",
-        icon: Sparkles,
-        action: () => undefined,
-      },
-      {
         id: "toggle-theme",
         label: theme === "dark" ? "Use light theme" : "Use dark theme",
         group: "Appearance",
@@ -146,22 +126,12 @@ export function CommandPalette({ bootstrap }: { bootstrap: BootstrapData }) {
         icon: RotateCcw,
         action: resetLayout,
       },
-      {
-        id: "settings",
-        label: "Open settings",
-        group: "Application",
-        keywords: "settings preferences ayarlar",
-        shortcut: "⌘ ,",
-        icon: Settings,
-        action: () => undefined,
-      },
     ],
     [
       importer,
       openTab,
       resetLayout,
       setCodeGeneratorOpen,
-      setRunnerOpen,
       setSidebarSection,
       setTheme,
       theme,

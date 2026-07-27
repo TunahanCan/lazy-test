@@ -8,8 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"lazytest/internal/config"
-	"lazytest/internal/core"
+	"validex/internal/config"
+	"validex/internal/core"
 )
 
 // clock lets tests control time deterministically.
@@ -70,7 +70,7 @@ type runState struct {
 func NewService(workspaceFile string, sink RunEventSink) *Service {
 	if workspaceFile == "" {
 		home, _ := os.UserHomeDir()
-		workspaceFile = filepath.Join(home, ".lazytest", "workspace.json")
+		workspaceFile = filepath.Join(home, ".validex", "workspace.json")
 	}
 	return &Service{
 		wsPath: workspaceFile,

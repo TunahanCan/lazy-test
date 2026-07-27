@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"lazytest/internal/config"
-	"lazytest/internal/core"
-	"lazytest/internal/lt"
-	"lazytest/internal/report"
-	"lazytest/internal/tcp"
+	"validex/internal/config"
+	"validex/internal/core"
+	"validex/internal/lt"
+	"validex/internal/report"
+	"validex/internal/tcp"
 )
 
 type fakeClock struct{ t time.Time }

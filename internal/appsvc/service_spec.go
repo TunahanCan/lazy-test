@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"lazytest/internal/config"
-	"lazytest/internal/core"
+	"validex/internal/config"
+	"validex/internal/core"
 )
 
 // LoadSpec parses OpenAPI and rebuilds endpoint read-model cache.

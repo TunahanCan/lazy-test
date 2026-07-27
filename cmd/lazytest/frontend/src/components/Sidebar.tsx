@@ -6,29 +6,20 @@ import {
   ChevronDown,
   ChevronRight,
   Clock3,
-  CloudCog,
-  Copy,
   FileCode2,
   FileJson2,
   Folder,
   FolderOpen,
-  GitBranch,
-  MoreHorizontal,
-  Play,
   Search,
   Star,
-  Trash2,
 } from "lucide-react";
 import type { BootstrapData, CollectionNode } from "../lib/types";
 import { cn } from "../lib/utils";
 import { useWorkspaceStore } from "../stores/workspace";
-import { IconButton, MethodBadge } from "./ui";
+import { MethodBadge } from "./ui";
 
 const sections = [
   { id: "collections", label: "Collections", icon: Boxes },
-  { id: "environments", label: "Environments", icon: CloudCog },
-  { id: "apis", label: "APIs", icon: FileCode2 },
-  { id: "flows", label: "Flows", icon: GitBranch },
   { id: "history", label: "History", icon: Clock3 },
 ] as const;
 
@@ -40,7 +31,6 @@ function RequestContext({
   children: React.ReactNode;
 }) {
   const openTab = useWorkspaceStore((state) => state.openTab);
-  const setRunnerOpen = useWorkspaceStore((state) => state.setRunnerOpen);
   const setCodeGeneratorOpen = useWorkspaceStore(
     (state) => state.setCodeGeneratorOpen,
   );
@@ -63,18 +53,6 @@ function RequestContext({
           <ContextMenu.Item className="menu-item" onSelect={selectRequest}>
             <FileJson2 size={15} /> Open
           </ContextMenu.Item>
-          <ContextMenu.Item className="menu-item">
-            <Copy size={15} /> Duplicate
-          </ContextMenu.Item>
-          <ContextMenu.Item
-            className="menu-item"
-            onSelect={() => {
-              selectRequest();
-              setRunnerOpen(true);
-            }}
-          >
-            <Play size={15} /> Run
-          </ContextMenu.Item>
           <ContextMenu.Item
             className="menu-item"
             disabled={!node.method}
@@ -84,10 +62,6 @@ function RequestContext({
             }}
           >
             <FileCode2 size={15} /> Generate Java test
-          </ContextMenu.Item>
-          <ContextMenu.Separator className="menu-separator" />
-          <ContextMenu.Item className="menu-item menu-danger">
-            <Trash2 size={15} /> Delete
           </ContextMenu.Item>
         </ContextMenu.Content>
       </ContextMenu.Portal>
@@ -205,9 +179,6 @@ export function Sidebar({ bootstrap }: { bootstrap: BootstrapData }) {
             aria-label={`Search ${section}`}
           />
         </label>
-        <IconButton label="Collection actions">
-          <MoreHorizontal size={16} />
-        </IconButton>
       </div>
 
       {visibleNodes.length > 0 ? (
@@ -259,24 +230,12 @@ export function Sidebar({ bootstrap }: { bootstrap: BootstrapData }) {
         </div>
       ) : (
         <div className="sidebar-empty">
-          <CloudCog size={22} />
+          <Boxes size={22} />
           <strong>Henüz {section} yok</strong>
           <span>Workspace’e eklediğiniz öğeler burada görünür.</span>
         </div>
       )}
 
-      <button className="sidebar-footer-action">
-        <PlusIcon />
-        New collection
-      </button>
     </aside>
-  );
-}
-
-function PlusIcon() {
-  return (
-    <span className="plus-icon" aria-hidden="true">
-      +
-    </span>
   );
 }

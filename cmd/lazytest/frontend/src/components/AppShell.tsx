@@ -7,6 +7,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useCancelRequest, useImportOpenAPI } from "../lib/queries";
+import { importedRequestURL } from "../lib/openapi";
 import type { BootstrapData } from "../lib/types";
 import { cn } from "../lib/utils";
 import { useWorkspaceStore } from "../stores/workspace";
@@ -15,7 +16,6 @@ import { CommandPalette } from "./CommandPalette";
 import { ContextPanel } from "./ContextPanel";
 import { RequestTabs } from "./RequestTabs";
 import { RequestWorkbench } from "./RequestWorkbench";
-import { RunnerDialog } from "./RunnerDialog";
 import { Sidebar } from "./Sidebar";
 import { StatusBar } from "./StatusBar";
 import { TopBar } from "./TopBar";
@@ -39,6 +39,7 @@ export function AppShell({ bootstrap }: { bootstrap: BootstrapData }) {
   const toggleRight = useWorkspaceStore((state) => state.toggleRight);
   const openTab = useWorkspaceStore((state) => state.openTab);
   const reopenClosedTab = useWorkspaceStore((state) => state.reopenClosedTab);
+  const updateTab = useWorkspaceStore((state) => state.updateTab);
   const setPaletteOpen = useWorkspaceStore(
     (state) => state.setCommandPaletteOpen,
   );
@@ -62,7 +63,35 @@ export function AppShell({ bootstrap }: { bootstrap: BootstrapData }) {
       }
       if (event.key === "Escape" && activeTab?.running) {
         event.preventDefault();
-        void cancelRequest.mutateAsync(activeTab.id);
+        void cancelRequest
+          .mutateAsync(activeTab.id)
+          .then((canceled) => {
+            if (canceled) return;
+            updateTab(activeTab.id, {
+              running: false,
+              error: true,
+              userError: {
+                code: "cancel_not_found",
+                title: "Çalışan request bulunamadı",
+                message: "Backend bu request için aktif bir işlem bulamadı.",
+                hint: "Request’i yeniden gönderin veya uygulamayı yeniden başlatın.",
+              },
+            });
+          })
+          .catch((error) => {
+            updateTab(activeTab.id, {
+              running: false,
+              error: true,
+              userError: {
+                code: "cancel_failed",
+                title: "Request iptal edilemedi",
+                message: "Native backend iptal komutuna yanıt vermedi.",
+                hint: "Uygulamayı yeniden başlatıp tekrar deneyin.",
+                technical:
+                  error instanceof Error ? error.message : String(error),
+              },
+            });
+          });
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -74,6 +103,7 @@ export function AppShell({ bootstrap }: { bootstrap: BootstrapData }) {
     openTab,
     reopenClosedTab,
     setPaletteOpen,
+    updateTab,
   ]);
 
   const startResize =
@@ -109,7 +139,7 @@ export function AppShell({ bootstrap }: { bootstrap: BootstrapData }) {
         id: `${endpoint.id}-${crypto.randomUUID()}`,
         name: endpoint.summary || endpoint.path,
         method: endpoint.method,
-        url: `{{baseUrl}}${endpoint.path}`,
+        url: importedRequestURL(result.baseUrl, endpoint.path),
         dirty: false,
       }),
     );
@@ -154,11 +184,11 @@ export function AppShell({ bootstrap }: { bootstrap: BootstrapData }) {
               <div className="welcome-mark">
                 <Sparkles size={24} />
               </div>
-              <p className="eyebrow">WELCOME TO LAZYTEST</p>
+              <p className="eyebrow">WELCOME TO VALIDEX</p>
               <h1>API çalışmalarınızı tek bir yerde toplayın.</h1>
               <p>
-                İlk request’inizi manuel oluşturun, OpenAPI içe aktarın veya
-                hazır örnek workspace ile temel akışı keşfedin.
+                İlk request’inizi manuel oluşturun veya OpenAPI dosyanızdan
+                endpoint’leri içe aktarın.
               </p>
               <div className="welcome-actions">
                 <Button
@@ -230,7 +260,6 @@ export function AppShell({ bootstrap }: { bootstrap: BootstrapData }) {
       </div>
       <StatusBar bootstrap={bootstrap} />
       <CommandPalette bootstrap={bootstrap} />
-      <RunnerDialog bootstrap={bootstrap} />
       <CodeGeneratorDialog />
     </div>
   );

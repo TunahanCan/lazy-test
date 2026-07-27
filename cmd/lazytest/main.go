@@ -6,7 +6,7 @@ import (
 	"embed"
 	"log"
 
-	"lazytest/internal/wailsapp"
+	"validex/internal/wailsapp"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -20,7 +20,7 @@ func main() {
 	bridge := wailsapp.NewBridge()
 
 	err := wails.Run(&options.App{
-		Title:             "LazyTest",
+		Title:             "Validex",
 		Width:             1440,
 		Height:            900,
 		MinWidth:          1080,

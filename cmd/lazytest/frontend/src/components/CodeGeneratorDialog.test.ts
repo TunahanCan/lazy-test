@@ -71,7 +71,7 @@ describe("Java generator", () => {
     const wireMock = buildGeneratedFiles(config("wiremock"), tab);
     expect(
       wireMock.find((file) => file.name === "Resource file")?.relativePath,
-    ).toBe("src/test/resources/__files/lazytest-response.json");
+    ).toBe("src/test/resources/__files/validex-response.json");
     expect(
       wireMock.find((file) => file.name === "Test class")?.content,
     ).toContain("new WireMockServer");
@@ -135,7 +135,7 @@ describe("Java generator", () => {
       "src/test/resources/contracts/classGenerated.groovy",
     );
     expect(files[0].content).toContain("Contract.make");
-    expect(files[0].content).toContain('body(file("lazytest-request.json"))');
+    expect(files[0].content).toContain('body(file("validex-request.json"))');
     expect(files.find((file) => file.name === "Maven dependency")).toMatchObject(
       {
         relativePath: "pom.xml",

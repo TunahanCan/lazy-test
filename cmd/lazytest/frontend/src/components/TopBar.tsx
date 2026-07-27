@@ -5,13 +5,11 @@ import {
   ChevronDown,
   Command,
   FilePlus2,
-  FolderPlus,
   Import,
   LayoutPanelLeft,
   LayoutPanelTop,
   Moon,
   PanelRight,
-  Play,
   Plus,
   RotateCcw,
   Search,
@@ -20,17 +18,18 @@ import {
   X,
 } from "lucide-react";
 import { useImportOpenAPI } from "../lib/queries";
+import { importedRequestURL } from "../lib/openapi";
 import type { BootstrapData, ThemePreference } from "../lib/types";
 import { useWorkspaceStore } from "../stores/workspace";
 import { Button, IconButton, Kbd } from "./ui";
 
 function Logo() {
   return (
-    <div className="brand" aria-label="LazyTest home">
+    <div className="brand" aria-label="Validex home">
       <span className="brand-mark">
         <Braces size={17} aria-hidden="true" />
       </span>
-      <span>LazyTest</span>
+      <span>Validex</span>
     </div>
   );
 }
@@ -70,7 +69,6 @@ export function TopBar({ bootstrap }: { bootstrap: BootstrapData }) {
   const setPaletteOpen = useWorkspaceStore(
     (state) => state.setCommandPaletteOpen,
   );
-  const setRunnerOpen = useWorkspaceStore((state) => state.setRunnerOpen);
   const theme = useWorkspaceStore((state) => state.theme);
   const toggleLeft = useWorkspaceStore((state) => state.toggleLeft);
   const toggleRight = useWorkspaceStore((state) => state.toggleRight);
@@ -103,7 +101,7 @@ export function TopBar({ bootstrap }: { bootstrap: BootstrapData }) {
         id: endpoint.id,
         name: endpoint.summary || endpoint.path,
         method: endpoint.method,
-        url: `{{baseUrl}}${endpoint.path}`,
+        url: importedRequestURL(result.baseUrl, endpoint.path),
         dirty: false,
       });
     }
@@ -118,36 +116,10 @@ export function TopBar({ bootstrap }: { bootstrap: BootstrapData }) {
         <Logo />
         <div className="topbar-divider" />
 
-        <DropdownMenu.Root>
-          <DropdownMenu.Trigger asChild>
-            <button className="topbar-select" aria-label="Workspace seç">
-              <span className="select-label">Workspace</span>
-              <strong>{bootstrap.workspaceName}</strong>
-              <ChevronDown size={14} aria-hidden="true" />
-            </button>
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Portal>
-            <DropdownMenu.Content className="menu" align="start" sideOffset={6}>
-              <DropdownMenu.Label className="menu-label">
-                RECENT WORKSPACES
-              </DropdownMenu.Label>
-              <DropdownMenu.Item className="menu-item">
-                <span className="workspace-dot" />
-                {bootstrap.workspaceName}
-                <span className="menu-check">✓</span>
-              </DropdownMenu.Item>
-              <DropdownMenu.Separator className="menu-separator" />
-              <DropdownMenu.Item className="menu-item">
-                <FolderPlus size={16} />
-                Create workspace
-              </DropdownMenu.Item>
-              <DropdownMenu.Item className="menu-item" onSelect={importSpec}>
-                <Import size={16} />
-                Import OpenAPI
-              </DropdownMenu.Item>
-            </DropdownMenu.Content>
-          </DropdownMenu.Portal>
-        </DropdownMenu.Root>
+        <div className="topbar-select" aria-label="Workspace">
+          <span className="select-label">Workspace</span>
+          <strong>{bootstrap.workspaceName}</strong>
+        </div>
 
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
@@ -218,11 +190,6 @@ export function TopBar({ bootstrap }: { bootstrap: BootstrapData }) {
             </DropdownMenu.Content>
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
-
-        <Button variant="ghost" onClick={() => setRunnerOpen(true)}>
-          <Play size={15} aria-hidden="true" />
-          Runner
-        </Button>
 
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>

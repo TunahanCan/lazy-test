@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"lazytest/internal/core"
-	"lazytest/internal/lt"
-	"lazytest/internal/report"
-	"lazytest/internal/tcp"
+	"validex/internal/core"
+	"validex/internal/lt"
+	"validex/internal/report"
+	"validex/internal/tcp"
 
 	"github.com/getkin/kin-openapi/openapi3"
 )

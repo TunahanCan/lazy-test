@@ -9,10 +9,11 @@ import {
   EyeOff,
   KeyRound,
   Link2,
-  Plus,
   Variable,
 } from "lucide-react";
 import type { BootstrapData, RequestTab } from "../lib/types";
+import { missingVariables } from "../lib/schemas";
+import { isSecretKey } from "../lib/secrets";
 import { cn } from "../lib/utils";
 import { useWorkspaceStore } from "../stores/workspace";
 import { Button, CountBadge, IconButton, MethodBadge } from "./ui";
@@ -25,11 +26,26 @@ export function ContextPanel({
   tab?: RequestTab;
 }) {
   const environmentID = useWorkspaceStore((state) => state.activeEnvironmentID);
+  const environmentVariables = useWorkspaceStore(
+    (state) => state.environmentVariables,
+  );
   const environment =
     bootstrap.environments.find((item) => item.id === environmentID) ??
     bootstrap.environments[0];
+  const variables = {
+    ...(environment?.variables ?? {}),
+    ...(environment ? environmentVariables[environment.id] : {}),
+  };
   const [showSecrets, setShowSecrets] = useState(false);
   const [completedSteps, setCompletedSteps] = useState([0, 1]);
+  const authorizationHeader = tab?.headers.find(
+    (header) =>
+      header.enabled && header.key.toLowerCase() === "authorization",
+  );
+  const authorizationReady = Boolean(
+    authorizationHeader?.value.trim() &&
+      missingVariables(authorizationHeader.value, variables).length === 0,
+  );
 
   const toggleStep = (index: number) =>
     setCompletedSteps((current) =>
@@ -62,13 +78,10 @@ export function ContextPanel({
               <span>ACTIVE ENVIRONMENT</span>
               <strong>{environment?.name}</strong>
             </div>
-            <Button size="sm" variant="ghost">
-              Edit
-            </Button>
           </div>
           <div className="variable-list">
-            {Object.entries(environment?.variables ?? {}).map(([key, value]) => {
-              const secret = key.toLowerCase().includes("token");
+            {Object.entries(variables).map(([key, value]) => {
+              const secret = isSecretKey(key);
               return (
                 <div className="variable-row" key={key}>
                   <div>
@@ -98,9 +111,9 @@ export function ContextPanel({
             {showSecrets ? <EyeOff size={14} /> : <Eye size={14} />}
             {showSecrets ? "Secret değerlerini gizle" : "Secret değerlerini göster"}
           </button>
-          <Button size="sm" className="context-add">
-            <Plus size={13} /> Add variable
-          </Button>
+          <p className="context-note">
+            Değerleri request içindeki Variables sekmesinden düzenleyebilirsiniz.
+          </p>
 
           <div className="context-divider" />
           <div className="context-heading">
@@ -129,25 +142,39 @@ export function ContextPanel({
           <div className="context-heading">
             <div>
               <span>RESOLVED AUTH</span>
-              <strong>Bearer Token</strong>
+              <strong>
+                {authorizationReady
+                  ? "Authorization header"
+                  : authorizationHeader
+                    ? "Authorization eksik"
+                    : "No Auth"}
+              </strong>
             </div>
-            <span className="auth-ok">
-              <Check size={13} /> Ready
-            </span>
+            {authorizationReady && (
+              <span className="auth-ok">
+                <Check size={13} /> Ready
+              </span>
+            )}
           </div>
-          <div className="auth-context-card">
-            <KeyRound size={18} />
-            <div>
-              <strong>Environment token</strong>
-              <span>Authorization · Bearer</span>
-              <code>••••••••••••••••</code>
+          {authorizationHeader ? (
+            <div className="auth-context-card">
+              <KeyRound size={18} />
+              <div>
+                <strong>{authorizationHeader.key}</strong>
+                <span>Request header</span>
+                <code>••••••••••••••••</code>
+              </div>
             </div>
-          </div>
+          ) : (
+            <p className="context-note">
+              Bu request için etkin bir Authorization header tanımlı değil.
+            </p>
+          )}
           <p className="context-note">
-            Secret değerleri Go backend içinde resolve edilir ve history kayıtlarında
-            maskelenir.
+            {authorizationHeader && !authorizationReady
+              ? "Header etkin ancak değeri boş veya bir secret variable eksik. Headers ve Variables sekmelerini kontrol edin."
+              : "Auth değerini request içindeki Headers sekmesinden yönetin. Secret header değerleri workspace verisine kaydedilmez."}
           </p>
-          <Button size="sm">Change authorization</Button>
         </Tabs.Content>
 
         <Tabs.Content value="docs" className="context-content">

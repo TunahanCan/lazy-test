@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptrace"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -22,7 +23,7 @@ import (
 	"sync"
 	"time"
 
-	"lazytest/internal/core"
+	"validex/internal/core"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -61,40 +62,18 @@ func Shutdown(b *Bridge) func(context.Context) {
 func (b *Bridge) Bootstrap() BootstrapData {
 	return BootstrapData{
 		AppVersion:    "0.2.0",
-		WorkspaceID:   "sample-workspace",
-		WorkspaceName: "Commerce API",
+		WorkspaceID:   "validex-workspace",
+		WorkspaceName: "Validex Workspace",
 		Environments: []EnvironmentSummary{
-			{ID: "local", Name: "Local", Variables: map[string]string{"baseUrl": "http://localhost:8080", "token": "••••••••"}},
-			{ID: "development", Name: "Development", Variables: map[string]string{"baseUrl": "https://api.example.com", "token": "••••••••"}},
-			{ID: "staging", Name: "Staging", Variables: map[string]string{"baseUrl": "https://staging.example.com", "token": "••••••••"}},
+			{ID: "none", Name: "No Environment", Variables: map[string]string{}},
+			{ID: "local", Name: "Local", Variables: map[string]string{"baseUrl": "http://localhost:8080", "token": ""}},
 		},
-		Collections: []CollectionNode{
-			{ID: "commerce", Kind: "collection", Name: "Commerce API", Depth: 0, Expanded: true},
-			{ID: "users", ParentID: "commerce", Kind: "folder", Name: "Users", Depth: 1, Expanded: true},
-			{ID: "list-users", ParentID: "users", Kind: "request", Name: "List users", Method: "GET", URL: "{{baseUrl}}/v1/users", Depth: 2, Favorite: true},
-			{ID: "create-user", ParentID: "users", Kind: "request", Name: "Create user", Method: "POST", URL: "{{baseUrl}}/v1/users", Depth: 2},
-			{ID: "orders", ParentID: "commerce", Kind: "folder", Name: "Orders", Depth: 1, Expanded: true},
-			{ID: "list-orders", ParentID: "orders", Kind: "request", Name: "List orders", Method: "GET", URL: "{{baseUrl}}/v1/orders", Depth: 2},
-			{ID: "create-order", ParentID: "orders", Kind: "request", Name: "Create order", Method: "POST", URL: "{{baseUrl}}/v1/orders", Depth: 2},
-			{ID: "health", ParentID: "commerce", Kind: "request", Name: "Service health", Method: "GET", URL: "{{baseUrl}}/health", Depth: 1},
-			{ID: "admin", Kind: "collection", Name: "Admin API", Depth: 0, Expanded: true},
-			{ID: "audit", ParentID: "admin", Kind: "request", Name: "Audit events", Method: "GET", URL: "{{baseUrl}}/v1/audit", Depth: 1},
-		},
-		History: []HistoryEntry{
-			{ID: "h-1", RequestName: "List users", Method: "GET", URL: "/v1/users", StatusCode: 200, DurationMS: 184, Environment: "Development", CreatedAt: time.Now().Add(-12 * time.Minute).Format(time.RFC3339), AssertionsOK: true, TraceID: "8f31c1a2", ResolvedValues: 2},
-			{ID: "h-2", RequestName: "Create order", Method: "POST", URL: "/v1/orders", StatusCode: 201, DurationMS: 326, Environment: "Staging", CreatedAt: time.Now().Add(-47 * time.Minute).Format(time.RFC3339), AssertionsOK: true, TraceID: "b712d43e", ResolvedValues: 3},
-			{ID: "h-3", RequestName: "Service health", Method: "GET", URL: "/health", StatusCode: 503, DurationMS: 1203, Environment: "Local", CreatedAt: time.Now().Add(-2 * time.Hour).Format(time.RFC3339), AssertionsOK: false, TraceID: "d913ee71", ResolvedValues: 1},
-		},
-		RecentURLs: []string{
-			"{{baseUrl}}/v1/users",
-			"{{baseUrl}}/v1/orders",
-			"{{baseUrl}}/health",
-		},
+		Collections: []CollectionNode{},
+		History:     []HistoryEntry{},
+		RecentURLs:  []string{},
 		OnboardingSteps: []string{
-			"Bir workspace oluştur",
 			"İlk request’ini gönder",
-			"Environment oluştur",
-			"Assertion ekle",
+			"Response’u incele",
 			"Java testi üret",
 		},
 	}
@@ -112,8 +91,14 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 	if len(missing) > 0 {
 		return failed("missing_variables", "Eksik değişken var", "Request gönderilmedi çünkü URL içindeki bazı değişkenlerin değeri yok.", "Environment veya context panelinden şu değerleri tanımlayın: "+strings.Join(missing, ", "), "")
 	}
-	if _, err := http.NewRequest(strings.ToUpper(input.Method), resolvedURL, nil); err != nil {
-		return failed("invalid_request", "Request oluşturulamadı", "Method veya URL geçerli görünmüyor.", "URL’nin http:// veya https:// ile başladığını kontrol edin.", err.Error())
+	resolvedURL = normalizeHTTPURL(resolvedURL)
+	parsedURL, err := neturl.Parse(resolvedURL)
+	if err != nil || parsedURL.Host == "" || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
+		technical := ""
+		if err != nil {
+			technical = err.Error()
+		}
+		return failed("invalid_request", "Request oluşturulamadı", "Method veya URL geçerli görünmüyor.", "URL’nin http:// veya https:// ile başladığını kontrol edin.", technical)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(input.TimeoutMS)*time.Millisecond)
@@ -263,6 +248,9 @@ func (b *Bridge) ImportOpenAPI() ImportSpecResult {
 		out.Title = doc.Info.Title
 		out.Version = doc.Info.Version
 	}
+	if doc != nil && len(doc.Servers) > 0 && doc.Servers[0] != nil {
+		out.BaseURL = doc.Servers[0].URL
+	}
 	for _, endpoint := range endpoints {
 		id := endpoint.OperationID
 		if id == "" {
@@ -361,12 +349,12 @@ func (b *Bridge) runtimeContext() context.Context {
 func safeDirectoryName(value string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return "lazytest-generated"
+		return "validex-generated"
 	}
 	invalid := regexp.MustCompile(`[^A-Za-z0-9._-]+`)
 	value = strings.Trim(invalid.ReplaceAllString(value, "-"), ".-")
 	if value == "" {
-		return "lazytest-generated"
+		return "validex-generated"
 	}
 	return value
 }
@@ -461,7 +449,7 @@ func resolveVariables(value string, variables map[string]string) (string, []stri
 			return match
 		}
 		replacement, ok := variables[parts[1]]
-		if !ok || replacement == "" || replacement == "••••••••" {
+		if !ok || replacement == "" || isMaskedSecretValue(replacement) {
 			missingSet[parts[1]] = struct{}{}
 			return match
 		}
@@ -475,9 +463,61 @@ func resolveVariables(value string, variables map[string]string) (string, []stri
 	return resolved, missing
 }
 
+func isMaskedSecretValue(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return false
+	}
+	for _, character := range trimmed {
+		if character != '•' {
+			return false
+		}
+	}
+	return true
+}
+
+func normalizeHTTPURL(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return trimmed
+	}
+	if strings.HasPrefix(trimmed, "//") {
+		return "https:" + trimmed
+	}
+	if strings.Contains(trimmed, "://") {
+		return trimmed
+	}
+
+	authority := trimmed
+	if boundary := strings.IndexAny(trimmed, "/?#"); boundary >= 0 {
+		authority = trimmed[:boundary]
+	}
+	if authority == "" {
+		return trimmed
+	}
+	host := authority
+	if parsedHost, _, err := net.SplitHostPort(authority); err == nil {
+		host = parsedHost
+	} else if strings.HasPrefix(authority, "[") {
+		if end := strings.Index(authority, "]"); end >= 0 {
+			host = authority[1:end]
+		}
+	} else if strings.Count(authority, ":") == 1 {
+		host = strings.SplitN(authority, ":", 2)[0]
+	}
+
+	scheme := "https"
+	normalizedHost := strings.ToLower(strings.Trim(host, "[]"))
+	ip := net.ParseIP(normalizedHost)
+	if normalizedHost == "localhost" || (ip != nil && (ip.IsLoopback() || ip.IsPrivate())) {
+		scheme = "http"
+	}
+	return scheme + "://" + trimmed
+}
+
 func methodAllowsBody(method string) bool {
 	switch strings.ToUpper(strings.TrimSpace(method)) {
-	case http.MethodPost, http.MethodPut, http.MethodPatch:
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
 		return true
 	default:
 		return false

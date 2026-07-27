@@ -1,6 +1,6 @@
-# LazyTest
+# Validex
 
-LazyTest, HTTP API istekleri hazırlayıp göndermek, yanıtları incelemek ve çalışan
+Validex, HTTP API istekleri hazırlayıp göndermek, yanıtları incelemek ve çalışan
 isteklerden Java test kodu üretmek için geliştirilmiş bir masaüstü
 uygulamasıdır.
 
@@ -10,13 +10,15 @@ native işlemler ile HTTP çağrıları Go ile geliştirilmiştir.
 ## Neler yapabilir?
 
 - GET, POST, PUT, PATCH, DELETE, OPTIONS ve HEAD istekleri gönderir.
+- `localhost:8080` gibi şemasız adresleri otomatik olarak geçerli HTTP/HTTPS
+  URL’lerine dönüştürür.
 - URL, header ve body içinde `{{variable}}` kullanımını destekler.
 - Çalışan isteği iptal eder ve anlaşılır ağ/timeout hata mesajları gösterir.
 - Response body, status, süre, boyut, header, cookie, TLS ve timeline
   bilgilerini gösterir.
 - Birden fazla request’i sekmelerde açık tutar.
 - OpenAPI 3 YAML veya JSON dosyalarını içe aktarır.
-- Çalışan request ve response üzerinden Java test/client kodu üretir.
+- Çalışan request ve response üzerinden Java test/client başlangıç kodu üretir.
 - REST Assured, MockMvc, WebTestClient, WireMock, Spring Cloud Contract,
   Java HttpClient, Spring RestClient ve Spring WebClient çıktıları sunar.
 - Üretilen tek dosyayı kaydeder veya Maven/Gradle proje iskeleti oluşturur.
@@ -48,7 +50,7 @@ Bu komut:
 1. Wails aracını kurar.
 2. Frontend bağımlılıklarını hazırlar.
 3. Vite geliştirme sunucusunu ve Go backend’i başlatır.
-4. LazyTest masaüstü penceresini açar.
+4. Validex masaüstü penceresini açar.
 
 İlk çalıştırmada Go ve npm bağımlılıkları indirileceği için açılış biraz uzun
 sürebilir. Sonraki çalıştırmalar daha hızlıdır.
@@ -66,10 +68,9 @@ altındaki `bin`) `PATH` içinde olduğundan emin olun.
 
 ## Uygulama nasıl kullanılır?
 
-1. Sol taraftaki collection içinden bir request açın veya üst menüden
-   **New → New request** seçin.
+1. Üst menüden **New → New request** seçin.
 2. HTTP methodunu ve URL’yi girin.
-3. Gerekirse Params, Authorization, Headers veya Body alanlarını düzenleyin.
+3. Gerekirse Variables, Headers veya Body alanlarını düzenleyin.
 4. Üst bölümdeki **Send** butonuna basın.
 5. Alt response panelinden body, header, cookie ve timeline bilgilerini
    inceleyin.
@@ -81,6 +82,15 @@ Environment seçildiğinde `{{baseUrl}}` gibi değişkenler request gönderilmed
 ```text
 {{baseUrl}}/v1/users
 ```
+
+`localhost:8080/health` ve `10.0.0.5:8080/health` gibi yerel adreslere
+`http://`, genel domain’lere ise `https://` otomatik eklenir. Yalnız HTTP ve
+HTTPS protokolleri desteklenir.
+
+Adı token, parola, API key veya Authorization olarak tanınan environment ve
+header değerleri tarayıcı depolamasına yazılmaz. Uygulamayı yeniden açtığınızda
+bu değerleri tekrar girmeniz gerekir. Hassas verileri URL veya request body
+içine doğrudan yazmayın; bu alanlar workspace ile birlikte saklanır.
 
 OpenAPI dosyası eklemek için üst menüdeki **Import OpenAPI** seçeneğini
 kullanın. Java kodu üretmek için **Send** butonunun yanındaki açılır menüden
@@ -99,11 +109,30 @@ make build
 macOS uygulamasını açmak için:
 
 ```bash
-open cmd/lazytest/build/bin/LazyTest.app
+open cmd/lazytest/build/bin/Validex.app
 ```
 
 Windows ve Linux çıktıları da build alınan işletim sisteminde aynı `bin`
 dizini altında oluşturulur.
+
+### macOS imzalama
+
+`make build`, sistemde yalnızca bir Apple Development sertifikası bulursa
+uygulamayı yerel geliştirme için otomatik olarak imzalar. Birden fazla
+sertifika varsa veya Developer ID kullanacaksanız imza kimliğini açıkça seçin:
+
+```bash
+MACOS_SIGN_IDENTITY="Apple Development: ..." make build
+```
+
+İmzalı build zorunluysa şu komutu kullanın:
+
+```bash
+MACOS_SIGN_REQUIRED=1 make build
+```
+
+Dış dağıtım için Developer ID imzasına ek olarak notarization ve stapling
+ayrıca yapılandırılmalıdır.
 
 ## Testler
 
@@ -127,11 +156,11 @@ cmd/lazytest/
 
 internal/wailsapp/           Typed Wails bridge ve native işlemler
 internal/core/               OpenAPI ve ortak API işlevleri
-internal/appsvc/             Yeniden kullanılabilir uygulama servisleri
-internal/lt/                 Load-test engine
-internal/tcp/                TCP engine
-internal/config/             Yapılandırma modelleri
-internal/report/             JSON ve JUnit raporları
+internal/appsvc/             Gelecekte bağlanacak uygulama servisleri
+internal/lt/                 Gelecekte bağlanacak load-test engine
+internal/tcp/                Gelecekte bağlanacak TCP engine
+internal/config/             Yeniden kullanılabilir yapılandırma modelleri
+internal/report/             Yeniden kullanılabilir raporlama paketleri
 ```
 
 Temel çalışma akışı:
@@ -153,11 +182,11 @@ Frontend componentleri Wails runtime’ını doğrudan çağırmaz. Backend ça�
 HTTP request gönderme, iptal, OpenAPI import ve Java proje export işlemleri
 native uygulamada gerçek backend ile çalışır.
 
-Şu bölümler halen geliştirme aşamasındadır:
+Bilinen sınırlar:
 
-- Workspace, collection, environment ve history verileri örnek veridir ve
-  kalıcı bir backend deposuna yazılmaz.
-- Runner ekranı bir UX demosudur; gerçek load-test engine’ine bağlı değildir.
-- Scripts ve assertions alanları henüz çalıştırılabilir değildir.
+- Açık sekmeler, environment değerleri ve arayüz yerleşimi cihazdaki WebView
+  depolamasında tutulur; dosya veya bulut ile senkronize edilmez.
 - OAuth 2.0, mTLS, keychain ve proxy entegrasyonu tamamlanmamıştır.
+- Üretilen Java proje iskeletleri henüz Maven/Gradle ile otomatik derlenerek
+  doğrulanmamaktadır.
 - Windows ve Linux native paketleri henüz CI üzerinde doğrulanmamaktadır.

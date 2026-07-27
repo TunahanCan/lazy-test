@@ -1,6 +1,6 @@
 package appsvc
 
-import "lazytest/internal/lt"
+import "validex/internal/lt"
 
 // emitProgress forwards progress events to sink if available.
 func (s *Service) emitProgress(runID, phase string, done, total int, item string, okCount, errCount int) {

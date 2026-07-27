@@ -1,20 +1,20 @@
 {
   "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "LazyTest",
-  "outputfilename": "lazytest",
+  "name": "Validex",
+  "outputfilename": "validex",
   "build:tags": "wails",
   "frontend:install": "npm ci",
   "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
   "author": {
-    "name": "LazyTest"
+    "name": "Validex"
   },
   "info": {
-    "companyName": "LazyTest",
-    "productName": "LazyTest",
+    "companyName": "Validex",
+    "productName": "Validex",
     "productVersion": "0.2.0",
-    "copyright": "© 2026 LazyTest",
+    "copyright": "© 2026 Validex",
     "comments": "Modern API workspace for developers"
   }
 }

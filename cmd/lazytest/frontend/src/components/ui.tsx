@@ -21,6 +21,7 @@ export function Button({
 }) {
   return (
     <button
+      type="button"
       className={cn("button", `button-${variant}`, `button-${size}`, className)}
       {...props}
     />
@@ -40,6 +41,7 @@ export function IconButton({
     <Tooltip.Root>
       <Tooltip.Trigger asChild>
         <button
+          type="button"
           className={cn("icon-button", className)}
           aria-label={label}
           {...props}

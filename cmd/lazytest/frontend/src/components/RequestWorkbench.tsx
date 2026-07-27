@@ -17,7 +17,6 @@ import {
   ChevronDown,
   Clipboard,
   Code2,
-  Download,
   FileCode2,
   FileText,
   KeyRound,
@@ -31,7 +30,6 @@ import {
   Trash2,
   Variable,
   X,
-  Zap,
 } from "lucide-react";
 import {
   useFieldArray,
@@ -41,9 +39,11 @@ import {
 import { useCancelRequest, useSendRequest } from "../lib/queries";
 import {
   missingVariables,
+  normalizeRequestURL,
   requestSchema,
   type RequestFormValues,
 } from "../lib/schemas";
+import { isSecretKey } from "../lib/secrets";
 import type {
   BootstrapData,
   HTTPMethod,
@@ -70,7 +70,7 @@ const methods: HTTPMethod[] = [
 ];
 
 const requestSections = [
-  { id: "params", label: "Params", icon: Variable },
+  { id: "params", label: "Variables", icon: Variable },
   { id: "authorization", label: "Authorization", icon: KeyRound },
   { id: "headers", label: "Headers", icon: FileText },
   { id: "body", label: "Body", icon: Braces },
@@ -84,6 +84,41 @@ function countEnabledHeaders(tab: RequestTab) {
   return tab.headers.filter((header) => header.enabled && header.key).length;
 }
 
+function methodAllowsBody(method: HTTPMethod): boolean {
+  return ["POST", "PUT", "PATCH", "DELETE"].includes(method);
+}
+
+function withInferredJSONContentType(
+  values: RequestFormValues,
+): RequestFormValues["headers"] {
+  if (
+    !methodAllowsBody(values.method) ||
+    !values.body.trim() ||
+    values.headers.some(
+      (header) =>
+        header.enabled && header.key.trim().toLowerCase() === "content-type",
+    )
+  ) {
+    return values.headers;
+  }
+  try {
+    JSON.parse(values.body);
+  } catch {
+    return values.headers;
+  }
+  return [
+    ...values.headers,
+    {
+      id: crypto.randomUUID(),
+      enabled: true,
+      key: "Content-Type",
+      value: "application/json",
+      description: "JSON body için otomatik eklendi",
+      source: "Generated",
+    },
+  ];
+}
+
 function validationMessage(errors: FieldErrors<RequestFormValues>) {
   if (errors.url?.message) return errors.url.message;
   if (errors.method?.message) return errors.method.message;
@@ -93,9 +128,11 @@ function validationMessage(errors: FieldErrors<RequestFormValues>) {
 function MethodSelect({
   value,
   onChange,
+  disabled = false,
 }: {
   value: HTTPMethod;
   onChange: (method: HTTPMethod) => void;
+  disabled?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const filtered = methods.filter((method) =>
@@ -104,7 +141,12 @@ function MethodSelect({
   return (
     <DropdownMenu.Root onOpenChange={(open) => !open && setQuery("")}>
       <DropdownMenu.Trigger asChild>
-        <button className="method-select" aria-label="HTTP method seç">
+        <button
+          type="button"
+          className="method-select"
+          aria-label="HTTP method seç"
+          disabled={disabled}
+        >
           <MethodBadge method={value} />
           <ChevronDown size={13} aria-hidden="true" />
         </button>
@@ -139,26 +181,26 @@ function MethodSelect({
 
 function ParamsEditor({
   variables,
+  onChange,
+  disabled = false,
 }: {
   variables: Record<string, string>;
+  onChange: (key: string, value: string) => void;
+  disabled?: boolean;
 }) {
-  const rows = Object.entries(variables).map(([key, value], index) => ({
+  const rows = Object.entries(variables).map(([key, value]) => ({
     key,
     value,
-    type: key.toLowerCase().includes("token") ? "Secret" : "String",
+    type: isSecretKey(key) ? "Secret" : "String",
     source: "Environment",
-    enabled: index === 0,
   }));
   return (
     <div className="parameter-editor">
       <div className="table-toolbar">
         <div>
-          <strong>Query & path parameters</strong>
-          <span>Request URL ile birlikte çözümlenir.</span>
+          <strong>Environment variables</strong>
+          <span>URL, header ve body içindeki değişkenlerde kullanılır.</span>
         </div>
-        <Button size="sm">
-          <Plus size={13} /> Add parameter
-        </Button>
       </div>
       <div className="parameter-table">
         <div className="parameter-row parameter-header">
@@ -171,76 +213,37 @@ function ParamsEditor({
         </div>
         {rows.map((row) => (
           <div className="parameter-row" key={row.key}>
+            <span />
+            <input value={row.key} readOnly aria-label={`${row.key} variable adı`} />
             <input
-              type="checkbox"
-              defaultChecked={row.enabled}
-              aria-label={`${row.key} parametresini etkinleştir`}
-            />
-            <input defaultValue={row.key} />
-            <input
-              defaultValue={
-                row.type === "Secret" ? "••••••••••••" : row.value
-              }
+              type={row.type === "Secret" ? "password" : "text"}
+              value={row.value}
+              onChange={(event) => onChange(row.key, event.target.value)}
+              aria-label={`${row.key} variable değeri`}
               className={row.type === "Secret" ? "secret-value" : ""}
+              disabled={disabled}
             />
             <span>{row.type}</span>
             <span className="source-badge">{row.source}</span>
-            <IconButton label={`${row.key} satırını sil`}>
-              <Trash2 size={14} />
-            </IconButton>
+            <span />
           </div>
         ))}
-        <button className="add-table-row">
-          <Plus size={13} /> Add row
-        </button>
+        {rows.length === 0 && (
+          <p className="context-note">
+            Aktif environment için tanımlı variable bulunmuyor.
+          </p>
+        )}
       </div>
     </div>
   );
 }
 
 function AuthorizationEditor() {
-  const authMethods = [
-    ["No Auth", "Request’e auth bilgisi eklenmez."],
-    ["Bearer Token", "Authorization: Bearer header’ı."],
-    ["API Key", "Header veya query API key."],
-    ["OAuth 2.0", "Adım adım authorization flow."],
-    ["Basic Auth", "Kullanıcı adı ve parola."],
-    ["mTLS", "Client certificate ile doğrulama."],
-  ];
   return (
-    <div className="auth-editor">
-      <div className="table-toolbar">
-        <div>
-          <strong>Authorization</strong>
-          <span>Secret değerleri varsayılan olarak maskelenir.</span>
-        </div>
-        <label className="inherit-auth">
-          <input type="checkbox" defaultChecked /> Inherit from collection
-        </label>
-      </div>
-      <div className="auth-grid">
-        {authMethods.map(([name, description], index) => (
-          <button className={cn("auth-card", index === 1 && "selected")} key={name}>
-            <span className="auth-card-icon">
-              <KeyRound size={17} />
-            </span>
-            <span>
-              <strong>{name}</strong>
-              <small>{description}</small>
-            </span>
-            {index === 1 && <Check size={15} className="auth-check" />}
-          </button>
-        ))}
-      </div>
-      <div className="secret-field">
-        <label>
-          Token
-          <input type="password" value="environment-token-reference" readOnly />
-        </label>
-        <span className="secret-reference">Environment · token</span>
-        <Button size="sm">Show</Button>
-      </div>
-    </div>
+    <EmptyState
+      title="Authorization header üzerinden yönetiliyor"
+      description="Bearer, Basic veya API key değerini Headers sekmesinde ekleyin. OAuth 2.0 ve mTLS editörleri henüz hazır değil."
+    />
   );
 }
 
@@ -250,12 +253,17 @@ function HeadersEditor({
   remove,
   append,
   sync,
+  disabled = false,
 }: {
-  fields: { id: string }[];
+  fields: {
+    id: string;
+    source?: RequestFormValues["headers"][number]["source"];
+  }[];
   register: ReturnType<typeof useForm<RequestFormValues>>["register"];
   remove: (index: number) => void;
   append: (value: RequestFormValues["headers"][number]) => void;
   sync: () => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="parameter-editor">
@@ -266,15 +274,17 @@ function HeadersEditor({
         </div>
         <Button
           size="sm"
-          onClick={() =>
+          disabled={disabled}
+          onClick={() => {
             append({
               id: crypto.randomUUID(),
               enabled: true,
               key: "",
               value: "",
               source: "Manual",
-            })
-          }
+            });
+            window.setTimeout(sync);
+          }}
         >
           <Plus size={13} /> Add header
         </Button>
@@ -307,25 +317,27 @@ function HeadersEditor({
               type="checkbox"
               {...register(`headers.${index}.enabled`)}
               onBlur={sync}
+              disabled={disabled}
             />
             <input
               list="header-suggestions"
               {...register(`headers.${index}.key`)}
               placeholder="Header name"
               onBlur={sync}
+              disabled={disabled}
             />
             <input
               {...register(`headers.${index}.value`)}
               placeholder="Value or {{variable}}"
               onBlur={sync}
+              disabled={disabled}
             />
             <span className="source-badge">
-              {register(`headers.${index}.source`).name
-                ? "Configured"
-                : "Manual"}
+              {field.source ?? "Manual"}
             </span>
             <IconButton
               label="Header’ı sil"
+              disabled={disabled}
               onClick={() => {
                 remove(index);
                 window.setTimeout(sync);
@@ -343,11 +355,14 @@ function HeadersEditor({
 function BodyEditor({
   value,
   onChange,
+  disabled = false,
+  unavailableMessage,
 }: {
   value: string;
   onChange: (value: string) => void;
+  disabled?: boolean;
+  unavailableMessage?: string;
 }) {
-  const [bodyType, setBodyType] = useState("JSON");
   const [jsonError, setJSONError] = useState("");
   const format = () => {
     try {
@@ -361,24 +376,16 @@ function BodyEditor({
   return (
     <div className="body-editor">
       <div className="body-toolbar">
-        <div className="body-types" role="tablist" aria-label="Request body type">
-          {["None", "JSON", "XML", "Text", "GraphQL", "Form", "Multipart"].map(
-            (type) => (
-              <button
-                key={type}
-                className={cn(bodyType === type && "active")}
-                onClick={() => setBodyType(type)}
-              >
-                {type}
-              </button>
-            ),
-          )}
+        <div className="body-types">
+          <strong>JSON / raw body</strong>
         </div>
         <div>
-          <button onClick={format}>
+          <button type="button" onClick={format} disabled={disabled}>
             <Sparkles size={14} /> Format
           </button>
           <button
+            type="button"
+            disabled={disabled}
             onClick={() => {
               try {
                 onChange(JSON.stringify(JSON.parse(value)));
@@ -392,6 +399,11 @@ function BodyEditor({
           </button>
         </div>
       </div>
+      {unavailableMessage && (
+        <div className="inline-error">
+          <AlertCircle size={14} /> {unavailableMessage}
+        </div>
+      )}
       {jsonError && (
         <div className="inline-error">
           <AlertCircle size={14} /> {jsonError}
@@ -400,8 +412,8 @@ function BodyEditor({
       <Suspense fallback={<div className="editor-loading">Editor hazırlanıyor…</div>}>
         <MonacoEditor
           height="100%"
-          language={bodyType.toLowerCase()}
-          value={bodyType === "None" ? "" : value}
+          language="json"
+          value={value}
           onChange={(next) => onChange(next ?? "")}
           theme={
             document.documentElement.dataset.theme === "dark" ? "vs-dark" : "light"
@@ -414,6 +426,7 @@ function BodyEditor({
             wordWrap: "on",
             folding: true,
             automaticLayout: true,
+            readOnly: disabled,
             padding: { top: 12, bottom: 12 },
           }}
         />
@@ -429,30 +442,26 @@ function EditorEmpty({
 }) {
   const content: Record<
     "scripts" | "assertions" | "settings" | "documentation",
-    [string, string, string]
+    [string, string]
   > = {
     scripts: [
-      "Request script’i ekleyin",
-      "Request öncesi değişken üretin veya response sonrası extraction çalıştırın.",
-      "Add script",
+      "Scripts henüz hazır değil",
+      "Pre-request ve post-response script çalıştırma sonraki sürümde eklenecek.",
     ],
     assertions: [
-      "Henüz assertion yok",
-      "Status, süre, header veya JSON alanlarını otomatik doğrulayın.",
-      "Add assertion",
+      "Assertions henüz hazır değil",
+      "Status, süre, header ve JSON assertion çalıştırma sonraki sürümde eklenecek.",
     ],
     settings: [
-      "Request ayarları",
-      "Redirect, timeout, SSL validation ve history davranışını yönetin.",
-      "Configure",
+      "Request ayarları henüz hazır değil",
+      "Redirect, timeout, SSL validation ve history seçenekleri sonraki sürümde eklenecek.",
     ],
     documentation: [
-      "Request’i belgelendirin",
-      "Ekip arkadaşlarınız için açıklama, örnek ve kullanım notları ekleyin.",
-      "Add documentation",
+      "Documentation henüz hazır değil",
+      "Request açıklaması ve kullanım notları sonraki sürümde eklenecek.",
     ],
   };
-  const [title, description, action] =
+  const [title, description] =
     content[
       section as "scripts" | "assertions" | "settings" | "documentation"
     ];
@@ -461,7 +470,6 @@ function EditorEmpty({
       icon="new"
       title={title}
       description={description}
-      primaryLabel={action}
     />
   );
 }
@@ -483,12 +491,25 @@ export function RequestWorkbench({
   const responseSize = useWorkspaceStore((state) => state.responseSize);
   const setResponseSize = useWorkspaceStore((state) => state.setResponseSize);
   const environmentID = useWorkspaceStore((state) => state.activeEnvironmentID);
+  const environmentVariables = useWorkspaceStore(
+    (state) => state.environmentVariables,
+  );
+  const setEnvironmentVariable = useWorkspaceStore(
+    (state) => state.setEnvironmentVariable,
+  );
   const setCodeGeneratorOpen = useWorkspaceStore(
     (state) => state.setCodeGeneratorOpen,
   );
   const environment =
     bootstrap.environments.find((item) => item.id === environmentID) ??
     bootstrap.environments[0];
+  const variables = useMemo(
+    () => ({
+      ...(environment?.variables ?? {}),
+      ...(environment ? environmentVariables[environment.id] : {}),
+    }),
+    [environment, environmentVariables],
+  );
 
   const form = useForm<RequestFormValues>({
     resolver: zodResolver(requestSchema),
@@ -522,56 +543,122 @@ export function RequestWorkbench({
 
   const watchedURL = form.watch("url");
   const watchedBody = form.watch("body");
+  const watchedMethod = form.watch("method");
   const unresolved = useMemo(
-    () => missingVariables(watchedURL, environment?.variables ?? {}),
-    [environment?.variables, watchedURL],
+    () => missingVariables(watchedURL, variables),
+    [variables, watchedURL],
   );
-  const urlField = form.register("url");
 
   const syncHeaders = () => {
-    updateTab(tab.id, { headers: form.getValues("headers"), dirty: true });
+    const nextHeaders = form.getValues("headers");
+    if (JSON.stringify(nextHeaders) === JSON.stringify(tab.headers)) return;
+    updateTab(tab.id, {
+      headers: nextHeaders,
+      dirty: true,
+      error: false,
+      userError: undefined,
+    });
   };
 
   const setSection = (section: RequestTab["requestSection"]) =>
     updateTab(tab.id, { requestSection: section });
 
   const submit = form.handleSubmit(async (values) => {
+    const normalizedURL = normalizeRequestURL(values.url);
+    const requestHeaders = withInferredJSONContentType(values);
+    form.setValue("url", normalizedURL, {
+      shouldDirty: true,
+      shouldValidate: true,
+    });
+    queryClient.setQueryData(["response", tab.id], null);
     updateTab(tab.id, {
       running: true,
       error: false,
       userError: undefined,
+      response: undefined,
       method: values.method,
-      url: values.url,
+      url: normalizedURL,
       body: values.body,
       headers: values.headers,
     });
-    const result = await sendMutation.mutateAsync({
-      id: tab.id,
-      name: tab.name,
-      method: values.method,
-      url: values.url,
-      headers: values.headers.map(({ id: _id, ...header }) => header),
-      body: values.body,
-      variables: environment?.variables ?? {},
-      timeoutMs: values.timeoutMs,
-      saveHistory: true,
-    });
-    if (result.response) {
-      queryClient.setQueryData(["response", tab.id], result.response);
-      updateTab(tab.id, {
-        running: false,
-        error: false,
-        userError: undefined,
-        response: result.response,
+    try {
+      const result = await sendMutation.mutateAsync({
+        id: tab.id,
+        name: tab.name,
+        method: values.method,
+        url: normalizedURL,
+        headers: requestHeaders.map(({ id: _id, ...header }) => header),
+        body: values.body,
+        variables,
+        timeoutMs: values.timeoutMs,
+        saveHistory: true,
       });
-    } else {
+      if (result.response) {
+        queryClient.setQueryData(["response", tab.id], result.response);
+        updateTab(tab.id, {
+          running: false,
+          error: false,
+          userError: undefined,
+          response: result.response,
+        });
+        return;
+      }
       updateTab(tab.id, {
         running: false,
         error: result.error?.code !== "request_canceled",
-        userError: result.error,
+        userError:
+          result.error ??
+          {
+            code: "empty_response",
+            title: "Request tamamlanamadı",
+            message: "Backend geçerli bir response döndürmedi.",
+            hint: "Uygulamayı yeniden başlatıp request’i tekrar deneyin.",
+          },
+      });
+    } catch (error) {
+      updateTab(tab.id, {
+        running: false,
+        error: true,
+        userError: {
+          code: "bridge_error",
+          title: "Backend bağlantısı koptu",
+          message: "Request native backend’e iletilemedi.",
+          hint: "Uygulamayı yeniden başlatıp tekrar deneyin.",
+          technical: error instanceof Error ? error.message : String(error),
+        },
       });
     }
   });
+
+  const cancelRequest = async () => {
+    try {
+      const canceled = await cancelMutation.mutateAsync(tab.id);
+      if (!canceled) {
+        updateTab(tab.id, {
+          running: false,
+          error: true,
+          userError: {
+            code: "cancel_not_found",
+            title: "Çalışan request bulunamadı",
+            message: "Backend bu request için aktif bir işlem bulamadı.",
+            hint: "Request’i yeniden gönderin veya uygulamayı yeniden başlatın.",
+          },
+        });
+      }
+    } catch (error) {
+      updateTab(tab.id, {
+        running: false,
+        error: true,
+        userError: {
+          code: "cancel_failed",
+          title: "Request iptal edilemedi",
+          message: "Native backend iptal komutuna yanıt vermedi.",
+          hint: "Uygulamayı yeniden başlatıp tekrar deneyin.",
+          technical: error instanceof Error ? error.message : String(error),
+        },
+      });
+    }
+  };
 
   const copyAsCurl = () => {
     const values = form.getValues();
@@ -630,25 +717,58 @@ export function RequestWorkbench({
       <form className="request-form" onSubmit={submit}>
         <div className="request-line">
           <MethodSelect
-            value={form.watch("method")}
+            value={watchedMethod}
+            disabled={tab.running}
             onChange={(method) => {
               form.setValue("method", method, { shouldValidate: true });
-              updateTab(tab.id, { method, dirty: true });
+              updateTab(tab.id, {
+                method,
+                dirty: true,
+                error: false,
+                userError: undefined,
+              });
             }}
           />
           <div className={cn("url-field", errorMessage && "invalid")}>
             <input
-              {...urlField}
+              name="url"
+              ref={form.register("url").ref}
+              value={watchedURL}
               list="recent-url-list"
               placeholder="https://api.example.com/v1/users or {{baseUrl}}/v1/users"
               spellCheck={false}
+              aria-label="Request URL"
               aria-invalid={Boolean(errorMessage)}
+              disabled={tab.running}
               onChange={(event) => {
-                void urlField.onChange(event);
+                form.setValue("url", event.target.value, {
+                  shouldDirty: true,
+                  shouldTouch: true,
+                  shouldValidate: true,
+                });
                 updateTab(tab.id, {
                   url: event.target.value,
                   dirty: true,
+                  error: false,
+                  userError: undefined,
                 });
+              }}
+              onBlur={() => {
+                const currentURL = form.getValues("url");
+                const normalizedURL = normalizeRequestURL(currentURL);
+                form.setValue("url", normalizedURL, {
+                  shouldDirty: normalizedURL !== tab.url,
+                  shouldTouch: true,
+                  shouldValidate: true,
+                });
+                if (normalizedURL !== currentURL) {
+                  updateTab(tab.id, {
+                    url: normalizedURL,
+                    dirty: true,
+                    error: false,
+                    userError: undefined,
+                  });
+                }
               }}
             />
             <datalist id="recent-url-list">
@@ -668,7 +788,7 @@ export function RequestWorkbench({
               type="button"
               variant="danger"
               className="send-button cancel-button"
-              onClick={() => void cancelMutation.mutateAsync(tab.id)}
+              onClick={() => void cancelRequest()}
             >
               <X size={15} />
               Cancel
@@ -681,30 +801,18 @@ export function RequestWorkbench({
               </Button>
               <DropdownMenu.Root>
                 <DropdownMenu.Trigger asChild>
-                  <button className="send-dropdown" aria-label="Diğer gönderme seçenekleri">
+                  <button
+                    type="button"
+                    className="send-dropdown"
+                    aria-label="Diğer gönderme seçenekleri"
+                  >
                     <ChevronDown size={14} />
                   </button>
                 </DropdownMenu.Trigger>
                 <DropdownMenu.Portal>
                   <DropdownMenu.Content className="menu" align="end" sideOffset={5}>
-                    <DropdownMenu.Item
-                      className="menu-item"
-                      onSelect={() => void submit()}
-                    >
-                      <Download size={15} /> Send and download
-                    </DropdownMenu.Item>
-                    <DropdownMenu.Item
-                      className="menu-item"
-                      onSelect={() => void submit()}
-                    >
-                      <Zap size={15} /> Send without history
-                    </DropdownMenu.Item>
-                    <DropdownMenu.Separator className="menu-separator" />
                     <DropdownMenu.Item className="menu-item" onSelect={copyAsCurl}>
                       <Clipboard size={15} /> Copy as cURL
-                    </DropdownMenu.Item>
-                    <DropdownMenu.Item className="menu-item">
-                      <FileCode2 size={15} /> Copy as IntelliJ HTTP request
                     </DropdownMenu.Item>
                     <DropdownMenu.Item
                       className="menu-item"
@@ -756,7 +864,14 @@ export function RequestWorkbench({
           </Tabs.List>
           <div className="request-editor-content">
             <Tabs.Content value="params">
-              <ParamsEditor variables={environment?.variables ?? {}} />
+              <ParamsEditor
+                variables={variables}
+                disabled={tab.running}
+                onChange={(key, value) => {
+                  if (!environment) return;
+                  setEnvironmentVariable(environment.id, key, value);
+                }}
+              />
             </Tabs.Content>
             <Tabs.Content value="authorization">
               <AuthorizationEditor />
@@ -768,14 +883,26 @@ export function RequestWorkbench({
                 remove={headers.remove}
                 append={headers.append}
                 sync={syncHeaders}
+                disabled={tab.running}
               />
             </Tabs.Content>
             <Tabs.Content value="body" className="full-height-tab">
               <BodyEditor
                 value={watchedBody}
+                disabled={tab.running || !methodAllowsBody(watchedMethod)}
+                unavailableMessage={
+                  methodAllowsBody(watchedMethod)
+                    ? undefined
+                    : `${watchedMethod} request body göndermez. Body için POST, PUT, PATCH veya DELETE seçin.`
+                }
                 onChange={(body) => {
                   form.setValue("body", body, { shouldValidate: true });
-                  updateTab(tab.id, { body, dirty: true });
+                  updateTab(tab.id, {
+                    body,
+                    dirty: true,
+                    error: false,
+                    userError: undefined,
+                  });
                 }}
               />
             </Tabs.Content>

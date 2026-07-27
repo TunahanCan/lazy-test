@@ -4,10 +4,12 @@ package wailsapp
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -19,6 +21,58 @@ func TestResolveVariablesReportsMissingKeys(t *testing.T) {
 	}
 	if len(missing) != 1 || missing[0] != "id" {
 		t.Fatalf("unexpected missing keys: %#v", missing)
+	}
+}
+
+func TestResolveVariablesTreatsMaskedValuesAsMissing(t *testing.T) {
+	_, missing := resolveVariables("Bearer {{token}}", map[string]string{
+		"token": "••••••••••••",
+	})
+	if len(missing) != 1 || missing[0] != "token" {
+		t.Fatalf("expected masked token to be missing, got %#v", missing)
+	}
+}
+
+func TestNormalizeHTTPURL(t *testing.T) {
+	t.Parallel()
+	tests := map[string]string{
+		"localhost:8080/health":  "http://localhost:8080/health",
+		"10.20.30.40:8081/api":   "http://10.20.30.40:8081/api",
+		"api.example.com/users":  "https://api.example.com/users",
+		"https://example.test/x": "https://example.test/x",
+	}
+	for input, want := range tests {
+		if got := normalizeHTTPURL(input); got != want {
+			t.Errorf("normalizeHTTPURL(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestSendRequestNormalizesResolvedLocalURL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	baseURL := strings.TrimPrefix(server.URL, "http://")
+	result := NewBridge().SendRequest(RequestInput{
+		ID: "schemeless", Method: http.MethodGet, URL: "{{baseUrl}}/health",
+		Variables: map[string]string{"baseUrl": baseURL}, TimeoutMS: 2_000,
+	})
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %#v", result.Error)
+	}
+	if result.Response == nil || result.Response.StatusCode != http.StatusNoContent {
+		t.Fatalf("unexpected response: %#v", result.Response)
+	}
+}
+
+func TestSendRequestRejectsNonHTTPURL(t *testing.T) {
+	result := NewBridge().SendRequest(RequestInput{
+		ID: "invalid-scheme", Method: http.MethodGet, URL: "ftp://example.test/file",
+	})
+	if result.Error == nil || result.Error.Code != "invalid_request" {
+		t.Fatalf("expected invalid_request, got %#v", result.Error)
 	}
 }
 
@@ -55,6 +109,30 @@ func TestSendRequestReturnsRichResponse(t *testing.T) {
 	}
 	if len(result.Response.Timeline) == 0 {
 		t.Fatal("expected timeline")
+	}
+}
+
+func TestSendRequestIncludesDeleteBody(t *testing.T) {
+	var received string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		body, err := io.ReadAll(request.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		received = string(body)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	result := NewBridge().SendRequest(RequestInput{
+		ID: "delete-body", Method: http.MethodDelete, URL: server.URL,
+		Body: `{"force":true}`, TimeoutMS: 2_000,
+	})
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %#v", result.Error)
+	}
+	if received != `{"force":true}` {
+		t.Fatalf("unexpected delete body: %q", received)
 	}
 }
 
@@ -145,7 +223,7 @@ func TestSafeDirectoryName(t *testing.T) {
 	if got := safeDirectoryName("../../My API Test"); got != "My-API-Test" {
 		t.Fatalf("unexpected safe directory name: %q", got)
 	}
-	if got := safeDirectoryName("..."); got != "lazytest-generated" {
+	if got := safeDirectoryName("..."); got != "validex-generated" {
 		t.Fatalf("expected fallback directory name, got %q", got)
 	}
 }

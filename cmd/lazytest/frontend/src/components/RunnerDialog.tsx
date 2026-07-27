@@ -35,7 +35,7 @@ function downloadReport(
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `lazytest-run.${type === "junit" ? "xml" : type}`;
+  anchor.download = `validex-run.${type === "junit" ? "xml" : type}`;
   anchor.click();
   URL.revokeObjectURL(url);
 }
@@ -494,7 +494,7 @@ export function RunnerDialog({ bootstrap }: { bootstrap: BootstrapData }) {
                   onClick={() =>
                     downloadReport(
                       "html",
-                      `<html><body><h1>LazyTest Run</h1><pre>${jsonReport}</pre></body></html>`,
+                      `<html><body><h1>Validex Run</h1><pre>${jsonReport}</pre></body></html>`,
                       "text/html",
                     )
                   }

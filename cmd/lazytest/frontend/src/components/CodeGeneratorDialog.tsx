@@ -130,7 +130,7 @@ function safeJSONFixture(content: string, fallback: string) {
 function requestPath(url: string) {
   const withoutVariable = url.replace(/^\{\{\s*baseUrl\s*}}/, "");
   try {
-    const parsed = new URL(withoutVariable, "http://lazytest.local");
+    const parsed = new URL(withoutVariable, "http://validex.local");
     for (const key of [...parsed.searchParams.keys()]) {
       if (secretKeyPattern.test(key)) parsed.searchParams.set(key, "{{SECRET}}");
     }
@@ -260,7 +260,7 @@ function mainSource(config: GeneratorConfig, tab: RequestTab) {
   const hasBody = ["POST", "PUT", "PATCH"].includes(tab.method);
   const sanitizedRequestBody = safeJSONFixture(
     tab.body || "{}",
-    '{\n  "_lazytest": "Non-JSON request body omitted; review before use."\n}\n',
+    '{\n  "_validex": "Non-JSON request body omitted; review before use."\n}\n',
   );
   const body = javaString(sanitizedRequestBody);
   const safeHeaders = tab.headers.filter(
@@ -429,7 +429,7 @@ class ${className} {
             .willReturn(aResponse()
                 .withStatus(${expectedStatus})
                 .withHeader("Content-Type", "${escapedContentType}")
-                .withBodyFile("lazytest-response.json")));
+                .withBodyFile("validex-response.json")));
     }
 }
 `;
@@ -437,7 +437,7 @@ class ${className} {
       return `import org.springframework.cloud.contract.spec.Contract
 
 Contract.make {
-    description "Generated from LazyTest request: ${javaString(tab.name)}"
+    description "Generated from Validex request: ${javaString(tab.name)}"
     request {
         method "${tab.method}"
         url "${path}"
@@ -450,14 +450,14 @@ ${safeHeaders
   )
   .join("\n")}
         }
-${hasBody ? '        body(file("lazytest-request.json"))' : ""}
+${hasBody ? '        body(file("validex-request.json"))' : ""}
     }
     response {
         status ${expectedStatus}
         headers {
             contentType("${escapedContentType}")
         }
-${config.assertions.responseBody ? '        body(file("lazytest-response.json"))' : ""}
+${config.assertions.responseBody ? '        body(file("validex-response.json"))' : ""}
     }
 }
 `;
@@ -693,7 +693,7 @@ tasks.test {
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.example</groupId>
-  <artifactId>lazytest-generated</artifactId>
+  <artifactId>validex-generated</artifactId>
   <version>1.0.0-SNAPSHOT</version>
   <properties>
     <maven.compiler.release>21</maven.compiler.release>
@@ -789,23 +789,23 @@ final class ResponseAssertions {
       name: "Resource file",
       relativePath:
         config.framework === "wiremock"
-          ? "src/test/resources/__files/lazytest-response.json"
+          ? "src/test/resources/__files/validex-response.json"
           : contract
-            ? "src/test/resources/contracts/lazytest-response.json"
-          : "src/test/resources/lazytest-response.json",
+            ? "src/test/resources/contracts/validex-response.json"
+          : "src/test/resources/validex-response.json",
       content: safeJSONFixture(
         tab.response?.body || '{\n  "data": []\n}\n',
-        '{\n  "_lazytest": "Non-JSON response omitted; review before use."\n}\n',
+        '{\n  "_validex": "Non-JSON response omitted; review before use."\n}\n',
       ),
     },
   ];
   if (contract && ["POST", "PUT", "PATCH"].includes(tab.method)) {
     files.push({
       name: "Request resource",
-      relativePath: "src/test/resources/contracts/lazytest-request.json",
+      relativePath: "src/test/resources/contracts/validex-request.json",
       content: safeJSONFixture(
         tab.body || "{}",
-        '{\n  "_lazytest": "Non-JSON request body omitted; review before use."\n}\n',
+        '{\n  "_validex": "Non-JSON request body omitted; review before use."\n}\n',
       ),
     });
   }
@@ -930,7 +930,7 @@ export function CodeGeneratorDialog() {
           !file.name.endsWith("dependency") || file.name === selectedBuildFile,
       );
       const result = await backend.exportGeneratedProject(
-        `${safeClassName(generatedConfig.className)}-lazytest`,
+        `${safeClassName(generatedConfig.className)}-validex`,
         exportFiles,
       );
       if (result.error) showNotice(result.error.message, "danger");

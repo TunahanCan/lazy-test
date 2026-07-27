@@ -5,8 +5,8 @@ import (
 	"os"
 	"time"
 
-	"lazytest/internal/core"
-	"lazytest/internal/tcp"
+	"validex/internal/core"
+	"validex/internal/tcp"
 )
 
 // JSONReport is the root structure for JSON output.

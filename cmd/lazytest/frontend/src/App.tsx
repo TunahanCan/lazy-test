@@ -40,7 +40,7 @@ export function App() {
         <EmptyState
           icon="error"
           title="Workspace açılamadı"
-          description="LazyTest başlangıç verilerini yükleyemedi. Çalışmalarınız değiştirilmedi."
+          description="Validex başlangıç verilerini yükleyemedi. Çalışmalarınız değiştirilmedi."
           primaryLabel="Yeniden dene"
           onPrimary={() => void bootstrap.refetch()}
           secondaryLabel="Teknik ayrıntı"

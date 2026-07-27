@@ -1,6 +1,6 @@
 # Testler Nasıl Çalışıyor? (Adım Adım)
 
-Bu doküman `lazytest` içindeki testleri **teker teker**, neyi doğruladıklarını ve hangi komutla çalıştırabileceğini açıklar.
+Bu doküman `validex` içindeki testleri **teker teker**, neyi doğruladıklarını ve hangi komutla çalıştırabileceğini açıklar.
 
 > Kapsam: Şu an repoda gerçek unit testler `internal/tcp/tcp_test.go` içinde bulunuyor.
 

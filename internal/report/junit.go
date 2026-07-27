@@ -7,8 +7,8 @@ import (
 	"os"
 	"time"
 
-	"lazytest/internal/core"
-	"lazytest/internal/tcp"
+	"validex/internal/core"
+	"validex/internal/tcp"
 )
 
 // JUnitTestSuites is the root element for JUnit XML.
@@ -50,7 +50,7 @@ type JUnitFailure struct {
 // WriteJUnitSmoke writes smoke results to JUnit XML file.
 func WriteJUnitSmoke(path string, results []core.SmokeResult, duration time.Duration) error {
 	suite := JUnitTestSuite{
-		Name:  "lazytest-smoke",
+		Name:  "validex-smoke",
 		Tests: len(results),
 		Time:  fmt.Sprintf("%.3f", duration.Seconds()),
 	}
@@ -59,7 +59,7 @@ func WriteJUnitSmoke(path string, results []core.SmokeResult, duration time.Dura
 		name := r.Method + " " + r.Path
 		tc := JUnitTestCase{
 			Name:      name,
-			Classname: "lazytest.smoke",
+			Classname: "validex.smoke",
 			Time:      fmt.Sprintf("%.3f", float64(r.LatencyMS)/1000.0),
 		}
 		if !r.OK {
@@ -74,7 +74,7 @@ func WriteJUnitSmoke(path string, results []core.SmokeResult, duration time.Dura
 	}
 	suite.Failures = failures
 	root := JUnitTestSuites{
-		Name:     "lazytest",
+		Name:     "validex",
 		Tests:    len(results),
 		Failures: failures,
 		Time:     fmt.Sprintf("%.3f", duration.Seconds()),
@@ -90,7 +90,7 @@ func WriteJUnitSmoke(path string, results []core.SmokeResult, duration time.Dura
 // WriteJUnitDrift writes drift results to JUnit XML file.
 func WriteJUnitDrift(path string, results []core.DriftResult, duration time.Duration) error {
 	suite := JUnitTestSuite{
-		Name:  "lazytest-drift",
+		Name:  "validex-drift",
 		Tests: len(results),
 		Time:  fmt.Sprintf("%.3f", duration.Seconds()),
 	}
@@ -99,7 +99,7 @@ func WriteJUnitDrift(path string, results []core.DriftResult, duration time.Dura
 		name := r.Method + " " + r.Path
 		tc := JUnitTestCase{
 			Name:      name,
-			Classname: "lazytest.drift",
+			Classname: "validex.drift",
 			Time:      "0",
 		}
 		if !r.OK {
@@ -118,7 +118,7 @@ func WriteJUnitDrift(path string, results []core.DriftResult, duration time.Dura
 	}
 	suite.Failures = failures
 	root := JUnitTestSuites{
-		Name:     "lazytest",
+		Name:     "validex",
 		Tests:    len(results),
 		Failures: failures,
 		Time:     fmt.Sprintf("%.3f", duration.Seconds()),
@@ -133,11 +133,11 @@ func WriteJUnitDrift(path string, results []core.DriftResult, duration time.Dura
 
 // WriteJUnitTCP writes tcp step results to JUnit XML file.
 func WriteJUnitTCP(path string, result tcp.Result) error {
-	suite := JUnitTestSuite{Name: "lazytest-tcp", Tests: len(result.Steps), Time: fmt.Sprintf("%.3f", result.Duration.Seconds())}
+	suite := JUnitTestSuite{Name: "validex-tcp", Tests: len(result.Steps), Time: fmt.Sprintf("%.3f", result.Duration.Seconds())}
 	failures := 0
 	for _, st := range result.Steps {
 		name := fmt.Sprintf("tcp/%s/%d-%s", result.PlanName, st.Index, st.Kind)
-		tc := JUnitTestCase{Name: name, Classname: "lazytest.tcp", Time: fmt.Sprintf("%.3f", st.Latency.Seconds())}
+		tc := JUnitTestCase{Name: name, Classname: "validex.tcp", Time: fmt.Sprintf("%.3f", st.Latency.Seconds())}
 		if st.Err != "" {
 			failures++
 			tc.Failure = &JUnitFailure{Message: st.Err, Type: st.ErrorClass, Body: "hexdump=" + st.Hexdump}
@@ -145,7 +145,7 @@ func WriteJUnitTCP(path string, result tcp.Result) error {
 		suite.Cases = append(suite.Cases, tc)
 	}
 	suite.Failures = failures
-	root := JUnitTestSuites{Name: "lazytest", Tests: len(result.Steps), Failures: failures, Time: fmt.Sprintf("%.3f", result.Duration.Seconds()), Suites: []JUnitTestSuite{suite}}
+	root := JUnitTestSuites{Name: "validex", Tests: len(result.Steps), Failures: failures, Time: fmt.Sprintf("%.3f", result.Duration.Seconds()), Suites: []JUnitTestSuite{suite}}
 	data, err := xml.MarshalIndent(root, "", "  ")
 	if err != nil {
 		return err

@@ -32,57 +32,28 @@ declare global {
   }
 }
 
-const sampleBootstrap: BootstrapData = {
+const developmentBootstrap: BootstrapData = {
   appVersion: "0.2.0-dev",
-  workspaceId: "sample-workspace",
-  workspaceName: "Commerce API",
+  workspaceId: "validex-workspace",
+  workspaceName: "Validex Workspace",
   environments: [
+    {
+      id: "none",
+      name: "No Environment",
+      variables: {},
+    },
     {
       id: "local",
       name: "Local",
-      variables: { baseUrl: "http://localhost:8080", token: "••••••••" },
-    },
-    {
-      id: "development",
-      name: "Development",
-      variables: { baseUrl: "https://api.example.com", token: "••••••••" },
-    },
-    {
-      id: "staging",
-      name: "Staging",
-      variables: {
-        baseUrl: "https://staging.example.com",
-        token: "••••••••",
-      },
+      variables: { baseUrl: "http://localhost:8080", token: "" },
     },
   ],
-  collections: [
-    { id: "commerce", kind: "collection", name: "Commerce API", depth: 0, expanded: true },
-    { id: "users", parentId: "commerce", kind: "folder", name: "Users", depth: 1, expanded: true },
-    { id: "list-users", parentId: "users", kind: "request", name: "List users", method: "GET", url: "{{baseUrl}}/v1/users", depth: 2, favorite: true },
-    { id: "create-user", parentId: "users", kind: "request", name: "Create user", method: "POST", url: "{{baseUrl}}/v1/users", depth: 2 },
-    { id: "orders", parentId: "commerce", kind: "folder", name: "Orders", depth: 1, expanded: true },
-    { id: "list-orders", parentId: "orders", kind: "request", name: "List orders", method: "GET", url: "{{baseUrl}}/v1/orders", depth: 2 },
-    { id: "create-order", parentId: "orders", kind: "request", name: "Create order", method: "POST", url: "{{baseUrl}}/v1/orders", depth: 2 },
-    { id: "health", parentId: "commerce", kind: "request", name: "Service health", method: "GET", url: "{{baseUrl}}/health", depth: 1 },
-    { id: "admin", kind: "collection", name: "Admin API", depth: 0, expanded: true },
-    { id: "audit", parentId: "admin", kind: "request", name: "Audit events", method: "GET", url: "{{baseUrl}}/v1/audit", depth: 1 },
-  ],
-  history: [
-    { id: "h-1", requestName: "List users", method: "GET", url: "/v1/users", statusCode: 200, durationMs: 184, environment: "Development", createdAt: new Date(Date.now() - 12 * 60_000).toISOString(), assertionsOk: true, traceId: "8f31c1a2", resolvedValues: 2 },
-    { id: "h-2", requestName: "Create order", method: "POST", url: "/v1/orders", statusCode: 201, durationMs: 326, environment: "Staging", createdAt: new Date(Date.now() - 47 * 60_000).toISOString(), assertionsOk: true, traceId: "b712d43e", resolvedValues: 3 },
-    { id: "h-3", requestName: "Service health", method: "GET", url: "/health", statusCode: 503, durationMs: 1203, environment: "Local", createdAt: new Date(Date.now() - 2 * 3_600_000).toISOString(), assertionsOk: false, traceId: "d913ee71", resolvedValues: 1 },
-  ],
-  recentUrls: [
-    "{{baseUrl}}/v1/users",
-    "{{baseUrl}}/v1/orders",
-    "{{baseUrl}}/health",
-  ],
+  collections: [],
+  history: [],
+  recentUrls: [],
   onboardingSteps: [
-    "Bir workspace oluştur",
     "İlk request’ini gönder",
-    "Environment oluştur",
-    "Assertion ekle",
+    "Response’u incele",
     "Java testi üret",
   ],
 };
@@ -193,7 +164,7 @@ export const backend = {
   async bootstrap(): Promise<BootstrapData> {
     const native = nativeBridge();
     if (native) return native.Bootstrap();
-    if (import.meta.env.DEV) return sampleBootstrap;
+    if (import.meta.env.DEV) return developmentBootstrap;
     throw new Error("Wails backend binding is unavailable.");
   },
 
@@ -205,7 +176,7 @@ export const backend = {
       error: {
         code: "backend_unavailable",
         title: "Desktop backend bağlantısı yok",
-        message: "LazyTest native servislerine ulaşılamadı.",
+        message: "Validex native servislerine ulaşılamadı.",
         hint: "Uygulamayı kapatıp yeniden açın.",
       },
     };
@@ -229,6 +200,7 @@ export const backend = {
         path: "",
         title: "",
         version: "",
+        baseUrl: "",
         endpoints: [],
         canceled: false,
         error: {
@@ -240,9 +212,10 @@ export const backend = {
     }
     await new Promise((resolve) => window.setTimeout(resolve, 350));
     return {
-      path: "/sample/openapi.yaml",
-      title: "Sample Commerce API",
+      path: "/validex-demo/openapi.yaml",
+      title: "Validex Demo API",
       version: "1.0.0",
+      baseUrl: "https://api.example.com",
       canceled: false,
       endpoints: [
         { id: "listPets", method: "GET", path: "/pets", summary: "List pets", tags: ["pets"] },
@@ -292,11 +265,11 @@ export const backend = {
       };
     }
     downloadTextFile(
-      `${projectName || "lazytest-generated"}.json`,
+      `${projectName || "validex-generated"}.json`,
       JSON.stringify({ projectName, files }, null, 2),
     );
     return {
-      path: `${projectName || "lazytest-generated"}.json`,
+      path: `${projectName || "validex-generated"}.json`,
       count: files.length,
       canceled: false,
     };

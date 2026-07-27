@@ -9,7 +9,11 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
-import { useWorkspaceStore } from "./stores/workspace";
+import { backend } from "./lib/backend";
+import {
+  createRequestTab,
+  useWorkspaceStore,
+} from "./stores/workspace";
 
 vi.mock("@monaco-editor/react", () => ({
   default: ({ value }: { value?: string }) => (
@@ -30,14 +34,22 @@ function renderApp() {
   );
 }
 
-describe("LazyTest workspace", () => {
-  afterEach(cleanup);
+describe("Validex workspace", () => {
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
 
   beforeEach(() => {
     localStorage.clear();
     useWorkspaceStore.persist.clearStorage();
+    const tab = createRequestTab({ id: "request-under-test" });
     useWorkspaceStore.setState({
-      activeEnvironmentID: "development",
+      activeEnvironmentID: "none",
+      environmentVariables: {},
+      tabs: [tab],
+      activeTabID: tab.id,
+      recentlyClosed: [],
       commandPaletteOpen: false,
       runnerOpen: false,
       codeGeneratorOpen: false,
@@ -46,15 +58,18 @@ describe("LazyTest workspace", () => {
 
   it("renders a discoverable request workspace", async () => {
     renderApp();
-    expect(await screen.findByLabelText("LazyTest home")).toBeVisible();
-    expect(screen.getByRole("button", { name: /List users/i })).toBeVisible();
+    expect(await screen.findByLabelText("Validex home")).toBeVisible();
+    expect(
+      screen.getByRole("tab", { name: /Untitled request/i }),
+    ).toBeVisible();
+    expect(screen.getByLabelText("Request URL")).toBeVisible();
     expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
-    expect(screen.getByText("Variables")).toBeVisible();
+    expect(screen.getAllByRole("tab", { name: "Variables" })).not.toHaveLength(0);
   });
 
   it("opens the command palette with the global shortcut", async () => {
     renderApp();
-    await screen.findByLabelText("LazyTest home");
+    await screen.findByLabelText("Validex home");
     fireEvent.keyDown(window, { key: "k", metaKey: true });
     expect(
       await screen.findByRole("dialog", { name: "Command palette" }),
@@ -62,11 +77,32 @@ describe("LazyTest workspace", () => {
     expect(screen.getByRole("button", { name: /New request/i })).toBeVisible();
   });
 
-  it("sends the sample request and renders response metadata", async () => {
+  it("edits and normalizes the URL without accidental form submits", async () => {
+    const sendSpy = vi.spyOn(backend, "sendRequest");
     renderApp();
-    const send = await screen.findByRole("button", { name: "Send" });
+    const url = await screen.findByLabelText("Request URL");
+
+    fireEvent.change(url, { target: { value: "api.example.com/users" } });
+    expect(url).toHaveValue("api.example.com/users");
+
+    const methodButton = screen.getByRole("button", {
+      name: "HTTP method seç",
+    });
+    expect(methodButton).toHaveAttribute("type", "button");
+    fireEvent.click(methodButton);
+    expect(sendSpy).not.toHaveBeenCalled();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(
+      screen.getByRole("button", { name: "Diğer gönderme seçenekleri" }),
+    ).toHaveAttribute("type", "button");
+
+    fireEvent.blur(url);
+    expect(url).toHaveValue("https://api.example.com/users");
+
+    const send = screen.getByRole("button", { name: "Send" });
     fireEvent.click(send);
     expect(await screen.findByRole("button", { name: /Cancel/i })).toBeVisible();
+    expect(url).toBeDisabled();
     await waitFor(
       () => {
         expect(screen.getByText("200 OK")).toBeVisible();
@@ -75,47 +111,128 @@ describe("LazyTest workspace", () => {
     );
     expect(screen.getByText("184 ms")).toBeVisible();
     expect(screen.getByText("HTTP/2")).toBeVisible();
+    expect(sendSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ url: "https://api.example.com/users" }),
+    );
   });
 
-  it("opens the three-stage collection runner", async () => {
-    renderApp();
-    const runner = await screen.findByRole("button", { name: "Runner" });
-    fireEvent.click(runner);
-    expect(
-      await screen.findByRole("dialog", { name: "Collection runner" }),
-    ).toBeVisible();
-    expect(screen.getByLabelText("Iterations")).toHaveValue(3);
-    expect(screen.getByText("Selection")).toBeVisible();
-    fireEvent.change(screen.getByLabelText("Iterations"), {
-      target: { value: "9999" },
-    });
-    fireEvent.change(screen.getByLabelText("Concurrency"), {
-      target: { value: "9999" },
-    });
-    expect(screen.getByLabelText("Iterations")).toHaveValue(100);
-    expect(screen.getByLabelText("Concurrency")).toHaveValue(50);
-    fireEvent.click(screen.getByRole("button", { name: /Start run/i }));
-    expect(await screen.findByText(/request tamamlandı/)).toBeVisible();
-    expect(screen.getByRole("progressbar")).toHaveAttribute(
-      "aria-valuemax",
-      "500",
+  it("recovers from a rejected native request and clears stale errors on edit", async () => {
+    vi.spyOn(backend, "sendRequest").mockRejectedValueOnce(
+      new Error("native bridge disconnected"),
     );
-    fireEvent.keyDown(document, { key: "Escape" });
+    renderApp();
+    const url = await screen.findByLabelText("Request URL");
+    fireEvent.change(url, { target: { value: "http://localhost:8080/health" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByText("Backend bağlantısı koptu")).toBeVisible();
     expect(
-      screen.getByRole("dialog", { name: "Collection runner" }),
-    ).toBeVisible();
-    expect(
-      screen.getByRole("button", {
-        name: "Çalışan Runner önce durdurulmalı",
+      useWorkspaceStore.getState().tabs[0].running,
+    ).toBe(false);
+
+    fireEvent.change(url, {
+      target: { value: "http://localhost:8081/health" },
+    });
+    expect(screen.queryByText("Backend bağlantısı koptu")).not.toBeInTheDocument();
+    expect(useWorkspaceStore.getState().tabs[0].error).toBe(false);
+  });
+
+  it("stops running when cancel cannot find the native request", async () => {
+    vi.spyOn(backend, "sendRequest").mockImplementation(
+      () => new Promise(() => undefined),
+    );
+    vi.spyOn(backend, "cancelRequest").mockResolvedValueOnce(false);
+    renderApp();
+    const url = await screen.findByLabelText("Request URL");
+    fireEvent.change(url, { target: { value: "https://example.test/slow" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+
+    expect(await screen.findByText("Çalışan request bulunamadı")).toBeVisible();
+    expect(useWorkspaceStore.getState().tabs[0].running).toBe(false);
+  });
+
+  it("clears an older response before a failed retry", async () => {
+    renderApp();
+    const url = await screen.findByLabelText("Request URL");
+    fireEvent.change(url, { target: { value: "https://example.test/first" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(await screen.findByText("200 OK", {}, { timeout: 2_500 })).toBeVisible();
+
+    vi.spyOn(backend, "sendRequest").mockRejectedValueOnce(
+      new Error("retry failed"),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByText("Backend bağlantısı koptu")).toBeVisible();
+    expect(screen.queryByText("200 OK")).not.toBeInTheDocument();
+    expect(useWorkspaceStore.getState().tabs[0].response).toBeUndefined();
+  });
+
+  it("sends edited environment variables to the backend", async () => {
+    useWorkspaceStore.setState({ activeEnvironmentID: "local" });
+    const sendSpy = vi.spyOn(backend, "sendRequest");
+    renderApp();
+
+    const baseURL = await screen.findByLabelText("baseUrl variable değeri");
+    fireEvent.change(baseURL, { target: { value: "127.0.0.1:18081" } });
+    const url = screen.getByLabelText("Request URL");
+    fireEvent.change(url, { target: { value: "{{baseUrl}}/health" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => expect(sendSpy).toHaveBeenCalled());
+    expect(sendSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "{{baseUrl}}/health",
+        variables: expect.objectContaining({
+          baseUrl: "127.0.0.1:18081",
+        }),
       }),
-    ).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: /Stop/i }));
-    expect(screen.getByRole("button", { name: /Start run/i })).toBeVisible();
+    );
+  });
+
+  it("adds JSON Content-Type for a JSON request body", async () => {
+    const tab = createRequestTab({
+      id: "json-request",
+      method: "POST",
+      url: "https://example.test/users",
+      body: '{"name":"Ada"}',
+    });
+    useWorkspaceStore.setState({
+      tabs: [tab],
+      activeTabID: tab.id,
+    });
+    const sendSpy = vi.spyOn(backend, "sendRequest").mockResolvedValueOnce({
+      error: {
+        code: "request_canceled",
+        title: "Test tamamlandı",
+        message: "Test transportu çağrıldı.",
+      },
+    });
+    renderApp();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Send" }));
+    await waitFor(() => expect(sendSpy).toHaveBeenCalled());
+
+    expect(sendSpy.mock.calls[0][0].headers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          enabled: true,
+          key: "Content-Type",
+          value: "application/json",
+        }),
+      ]),
+    );
+    expect(
+      useWorkspaceStore
+        .getState()
+        .tabs[0].headers.some((header) => header.key === "Content-Type"),
+    ).toBe(false);
   });
 
   it("generates Java files from the command palette", async () => {
     renderApp();
-    await screen.findByLabelText("LazyTest home");
+    await screen.findByLabelText("Validex home");
     fireEvent.keyDown(window, { key: "k", metaKey: true });
     fireEvent.click(
       await screen.findByRole("button", { name: /Generate Java test/i }),

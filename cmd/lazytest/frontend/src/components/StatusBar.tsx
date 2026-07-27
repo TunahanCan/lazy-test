@@ -26,7 +26,7 @@ export function StatusBar({ bootstrap }: { bootstrap: BootstrapData }) {
             {active.dirty ? "Unsaved changes" : "Request saved"}
           </span>
         )}
-        <span>LazyTest {bootstrap.appVersion}</span>
+        <span>Validex {bootstrap.appVersion}</span>
       </div>
     </footer>
   );

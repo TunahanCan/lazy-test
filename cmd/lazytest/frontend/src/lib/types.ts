@@ -144,6 +144,7 @@ export interface ImportSpecResult {
   path: string;
   title: string;
   version: string;
+  baseUrl: string;
   endpoints: ImportedEndpoint[];
   canceled: boolean;
   error?: UserError;
