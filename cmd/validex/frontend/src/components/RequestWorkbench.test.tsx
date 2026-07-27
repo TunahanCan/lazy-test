@@ -9,6 +9,7 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { backend } from "../lib/backend";
 import type { BootstrapData, RequestTab } from "../lib/types";
 import {
   createRequestTab,
@@ -160,9 +161,73 @@ describe("RequestWorkbench", () => {
     expect(
       within(requestTabs).getByRole("tab", { name: /Headers/i }),
     ).toHaveAttribute("aria-selected", "true");
+    expect(
+      within(requestTabs).queryByRole("tab", { name: /Authorization/i }),
+    ).not.toBeInTheDocument();
 
     expect(screen.getByLabelText("1. header etkin")).toBeVisible();
     expect(screen.getByLabelText("1. header adı")).toBeVisible();
     expect(screen.getByLabelText("1. header değeri")).toBeVisible();
+  });
+
+  it("does not compare an edited URL against the imported operation", async () => {
+    vi.spyOn(backend, "sendRequest").mockResolvedValueOnce({
+      response: {
+        requestId: "imported-request",
+        statusCode: 200,
+        status: "200 OK",
+        durationMs: 12,
+        sizeBytes: 9,
+        contentType: "application/json",
+        protocol: "HTTP/1.1",
+        remoteAddr: "127.0.0.1:8080",
+        tls: "",
+        traceId: "",
+        headers: { "content-type": ["application/json"] },
+        cookies: [],
+        body: '{\n  "id": 42\n}',
+        rawBody: '{"id":42}',
+        timeline: [],
+        resolvedUrl: "https://api.example.test/customers/42",
+      },
+    });
+    const validate = vi.spyOn(backend, "validateOpenAPIResponse");
+    const tab = createRequestTab({
+      id: "imported-request",
+      url: "https://api.example.test/orders/42",
+      openApi: { specId: "orders", path: "/orders/{id}" },
+    });
+    renderWorkbench(tab);
+
+    fireEvent.change(screen.getByLabelText("Request URL"), {
+      target: { value: "https://api.example.test/customers/42" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => {
+      expect(
+        useWorkspaceStore.getState().tabs[0].response?.contract?.error?.title,
+      ).toBe("Request OpenAPI operation’dan ayrıldı");
+    });
+    expect(validate).not.toHaveBeenCalled();
+  });
+
+  it("clears imported contract metadata when the HTTP method changes", async () => {
+    const tab = createRequestTab({
+      id: "imported-method-request",
+      method: "GET",
+      url: "https://api.example.test/orders",
+      openApi: { specId: "orders", path: "/orders" },
+    });
+    renderWorkbench(tab);
+
+    fireEvent.pointerDown(
+      screen.getByRole("button", { name: "HTTP method seç" }),
+      { button: 0, ctrlKey: false },
+    );
+    fireEvent.click(await screen.findByRole("menuitem", { name: /POST/i }));
+
+    expect(useWorkspaceStore.getState().tabs[0].method).toBe("POST");
+    expect(useWorkspaceStore.getState().tabs[0].openApi).toBeUndefined();
   });
 });

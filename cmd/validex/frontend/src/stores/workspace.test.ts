@@ -15,6 +15,8 @@ describe("workspace persistence", () => {
       tabs: [tab],
       activeTabID: tab.id,
       recentlyClosed: [],
+      latestImportedSpec: undefined,
+      sidebarSection: "requests",
     });
   });
 
@@ -237,6 +239,25 @@ describe("workspace persistence", () => {
         title: "Request failed",
         message: "Temporary failure",
       },
+      responseSection: "raw",
+      response: {
+        requestId: "completed-request",
+        statusCode: 200,
+        status: "OK",
+        durationMs: 10,
+        sizeBytes: 2,
+        contentType: "application/json",
+        protocol: "HTTP/1.1",
+        remoteAddr: "127.0.0.1",
+        tls: "",
+        traceId: "trace-stale",
+        headers: {},
+        cookies: [],
+        body: "{}",
+        rawBody: "{}",
+        timeline: [],
+        resolvedUrl: "https://example.test",
+      },
     });
     useWorkspaceStore.setState({
       tabs: [running],
@@ -254,6 +275,38 @@ describe("workspace persistence", () => {
       pinned: false,
     });
     expect(duplicate.userError).toBeUndefined();
+    expect(duplicate.response).toBeUndefined();
+    expect(duplicate.responseSection).toBe("body");
+  });
+
+  it("keeps the latest imported API transient", () => {
+    useWorkspaceStore.getState().setImportedSpec({
+      specId: "orders",
+      path: "/tmp/orders.yaml",
+      title: "Orders API",
+      version: "1.0.0",
+      baseUrl: "/api/v1",
+      endpoints: [
+        {
+          id: "get-order",
+          method: "GET",
+          path: "/orders/{id}",
+          summary: "Get order",
+          tags: ["orders"],
+        },
+      ],
+      canceled: false,
+    });
+
+    const state = useWorkspaceStore.getState();
+    expect(state.latestImportedSpec?.endpoints).toHaveLength(1);
+    expect(state.sidebarSection).toBe("apis");
+    expect(state.leftVisible).toBe(true);
+    const persisted = JSON.parse(
+      localStorage.getItem(workspaceStorageKey) ?? "{}",
+    );
+    expect(persisted.state.latestImportedSpec).toBeUndefined();
+    expect(persisted.state.sidebarSection).toBeUndefined();
   });
 
   it("moves a sanitized legacy workspace to the Validex storage key", () => {

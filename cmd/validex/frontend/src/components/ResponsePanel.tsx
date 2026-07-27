@@ -10,8 +10,13 @@ import {
   FileText,
   LoaderCircle,
   Network,
+  ShieldCheck,
 } from "lucide-react";
-import type { RequestTab, ResponseEnvelope } from "../lib/types";
+import type {
+  ContractFinding,
+  RequestTab,
+  ResponseEnvelope,
+} from "../lib/types";
 import { cn, formatBytes, formatDuration, statusTone } from "../lib/utils";
 import { useWorkspaceStore } from "../stores/workspace";
 import { CountBadge, EmptyState, StatusMark } from "./ui";
@@ -20,7 +25,7 @@ const MonacoEditor = lazy(() =>
   import("@monaco-editor/react").then((module) => ({ default: module.default })),
 );
 
-const responseSections = [
+const baseResponseSections = [
   { id: "body", label: "Body", icon: Braces },
   { id: "headers", label: "Headers", icon: FileText },
   { id: "cookies", label: "Cookies", icon: FileJson2 },
@@ -28,7 +33,7 @@ const responseSections = [
   { id: "raw", label: "Raw", icon: Network },
 ] as const;
 
-type ResponseSectionID = (typeof responseSections)[number]["id"];
+type ResponseSectionID = RequestTab["responseSection"];
 
 function EditorFallback() {
   return <div className="editor-loading">Response viewer hazırlanıyor…</div>;
@@ -157,6 +162,93 @@ function CookieTable({ response }: { response: ResponseEnvelope }) {
   );
 }
 
+function contractFindingLabel(finding: ContractFinding): string {
+  switch (finding.type) {
+    case "missing":
+      return "Eksik alan";
+    case "extra":
+      return "Fazladan alan";
+    case "enum_violation":
+      return "Enum ihlali";
+    case "type_mismatch":
+      return "Tip veya kısıt";
+  }
+}
+
+function ContractResult({ response }: { response: ResponseEnvelope }) {
+  const contract = response.contract;
+  if (!contract) {
+    return (
+      <EmptyState
+        title="Contract kontrolü bekleniyor"
+        description="OpenAPI’den açılan request gönderildiğinde gerçek response schema ile karşılaştırılır."
+      />
+    );
+  }
+  if (contract.error) {
+    return (
+      <div className="contract-state contract-unavailable" role="status">
+        <AlertTriangle size={20} aria-hidden="true" />
+        <div>
+          <strong>{contract.error.title}</strong>
+          <p>{contract.error.message}</p>
+          {contract.error.hint && <span>{contract.error.hint}</span>}
+        </div>
+      </div>
+    );
+  }
+  if (contract.ok) {
+    return (
+      <div className="contract-state contract-ok" role="status">
+        <ShieldCheck size={20} aria-hidden="true" />
+        <div>
+          <strong>Response OpenAPI contract ile uyumlu</strong>
+          <p>
+            {contract.method} {contract.path} için eksik alan, fazladan alan,
+            tip, schema kısıtı veya enum farkı bulunmadı.
+          </p>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="contract-findings">
+      <div className="contract-state contract-drift" role="alert">
+        <AlertTriangle size={20} aria-hidden="true" />
+        <div>
+          <strong>
+            {contract.findings.length} contract farkı bulundu
+            {contract.truncated && " (ilk 1000 gösteriliyor)"}
+          </strong>
+          <p>
+            Response kullanılabilir; aşağıdaki alanlar OpenAPI schema ile
+            uyuşmuyor.
+          </p>
+        </div>
+      </div>
+      <div className="contract-table">
+        <div className="contract-row contract-header">
+          <span>JSON path</span>
+          <span>Fark</span>
+          <span>Beklenen</span>
+          <span>Gerçek</span>
+        </div>
+        {contract.findings.map((finding, index) => (
+          <div
+            className="contract-row"
+            key={`${finding.path}-${finding.type}-${index}`}
+          >
+            <code>{finding.path || "$"}</code>
+            <span>{contractFindingLabel(finding)}</span>
+            <span>{finding.expected || finding.allowed?.join(", ") || "—"}</span>
+            <span>{finding.actual || "—"}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function Timeline({ response }: { response: ResponseEnvelope }) {
   const total = Math.max(response.durationMs, 1);
   return (
@@ -201,6 +293,16 @@ function Timeline({ response }: { response: ResponseEnvelope }) {
 export function ResponsePanel({ tab }: { tab: RequestTab }) {
   const updateTab = useWorkspaceStore((state) => state.updateTab);
   const response = tab.response;
+  const responseSections = useMemo(
+    () =>
+      tab.openApi || response?.contract
+        ? [
+            ...baseResponseSections,
+            { id: "contract" as const, label: "Contract", icon: ShieldCheck },
+          ]
+        : [...baseResponseSections],
+    [response?.contract, tab.openApi],
+  );
   const activeSection: ResponseSectionID = responseSections.some(
     (section) => section.id === tab.responseSection,
   )
@@ -339,6 +441,9 @@ export function ResponsePanel({ tab }: { tab: RequestTab }) {
               </Tabs.Content>
               <Tabs.Content value="timeline" className="response-tab-content">
                 <Timeline response={response} />
+              </Tabs.Content>
+              <Tabs.Content value="contract" className="response-tab-content">
+                <ContractResult response={response} />
               </Tabs.Content>
               <Tabs.Content value="raw" className="response-tab-content">
                 <pre className="raw-response">{response.rawBody}</pre>

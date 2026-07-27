@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useEffect,
   useMemo,
   useRef,
@@ -15,11 +17,14 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useCancelRequest, useImportOpenAPI } from "../lib/queries";
-import { importedRequestURL } from "../lib/openapi";
-import type { BootstrapData } from "../lib/types";
+import {
+  importedEndpointTabID,
+  importedRequestURL,
+} from "../lib/openapi";
+import type { BootstrapData, WorkspaceView } from "../lib/types";
 import { cn } from "../lib/utils";
 import { useWorkspaceStore } from "../stores/workspace";
-import { CodeGeneratorDialog } from "./CodeGeneratorDialog";
+import { ActivityBar } from "./ActivityBar";
 import { CommandPalette } from "./CommandPalette";
 import { ContextPanel } from "./ContextPanel";
 import { RequestTabs } from "./RequestTabs";
@@ -28,6 +33,40 @@ import { Sidebar } from "./Sidebar";
 import { StatusBar } from "./StatusBar";
 import { TopBar } from "./TopBar";
 import { Button, IconButton } from "./ui";
+
+const MockServerLab = lazy(() =>
+  import("./MockServerLab").then((module) => ({
+    default: module.MockServerLab,
+  })),
+);
+const JSONLab = lazy(() =>
+  import("./JSONLab").then((module) => ({ default: module.JSONLab })),
+);
+const DiagnosticsLab = lazy(() =>
+  import("./DiagnosticsLab").then((module) => ({
+    default: module.DiagnosticsLab,
+  })),
+);
+const ProtocolLab = lazy(() =>
+  import("./ProtocolLab").then((module) => ({
+    default: module.ProtocolLab,
+  })),
+);
+
+type ToolView = Exclude<WorkspaceView, "requests">;
+
+function renderTool(view: ToolView) {
+  switch (view) {
+    case "mock":
+      return <MockServerLab />;
+    case "json":
+      return <JSONLab />;
+    case "diagnostics":
+      return <DiagnosticsLab />;
+    case "protocols":
+      return <ProtocolLab />;
+  }
+}
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -91,6 +130,7 @@ function fitPanelWidths(
 }
 
 export function AppShell({ bootstrap }: { bootstrap: BootstrapData }) {
+  const activeView = useWorkspaceStore((state) => state.activeView);
   const tabs = useWorkspaceStore((state) => state.tabs);
   const activeTabID = useWorkspaceStore((state) => state.activeTabID);
   const activeTab = tabs.find((tab) => tab.id === activeTabID);
@@ -106,6 +146,7 @@ export function AppShell({ bootstrap }: { bootstrap: BootstrapData }) {
   const toggleLeft = useWorkspaceStore((state) => state.toggleLeft);
   const toggleRight = useWorkspaceStore((state) => state.toggleRight);
   const openTab = useWorkspaceStore((state) => state.openTab);
+  const setImportedSpec = useWorkspaceStore((state) => state.setImportedSpec);
   const reopenClosedTab = useWorkspaceStore((state) => state.reopenClosedTab);
   const updateTab = useWorkspaceStore((state) => state.updateTab);
   const setPaletteOpen = useWorkspaceStore(
@@ -117,6 +158,15 @@ export function AppShell({ bootstrap }: { bootstrap: BootstrapData }) {
     message: string;
     tone: "success" | "error";
   } | null>(null);
+  const activeToolView: ToolView | null =
+    activeView === "requests" ? null : activeView;
+  const [visitedToolViews, setVisitedToolViews] = useState<ToolView[]>(() =>
+    activeToolView ? [activeToolView] : [],
+  );
+  const renderedToolViews =
+    activeToolView && !visitedToolViews.includes(activeToolView)
+      ? [...visitedToolViews, activeToolView]
+      : visitedToolViews;
   const workspaceRef = useRef<HTMLDivElement>(null);
   const [workspaceWidth, setWorkspaceWidth] = useState(() =>
     typeof window === "undefined" ? verticalCenterMinWidth : window.innerWidth,
@@ -146,6 +196,13 @@ export function AppShell({ bootstrap }: { bootstrap: BootstrapData }) {
   );
 
   useEffect(() => {
+    if (!activeToolView) return;
+    setVisitedToolViews((current) =>
+      current.includes(activeToolView) ? current : [...current, activeToolView],
+    );
+  }, [activeToolView]);
+
+  useEffect(() => {
     const workspace = workspaceRef.current;
     if (!workspace) return;
     const measure = () => {
@@ -162,7 +219,7 @@ export function AppShell({ bootstrap }: { bootstrap: BootstrapData }) {
       observer?.disconnect();
       window.removeEventListener("resize", measure);
     };
-  }, []);
+  }, [activeView]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -316,13 +373,15 @@ export function AppShell({ bootstrap }: { bootstrap: BootstrapData }) {
         });
         return;
       }
+      setImportedSpec(result);
       const openedEndpoints = result.endpoints.slice(0, 8);
       openedEndpoints.forEach((endpoint) =>
         openTab({
-          id: `${endpoint.id}-${crypto.randomUUID()}`,
+          id: importedEndpointTabID(result.specId, endpoint.id),
           name: endpoint.summary || endpoint.path,
           method: endpoint.method,
           url: importedRequestURL(result.baseUrl, endpoint.path),
+          openApi: { specId: result.specId, path: endpoint.path },
           dirty: false,
         }),
       );
@@ -331,7 +390,7 @@ export function AppShell({ bootstrap }: { bootstrap: BootstrapData }) {
           openedEndpoints.length > 0
             ? `${openedEndpoints.length} endpoint sekmede açıldı${
                 result.endpoints.length > openedEndpoints.length
-                  ? ` (${result.endpoints.length} endpoint bulundu)`
+                  ? `; ${result.endpoints.length} endpoint APIs bölümünde erişilebilir`
                   : ""
               }`
             : "OpenAPI dosyasında açılabilir endpoint bulunamadı.",
@@ -350,19 +409,46 @@ export function AppShell({ bootstrap }: { bootstrap: BootstrapData }) {
   return (
     <div className="app-shell">
       <TopBar bootstrap={bootstrap} />
-      <div
-        ref={workspaceRef}
-        className="workspace-layout"
-        style={{
-          gridTemplateColumns: [
-            leftVisible ? `${fittedPanelWidths.left}px 4px` : "0px 0px",
-            `minmax(${centerMinWidth}px, 1fr)`,
-            rightVisible ? `4px ${fittedPanelWidths.right}px` : "0px 0px",
-          ].join(" "),
-        }}
-      >
+      <div className="application-body">
+        <ActivityBar />
+        {renderedToolViews.map((view) => (
+          <Suspense
+            key={view}
+            fallback={
+              <main
+                className="tool-workspace tool-workspace-loading"
+                aria-busy="true"
+                hidden={activeView !== view}
+              >
+                <LoaderCircle className="spin" size={22} />
+                <span>Çalışma alanı hazırlanıyor…</span>
+              </main>
+            }
+          >
+            <div
+              className="tool-workspace"
+              hidden={activeView !== view}
+              aria-hidden={activeView !== view}
+            >
+              {renderTool(view)}
+            </div>
+          </Suspense>
+        ))}
+          <div
+            ref={workspaceRef}
+            className="workspace-layout"
+            hidden={activeView !== "requests"}
+            aria-hidden={activeView !== "requests"}
+            style={{
+              gridTemplateColumns: [
+                leftVisible ? `${fittedPanelWidths.left}px 4px` : "0px 0px",
+                `minmax(${centerMinWidth}px, 1fr)`,
+                rightVisible ? `4px ${fittedPanelWidths.right}px` : "0px 0px",
+              ].join(" "),
+            }}
+          >
         <div
-          id="collection-panel"
+          id="request-panel"
           className={cn("panel-slot", !leftVisible && "panel-hidden")}
         >
           <Sidebar bootstrap={bootstrap} />
@@ -378,8 +464,8 @@ export function AppShell({ bootstrap }: { bootstrap: BootstrapData }) {
           role="separator"
           tabIndex={0}
           aria-orientation="vertical"
-          aria-label="Collection panelini yeniden boyutlandır"
-          aria-controls="collection-panel"
+          aria-label="Request panelini yeniden boyutlandır"
+          aria-controls="request-panel"
           aria-valuemin={panelBounds("left").min}
           aria-valuemax={panelBounds("left").max}
           aria-valuenow={fittedPanelWidths.left}
@@ -488,7 +574,7 @@ export function AppShell({ bootstrap }: { bootstrap: BootstrapData }) {
 
         {!leftVisible && (
           <IconButton
-            label="Collection panelini göster"
+            label="Request panelini göster"
             className="panel-restore panel-restore-left"
             onClick={toggleLeft}
           >
@@ -504,10 +590,10 @@ export function AppShell({ bootstrap }: { bootstrap: BootstrapData }) {
             <PanelRightOpen size={15} />
           </IconButton>
         )}
+          </div>
       </div>
       <StatusBar bootstrap={bootstrap} />
       <CommandPalette bootstrap={bootstrap} />
-      <CodeGeneratorDialog />
     </div>
   );
 }

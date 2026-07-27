@@ -5,11 +5,14 @@ package wailsapp
 import (
 	"context"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
+	"net/http/httptrace"
+	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -112,6 +115,179 @@ func TestSendRequestReturnsRichResponse(t *testing.T) {
 	}
 }
 
+func TestSendRequestExtractsValidTraceparentTraceIDAndFallsBack(t *testing.T) {
+	t.Parallel()
+
+	const validTraceID = "4bf92f3577b34da6a3ce929d0e0e4736"
+	tests := map[string]struct {
+		traceparent string
+		fallback    string
+		want        string
+	}{
+		"valid traceparent": {
+			traceparent: "00-" + validTraceID + "-00f067aa0ba902b7-01",
+			fallback:    "fallback-ignored",
+			want:        validTraceID,
+		},
+		"invalid traceparent": {
+			traceparent: "00-not-a-trace-id-00f067aa0ba902b7-01",
+			fallback:    "fallback-trace",
+			want:        "fallback-trace",
+		},
+	}
+	for name, testCase := range tests {
+		testCase := testCase
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+				response.Header().Set("traceparent", testCase.traceparent)
+				response.Header().Set("X-Trace-ID", testCase.fallback)
+				response.WriteHeader(http.StatusNoContent)
+			}))
+			t.Cleanup(server.Close)
+
+			result := NewBridge().SendRequest(RequestInput{
+				ID:        "trace-" + strings.ReplaceAll(name, " ", "-"),
+				Method:    http.MethodGet,
+				URL:       server.URL,
+				TimeoutMS: 2_000,
+			})
+			if result.Error != nil || result.Response == nil {
+				t.Fatalf("SendRequest() = %#v", result)
+			}
+			if result.Response.TraceID != testCase.want {
+				t.Fatalf("TraceID = %q, want %q", result.Response.TraceID, testCase.want)
+			}
+		})
+	}
+}
+
+func TestTraceIDFromTraceparentValidation(t *testing.T) {
+	t.Parallel()
+
+	const traceID = "4bf92f3577b34da6a3ce929d0e0e4736"
+	tests := map[string]struct {
+		value string
+		want  string
+	}{
+		"valid": {
+			value: "00-" + traceID + "-00f067aa0ba902b7-01",
+			want:  traceID,
+		},
+		"trimmed": {
+			value: " 00-" + traceID + "-00f067aa0ba902b7-01 ",
+			want:  traceID,
+		},
+		"zero trace ID": {
+			value: "00-00000000000000000000000000000000-00f067aa0ba902b7-01",
+		},
+		"zero parent ID": {
+			value: "00-" + traceID + "-0000000000000000-01",
+		},
+		"forbidden version": {
+			value: "ff-" + traceID + "-00f067aa0ba902b7-01",
+		},
+		"uppercase": {
+			value: "00-4BF92F3577B34DA6A3CE929D0E0E4736-00f067aa0ba902b7-01",
+		},
+		"extra field": {
+			value: "00-" + traceID + "-00f067aa0ba902b7-01-extra",
+		},
+		"whole header is not a trace ID": {
+			value: "not-a-traceparent",
+		},
+	}
+	for name, testCase := range tests {
+		if got := traceIDFromTraceparent(testCase.value); got != testCase.want {
+			t.Errorf("%s: traceIDFromTraceparent() = %q, want %q", name, got, testCase.want)
+		}
+	}
+}
+
+func TestRequestTraceUsesLockedSnapshotDuringConcurrentCallbacks(t *testing.T) {
+	t.Parallel()
+
+	clientConnection, serverConnection := net.Pipe()
+	defer clientConnection.Close()
+	defer serverConnection.Close()
+	trace := &requestTrace{start: time.Now()}
+	callbacks := trace.clientTrace()
+	const iterations = 250
+
+	var waitGroup sync.WaitGroup
+	waitGroup.Add(4)
+	go func() {
+		defer waitGroup.Done()
+		for range iterations {
+			callbacks.DNSStart(httptrace.DNSStartInfo{})
+			callbacks.DNSDone(httptrace.DNSDoneInfo{})
+		}
+	}()
+	go func() {
+		defer waitGroup.Done()
+		for range iterations {
+			callbacks.ConnectStart("tcp", "localhost:8080")
+			callbacks.ConnectDone("tcp", "localhost:8080", nil)
+		}
+	}()
+	go func() {
+		defer waitGroup.Done()
+		for range iterations {
+			callbacks.GotConn(httptrace.GotConnInfo{Conn: clientConnection})
+			callbacks.WroteRequest(httptrace.WroteRequestInfo{})
+			callbacks.GotFirstResponseByte()
+		}
+	}()
+	go func() {
+		defer waitGroup.Done()
+		for range iterations {
+			snapshot := trace.snapshot()
+			_ = snapshot.timeline(time.Now())
+			_ = snapshot.remoteAddr
+		}
+	}()
+	waitGroup.Wait()
+
+	snapshot := trace.snapshot()
+	if snapshot.remoteAddr == "" {
+		t.Fatal("snapshot did not capture the remote address")
+	}
+	if len(snapshot.timeline(time.Now())) == 0 {
+		t.Fatal("snapshot did not produce a timeline")
+	}
+}
+
+func TestSendRequestRejectsDeclaredOversizedResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.Header().Set("Content-Length", strconv.FormatInt(maxHTTPResponseBodyBytes+1, 10))
+		response.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	result := NewBridge().SendRequest(RequestInput{
+		ID: "oversized", Method: http.MethodGet, URL: server.URL, TimeoutMS: 2_000,
+	})
+	if result.Response != nil {
+		t.Fatalf("oversized request returned a response: %#v", result.Response)
+	}
+	if result.Error == nil || result.Error.Code != "response_too_large" {
+		t.Fatalf("expected response_too_large, got %#v", result.Error)
+	}
+	if !strings.Contains(result.Error.Message, "16 MiB") || result.Error.Technical != "" {
+		t.Fatalf("unexpected oversized response error: %#v", result.Error)
+	}
+}
+
+func TestReadHTTPResponseBodyDetectsUndeclaredOverflow(t *testing.T) {
+	raw, tooLarge, err := readHTTPResponseBody(strings.NewReader("12345"), 4)
+	if err != nil {
+		t.Fatalf("readHTTPResponseBody() error = %v", err)
+	}
+	if raw != nil || !tooLarge {
+		t.Fatalf("readHTTPResponseBody() = %q, %v; want nil, true", raw, tooLarge)
+	}
+}
+
 func TestSendRequestIncludesDeleteBody(t *testing.T) {
 	var received string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
@@ -145,6 +321,77 @@ func TestCancelUnknownRequest(t *testing.T) {
 	Shutdown(bridge)(context.Background())
 }
 
+func TestConcurrentDuplicateRequestIDCannotReplaceOriginalCancel(t *testing.T) {
+	var hits atomic.Int32
+	started := make(chan struct{})
+	var startedOnce sync.Once
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		hits.Add(1)
+		if request.URL.Query().Get("fast") == "1" {
+			response.WriteHeader(http.StatusNoContent)
+			return
+		}
+		startedOnce.Do(func() { close(started) })
+		<-request.Context().Done()
+	}))
+	defer server.Close()
+
+	bridge := NewBridge()
+	defer Shutdown(bridge)(context.Background())
+	firstResult := make(chan SendResult, 1)
+	go func() {
+		firstResult <- bridge.SendRequest(RequestInput{
+			ID:        "shared-request-id",
+			Method:    http.MethodGet,
+			URL:       server.URL,
+			TimeoutMS: 10_000,
+		})
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("first request did not reach server")
+	}
+
+	duplicate := bridge.SendRequest(RequestInput{
+		ID:        "shared-request-id",
+		Method:    http.MethodGet,
+		URL:       server.URL + "?fast=1",
+		TimeoutMS: 2_000,
+	})
+	if duplicate.Error == nil || duplicate.Error.Code != "request_already_running" {
+		t.Fatalf("duplicate result = %#v, want request_already_running", duplicate)
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("server hits = %d, duplicate request reached the network", hits.Load())
+	}
+	if !bridge.CancelRequest("shared-request-id") {
+		t.Fatal("duplicate request replaced or removed the original cancel entry")
+	}
+	select {
+	case result := <-firstResult:
+		if result.Error == nil || result.Error.Code != "request_canceled" {
+			t.Fatalf("first request result = %#v, want request_canceled", result)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("original request did not stop")
+	}
+	if bridge.CancelRequest("shared-request-id") {
+		t.Fatal("completed request remained registered")
+	}
+
+	reused := bridge.SendRequest(RequestInput{
+		ID:        "shared-request-id",
+		Method:    http.MethodGet,
+		URL:       server.URL + "?fast=1",
+		TimeoutMS: 2_000,
+	})
+	if reused.Error != nil || reused.Response == nil ||
+		reused.Response.StatusCode != http.StatusNoContent {
+		t.Fatalf("completed request ID could not be reused: %#v", reused)
+	}
+}
+
 func TestSendRequestTimeoutIsUserFriendly(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(50 * time.Millisecond)
@@ -160,70 +407,35 @@ func TestSendRequestTimeoutIsUserFriendly(t *testing.T) {
 	}
 }
 
-func TestSafeRelativePathRejectsTraversalAndAbsolutePaths(t *testing.T) {
-	t.Parallel()
-	for _, value := range []string{"", ".", "..", "../secret", filepath.Join("..", "secret"), string(filepath.Separator) + "tmp"} {
-		if path, ok := safeRelativePath(value); ok {
-			t.Errorf("expected %q to be rejected, got %q", value, path)
+func TestShutdownCancelsInFlightSendRequest(t *testing.T) {
+	started := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
+		close(started)
+		<-request.Context().Done()
+	}))
+	defer server.Close()
+
+	bridge := NewBridge()
+	resultChannel := make(chan SendResult, 1)
+	go func() {
+		resultChannel <- bridge.SendRequest(RequestInput{
+			ID: "shutdown-cancel", Method: http.MethodGet, URL: server.URL, TimeoutMS: 10_000,
+		})
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("request did not reach server")
+	}
+	Shutdown(bridge)(context.Background())
+
+	select {
+	case result := <-resultChannel:
+		if result.Error == nil || result.Error.Code != "request_canceled" {
+			t.Fatalf("expected request_canceled, got %#v", result.Error)
 		}
-	}
-	for _, value := range []string{"GeneratedTest.java", filepath.Join("src", "test", "GeneratedTest.java")} {
-		if path, ok := safeRelativePath(value); !ok || path == "" {
-			t.Errorf("expected %q to be accepted, got %q", value, path)
-		}
-	}
-}
-
-func TestCreateAvailableDirectoryNeverOverwritesExistingExport(t *testing.T) {
-	t.Parallel()
-	parent := t.TempDir()
-	base := filepath.Join(parent, "generated")
-	if err := os.Mkdir(base, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	got, err := createAvailableDirectory(base)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := base + "-2"
-	if got != want {
-		t.Fatalf("expected %q, got %q", want, got)
-	}
-}
-
-func TestValidateGeneratedFilesRejectsDuplicatesBeforeWriting(t *testing.T) {
-	t.Parallel()
-	_, err := validateGeneratedFiles([]GeneratedFile{
-		{Name: "One", RelativePath: "src/Generated.java", Content: "one"},
-		{Name: "Two", RelativePath: filepath.Join("src", ".", "Generated.java"), Content: "two"},
-	})
-	if err == nil {
-		t.Fatal("expected duplicate generated path to be rejected")
-	}
-}
-
-func TestWriteFileAtomically(t *testing.T) {
-	t.Parallel()
-	path := filepath.Join(t.TempDir(), "Generated.java")
-	if err := writeFileAtomically(path, []byte("class Generated {}")); err != nil {
-		t.Fatal(err)
-	}
-	got, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(got) != "class Generated {}" {
-		t.Fatalf("unexpected file content: %q", got)
-	}
-}
-
-func TestSafeDirectoryName(t *testing.T) {
-	t.Parallel()
-	if got := safeDirectoryName("../../My API Test"); got != "My-API-Test" {
-		t.Fatalf("unexpected safe directory name: %q", got)
-	}
-	if got := safeDirectoryName("..."); got != "validex-generated" {
-		t.Fatalf("expected fallback directory name, got %q", got)
+	case <-time.After(time.Second):
+		t.Fatal("SendRequest did not stop after bridge shutdown")
 	}
 }

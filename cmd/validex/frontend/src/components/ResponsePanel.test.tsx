@@ -113,4 +113,75 @@ describe("ResponsePanel", () => {
       width: "25%",
     });
   });
+
+  it("shows OpenAPI contract drift only for imported request tabs", () => {
+    render(
+      <ResponsePanel
+        tab={createRequestTab({
+          id: "request-1",
+          openApi: { specId: "orders", path: "/orders/{id}" },
+          responseSection: "contract",
+          response: {
+            ...response,
+            contract: {
+              available: true,
+              ok: false,
+              truncated: false,
+              method: "GET",
+              path: "/orders/{id}",
+              findings: [
+                {
+                  path: "$.status",
+                  type: "enum_violation",
+                  actual: "UNKNOWN",
+                  allowed: ["CREATED", "SHIPPED"],
+                },
+              ],
+            },
+          },
+        })}
+      />,
+    );
+
+    expect(screen.getByRole("tab", { name: /Contract/i })).toBeVisible();
+    expect(screen.getByText("1 contract farkı bulundu")).toBeVisible();
+    expect(screen.getByText("$.status")).toBeVisible();
+    expect(screen.getByText("Enum ihlali")).toBeVisible();
+    expect(screen.getByText("CREATED, SHIPPED")).toBeVisible();
+  });
+
+  it("explains when contract findings are capped", () => {
+    render(
+      <ResponsePanel
+        tab={createRequestTab({
+          id: "request-bounded",
+          openApi: { specId: "orders", path: "/orders" },
+          responseSection: "contract",
+          response: {
+            ...response,
+            contract: {
+              available: true,
+              ok: false,
+              truncated: true,
+              method: "GET",
+              path: "/orders",
+              findings: [
+                {
+                  path: "$[0]",
+                  type: "type_mismatch",
+                  expected: "string",
+                  actual: "number",
+                },
+              ],
+            },
+          },
+        })}
+      />,
+    );
+
+    expect(
+      screen.getByText("1 contract farkı bulundu (ilk 1000 gösteriliyor)"),
+    ).toBeVisible();
+    expect(screen.getByText("Tip veya kısıt")).toBeVisible();
+  });
 });

@@ -1,5 +1,9 @@
 WAILS_VERSION := v2.12.0
-WAILS_BIN := $(shell go env GOPATH)/bin/wails
+GO_BIN := $(shell go env GOBIN)
+ifeq ($(GO_BIN),)
+GO_BIN := $(shell go env GOPATH)/bin
+endif
+WAILS_BIN := $(GO_BIN)/wails
 APP_DIR := cmd/validex
 FRONTEND_DIR := $(APP_DIR)/frontend
 

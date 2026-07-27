@@ -1,14 +1,18 @@
 import { useMemo, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
-  Boxes,
-  FileCode2,
+  Activity,
+  Braces,
   FilePlus2,
+  FileJson2,
   LayoutPanelLeft,
   Moon,
+  RadioTower,
   RotateCcw,
   Search,
+  ServerCog,
   Sun,
+  Waypoints,
 } from "lucide-react";
 import type { BootstrapData } from "../lib/types";
 import { fuzzyMatch } from "../lib/utils";
@@ -35,9 +39,9 @@ export function CommandPalette({ bootstrap }: { bootstrap: BootstrapData }) {
   const theme = useWorkspaceStore((state) => state.theme);
   const setTheme = useWorkspaceStore((state) => state.setTheme);
   const setSidebarSection = useWorkspaceStore((state) => state.setSidebarSection);
-  const setCodeGeneratorOpen = useWorkspaceStore(
-    (state) => state.setCodeGeneratorOpen,
-  );
+  const setActiveView = useWorkspaceStore((state) => state.setActiveView);
+  const leftVisible = useWorkspaceStore((state) => state.leftVisible);
+  const importedSpec = useWorkspaceStore((state) => state.latestImportedSpec);
 
   const commands = useMemo<CommandItem[]>(
     () => [
@@ -52,20 +56,64 @@ export function CommandPalette({ bootstrap }: { bootstrap: BootstrapData }) {
           openTab({ name: "Untitled request", url: "", dirty: true }),
       },
       {
-        id: "open-collections",
-        label: "Open collections",
+        id: "open-requests",
+        label: "Open requests",
         group: "Navigate",
-        keywords: "collection sidebar",
-        icon: Boxes,
-        action: () => setSidebarSection("collections"),
+        keywords: "request istek sidebar",
+        icon: FileJson2,
+        action: () => {
+          setActiveView("requests");
+          setSidebarSection("requests");
+          if (!leftVisible) toggleLeft();
+        },
+      },
+      ...(importedSpec
+        ? [
+            {
+              id: "open-imported-apis",
+              label: "Open imported APIs",
+              group: "Navigate",
+              keywords: "openapi endpoints api sidebar",
+              icon: Waypoints,
+              action: () => {
+                setActiveView("requests");
+                setSidebarSection("apis");
+                if (!leftVisible) toggleLeft();
+              },
+            } satisfies CommandItem,
+          ]
+        : []),
+      {
+        id: "open-mock-server",
+        label: "Open Mock Server",
+        group: "Developer Tools",
+        keywords: "mock server openapi response",
+        icon: ServerCog,
+        action: () => setActiveView("mock"),
       },
       {
-        id: "generate-java",
-        label: "Generate Java test",
-        group: "Developer",
-        keywords: "rest assured mockmvc webtestclient java",
-        icon: FileCode2,
-        action: () => setCodeGeneratorOpen(true),
+        id: "open-json-lab",
+        label: "Open JSON Lab",
+        group: "Developer Tools",
+        keywords: "json format diff path schema",
+        icon: Braces,
+        action: () => setActiveView("json"),
+      },
+      {
+        id: "open-diagnostics",
+        label: "Open Diagnostics",
+        group: "Developer Tools",
+        keywords: "spring actuator jwt trace thread coverage environment",
+        icon: Activity,
+        action: () => setActiveView("diagnostics"),
+      },
+      {
+        id: "open-protocols",
+        label: "Open Protocols",
+        group: "Developer Tools",
+        keywords: "sse websocket grpc",
+        icon: RadioTower,
+        action: () => setActiveView("protocols"),
       },
       {
         id: "toggle-theme",
@@ -77,7 +125,7 @@ export function CommandPalette({ bootstrap }: { bootstrap: BootstrapData }) {
       },
       {
         id: "toggle-sidebar",
-        label: "Toggle collection panel",
+        label: "Toggle request panel",
         group: "Appearance",
         keywords: "sidebar panel layout",
         icon: LayoutPanelLeft,
@@ -94,8 +142,10 @@ export function CommandPalette({ bootstrap }: { bootstrap: BootstrapData }) {
     ],
     [
       openTab,
+      importedSpec,
+      leftVisible,
       resetLayout,
-      setCodeGeneratorOpen,
+      setActiveView,
       setSidebarSection,
       setTheme,
       theme,

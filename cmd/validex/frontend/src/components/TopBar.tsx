@@ -20,7 +20,10 @@ import {
   X,
 } from "lucide-react";
 import { useImportOpenAPI } from "../lib/queries";
-import { importedRequestURL } from "../lib/openapi";
+import {
+  importedEndpointTabID,
+  importedRequestURL,
+} from "../lib/openapi";
 import type { BootstrapData, ThemePreference } from "../lib/types";
 import { useWorkspaceStore } from "../stores/workspace";
 import { Button, IconButton, Kbd } from "./ui";
@@ -69,8 +72,10 @@ export function TopBar({ bootstrap }: { bootstrap: BootstrapData }) {
     tone: "success" | "error";
   } | null>(null);
   const environmentID = useWorkspaceStore((state) => state.activeEnvironmentID);
+  const activeView = useWorkspaceStore((state) => state.activeView);
   const setEnvironment = useWorkspaceStore((state) => state.setEnvironment);
   const openTab = useWorkspaceStore((state) => state.openTab);
+  const setImportedSpec = useWorkspaceStore((state) => state.setImportedSpec);
   const setPaletteOpen = useWorkspaceStore(
     (state) => state.setCommandPaletteOpen,
   );
@@ -106,13 +111,15 @@ export function TopBar({ bootstrap }: { bootstrap: BootstrapData }) {
         return;
       }
 
+      setImportedSpec(result);
       const openedEndpoints = result.endpoints.slice(0, 8);
       for (const endpoint of openedEndpoints) {
         openTab({
-          id: `${endpoint.id}-${crypto.randomUUID()}`,
+          id: importedEndpointTabID(result.specId, endpoint.id),
           name: endpoint.summary || endpoint.path,
           method: endpoint.method,
           url: importedRequestURL(result.baseUrl, endpoint.path),
+          openApi: { specId: result.specId, path: endpoint.path },
           dirty: false,
         });
       }
@@ -127,7 +134,7 @@ export function TopBar({ bootstrap }: { bootstrap: BootstrapData }) {
       setImportNotice({
         message: `${result.title || "OpenAPI"} · ${openedEndpoints.length} endpoint sekmede açıldı${
           result.endpoints.length > openedEndpoints.length
-            ? ` (${result.endpoints.length} endpoint bulundu)`
+            ? `; ${result.endpoints.length} endpoint APIs bölümünde erişilebilir`
             : ""
         }`,
         tone: "success",
@@ -235,30 +242,36 @@ export function TopBar({ bootstrap }: { bootstrap: BootstrapData }) {
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
             <DropdownMenu.Content className="menu" align="end" sideOffset={6}>
-              <DropdownMenu.Label className="menu-label">
-                LAYOUT
-              </DropdownMenu.Label>
-              <DropdownMenu.Item className="menu-item" onSelect={toggleLeft}>
-                <LayoutPanelLeft size={16} /> Toggle collection panel
-              </DropdownMenu.Item>
-              <DropdownMenu.Item className="menu-item" onSelect={toggleRight}>
-                <PanelRight size={16} /> Toggle context panel
-              </DropdownMenu.Item>
-              <DropdownMenu.Item
-                className="menu-item"
-                onSelect={() =>
-                  setResponsePlacement(
-                    responsePlacement === "vertical" ? "horizontal" : "vertical",
-                  )
-                }
-              >
-                <LayoutPanelTop size={16} /> Response:{" "}
-                {responsePlacement === "vertical" ? "bottom" : "right"}
-              </DropdownMenu.Item>
-              <DropdownMenu.Item className="menu-item" onSelect={resetLayout}>
-                <RotateCcw size={16} /> Reset layout
-              </DropdownMenu.Item>
-              <DropdownMenu.Separator className="menu-separator" />
+              {activeView === "requests" && (
+                <>
+                  <DropdownMenu.Label className="menu-label">
+                    REQUEST LAYOUT
+                  </DropdownMenu.Label>
+                  <DropdownMenu.Item className="menu-item" onSelect={toggleLeft}>
+                    <LayoutPanelLeft size={16} /> Toggle request panel
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item className="menu-item" onSelect={toggleRight}>
+                    <PanelRight size={16} /> Toggle context panel
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item
+                    className="menu-item"
+                    onSelect={() =>
+                      setResponsePlacement(
+                        responsePlacement === "vertical"
+                          ? "horizontal"
+                          : "vertical",
+                      )
+                    }
+                  >
+                    <LayoutPanelTop size={16} /> Response:{" "}
+                    {responsePlacement === "vertical" ? "bottom" : "right"}
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Item className="menu-item" onSelect={resetLayout}>
+                    <RotateCcw size={16} /> Reset layout
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Separator className="menu-separator" />
+                </>
+              )}
               <DropdownMenu.Label className="menu-label">
                 APPEARANCE
               </DropdownMenu.Label>

@@ -62,9 +62,10 @@ describe("AppShell keyboard and layout guards", () => {
       leftWidth: 440,
       rightWidth: 440,
       responsePlacement: "vertical",
+      activeView: "requests",
       commandPaletteOpen: false,
-      runnerOpen: false,
-      codeGeneratorOpen: false,
+      sidebarSection: "requests",
+      latestImportedSpec: undefined,
     });
   });
 
@@ -80,7 +81,7 @@ describe("AppShell keyboard and layout guards", () => {
   it("fits both side panels and exposes keyboard-operable separators", async () => {
     const { container } = renderShell();
     const leftSeparator = screen.getByRole("separator", {
-      name: "Collection panelini yeniden boyutlandır",
+      name: "Request panelini yeniden boyutlandır",
     });
     const rightSeparator = screen.getByRole("separator", {
       name: "Context panelini yeniden boyutlandır",
@@ -89,7 +90,7 @@ describe("AppShell keyboard and layout guards", () => {
     expect(useWorkspaceStore.getState().leftWidth).toBe(440);
     expect(useWorkspaceStore.getState().rightWidth).toBe(440);
     expect(leftSeparator).toHaveAttribute("tabindex", "0");
-    expect(leftSeparator).toHaveAttribute("aria-controls", "collection-panel");
+    expect(leftSeparator).toHaveAttribute("aria-controls", "request-panel");
     expect(leftSeparator).toHaveAttribute("aria-valuemin", "210");
     expect(leftSeparator).toHaveAttribute("aria-valuemax", "296");
     expect(leftSeparator).toHaveAttribute("aria-valuenow", "296");
@@ -157,5 +158,60 @@ describe("AppShell keyboard and layout guards", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "OpenAPI içe aktarılamadı: file dialog unavailable",
     );
+  });
+
+  it("keeps every welcome-screen import available in the API browser", async () => {
+    const endpoints = Array.from({ length: 10 }, (_, index) => ({
+      id: `operation-${index}`,
+      method: "GET" as const,
+      path: `/resources/${index}`,
+      summary: `Resource ${index}`,
+      tags: ["resources"],
+    }));
+    vi.spyOn(backend, "importOpenAPI").mockResolvedValueOnce({
+      specId: "commerce-spec",
+      path: "/tmp/openapi.yaml",
+      title: "Commerce API",
+      version: "1.0.0",
+      baseUrl: "https://api.example.test",
+      endpoints,
+      canceled: false,
+    });
+    useWorkspaceStore.setState({ leftVisible: false });
+    renderShell();
+
+    fireEvent.click(screen.getByRole("button", { name: "Import OpenAPI" }));
+
+    await waitFor(() =>
+      expect(useWorkspaceStore.getState().tabs).toHaveLength(8),
+    );
+    const state = useWorkspaceStore.getState();
+    expect(state.latestImportedSpec?.endpoints).toHaveLength(10);
+    expect(state.sidebarSection).toBe("apis");
+    expect(state.leftVisible).toBe(true);
+  });
+
+  it("loads developer workspaces on demand and returns to requests", async () => {
+    renderShell();
+
+    fireEvent.click(screen.getByRole("button", { name: "JSON Lab" }));
+    expect(
+      await screen.findByRole("heading", { name: "JSON Lab" }),
+    ).toBeVisible();
+    fireEvent.change(screen.getByRole("textbox", { name: "JSON input" }), {
+      target: { value: '{"preserved":true}' },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Requests" }));
+    expect(
+      await screen.findByRole("heading", {
+        name: "API çalışmalarınızı tek bir yerde toplayın.",
+      }),
+    ).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "JSON Lab" }));
+    expect(
+      await screen.findByRole("textbox", { name: "JSON input" }),
+    ).toHaveValue('{"preserved":true}');
   });
 });

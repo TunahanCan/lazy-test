@@ -11,6 +11,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { backend } from "./lib/backend";
+import type { SendResult } from "./lib/types";
 import {
   createRequestTab,
   useWorkspaceStore,
@@ -18,9 +19,30 @@ import {
 
 vi.mock("@monaco-editor/react", () => ({
   default: ({ value }: { value?: string }) => (
-    <textarea aria-label="Generated code" value={value} readOnly />
+    <textarea aria-label="Editor content" value={value} readOnly />
   ),
 }));
+
+const successfulSendResult: SendResult = {
+  response: {
+    requestId: "request-under-test",
+    statusCode: 200,
+    status: "200 OK",
+    durationMs: 184,
+    sizeBytes: 11,
+    contentType: "application/json",
+    protocol: "HTTP/2",
+    remoteAddr: "203.0.113.42:443",
+    tls: "TLS 1.3",
+    traceId: "trace-test",
+    headers: { "content-type": ["application/json"] },
+    cookies: [],
+    body: '{\n  "ok": true\n}',
+    rawBody: '{"ok":true}',
+    resolvedUrl: "https://api.example.com/users",
+    timeline: [],
+  },
+};
 
 function renderApp() {
   const queryClient = new QueryClient({
@@ -51,9 +73,8 @@ describe("Validex workspace", () => {
       tabs: [tab],
       activeTabID: tab.id,
       recentlyClosed: [],
+      activeView: "requests",
       commandPaletteOpen: false,
-      runnerOpen: false,
-      codeGeneratorOpen: false,
     });
   });
 
@@ -99,7 +120,13 @@ describe("Validex workspace", () => {
   });
 
   it("edits and normalizes the URL without accidental form submits", async () => {
-    const sendSpy = vi.spyOn(backend, "sendRequest");
+    let finishRequest!: (result: SendResult) => void;
+    const sendSpy = vi.spyOn(backend, "sendRequest").mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishRequest = resolve;
+        }),
+    );
     renderApp();
     const url = await screen.findByLabelText("Request URL");
 
@@ -124,6 +151,7 @@ describe("Validex workspace", () => {
     fireEvent.click(send);
     expect(await screen.findByRole("button", { name: /Cancel/i })).toBeVisible();
     expect(url).toBeDisabled();
+    finishRequest(successfulSendResult);
     await waitFor(
       () => {
         expect(screen.getByText("200 OK")).toBeVisible();
@@ -174,15 +202,15 @@ describe("Validex workspace", () => {
   });
 
   it("clears an older response before a failed retry", async () => {
+    vi.spyOn(backend, "sendRequest")
+      .mockResolvedValueOnce(successfulSendResult)
+      .mockRejectedValueOnce(new Error("retry failed"));
     renderApp();
     const url = await screen.findByLabelText("Request URL");
     fireEvent.change(url, { target: { value: "https://example.test/first" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     expect(await screen.findByText("200 OK", {}, { timeout: 2_500 })).toBeVisible();
 
-    vi.spyOn(backend, "sendRequest").mockRejectedValueOnce(
-      new Error("retry failed"),
-    );
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
     expect(await screen.findByText("Backend bağlantısı koptu")).toBeVisible();
@@ -249,38 +277,5 @@ describe("Validex workspace", () => {
         .getState()
         .tabs[0].headers.some((header) => header.key === "Content-Type"),
     ).toBe(false);
-  });
-
-  it("generates Java files from the command palette", async () => {
-    renderApp();
-    await screen.findByLabelText("Validex home");
-    fireEvent.keyDown(window, { key: "k", metaKey: true });
-    fireEvent.click(
-      await screen.findByRole("button", { name: /Generate Java test/i }),
-    );
-
-    expect(
-      await screen.findByRole("dialog", { name: "Generate Java test" }),
-    ).toBeVisible();
-    expect(screen.getByRole("tab", { name: "Test class" })).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
-    expect(
-      (await screen.findByLabelText("Generated code") as HTMLTextAreaElement)
-        .value,
-    ).toContain("io.restassured");
-
-    fireEvent.change(screen.getByLabelText("Framework"), {
-      target: { value: "mockmvc" },
-    });
-    await waitFor(() => {
-      expect(
-        (screen.getByLabelText("Generated code") as HTMLTextAreaElement).value,
-      ).toContain("MockMvc");
-    });
-    expect(
-      screen.getByRole("button", { name: /Export to project folder/i }),
-    ).toBeEnabled();
   });
 });

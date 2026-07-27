@@ -2,9 +2,12 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import type {
   HTTPMethod,
+  ImportSpecResult,
+  ImportedEndpoint,
   RequestTab,
   ResponsePlacement,
   ThemePreference,
+  WorkspaceView,
 } from "../lib/types";
 import {
   isSecretKey,
@@ -122,7 +125,6 @@ function withoutSecretVariables(
 function persistedTab(tab: RequestTab): RequestTab {
   const requestSection = [
     "params",
-    "authorization",
     "headers",
     "body",
   ].includes(tab.requestSection)
@@ -143,6 +145,7 @@ function persistedTab(tab: RequestTab): RequestTab {
     error: false,
     response: undefined,
     userError: undefined,
+    openApi: undefined,
     requestSection,
     responseSection,
     headers: (tab.headers ?? []).map((header) => {
@@ -175,6 +178,13 @@ export function createRequestTab(
   };
 }
 
+export interface ImportedSpecWorkspace {
+  specId: string;
+  title: string;
+  baseUrl: string;
+  endpoints: ImportedEndpoint[];
+}
+
 interface WorkspaceState {
   workspaceID: string;
   activeEnvironmentID: string;
@@ -188,16 +198,11 @@ interface WorkspaceState {
   rightWidth: number;
   responseSize: number;
   responsePlacement: ResponsePlacement;
+  activeView: WorkspaceView;
   theme: ThemePreference;
   commandPaletteOpen: boolean;
-  runnerOpen: boolean;
-  codeGeneratorOpen: boolean;
-  sidebarSection:
-    | "collections"
-    | "environments"
-    | "apis"
-    | "flows"
-    | "history";
+  sidebarSection: "requests" | "apis";
+  latestImportedSpec?: ImportedSpecWorkspace;
   setEnvironment: (id: string) => void;
   setEnvironmentVariable: (
     environmentID: string,
@@ -221,12 +226,12 @@ interface WorkspaceState {
   setRightWidth: (width: number) => void;
   setResponseSize: (size: number) => void;
   setResponsePlacement: (placement: ResponsePlacement) => void;
+  setActiveView: (view: WorkspaceView) => void;
   resetLayout: () => void;
   setTheme: (theme: ThemePreference) => void;
   setCommandPaletteOpen: (open: boolean) => void;
-  setRunnerOpen: (open: boolean) => void;
-  setCodeGeneratorOpen: (open: boolean) => void;
   setSidebarSection: (section: WorkspaceState["sidebarSection"]) => void;
+  setImportedSpec: (result: ImportSpecResult) => void;
 }
 
 function isUntouchedLegacyDemoRequest(tabs: RequestTab[] | undefined): boolean {
@@ -269,11 +274,11 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       rightWidth: 292,
       responseSize: 42,
       responsePlacement: "vertical",
+      activeView: "requests",
       theme: "system",
       commandPaletteOpen: false,
-      runnerOpen: false,
-      codeGeneratorOpen: false,
-      sidebarSection: "collections",
+      sidebarSection: "requests",
+      latestImportedSpec: undefined,
       setEnvironment: (id) => set({ activeEnvironmentID: id }),
       setEnvironmentVariable: (environmentID, key, value) =>
         set((state) => ({
@@ -290,15 +295,21 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             userError: undefined,
           })),
         })),
-      setActiveTab: (id) => set({ activeTabID: id }),
+      setActiveTab: (id) => set({ activeTabID: id, activeView: "requests" }),
       openTab: (tab = {}) =>
         set((state) => {
           if (tab.id) {
             const existing = state.tabs.find((candidate) => candidate.id === tab.id);
-            if (existing) return { activeTabID: existing.id };
+            if (existing) {
+              return { activeTabID: existing.id, activeView: "requests" };
+            }
           }
           const next = createRequestTab(tab);
-          return { tabs: [...state.tabs, next], activeTabID: next.id };
+          return {
+            tabs: [...state.tabs, next],
+            activeTabID: next.id,
+            activeView: "requests",
+          };
         }),
       closeTab: (id, force = false) => {
         const state = get();
@@ -373,12 +384,14 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             return {
               activeTabID: existing.id,
               recentlyClosed: rest,
+              activeView: "requests",
             };
           }
           return {
             tabs: [...state.tabs, tab],
             activeTabID: tab.id,
             recentlyClosed: rest,
+            activeView: "requests",
           };
         }),
       duplicateTab: (id) => {
@@ -391,6 +404,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             running: false,
             error: false,
             userError: undefined,
+            response: undefined,
+            responseSection: "body",
             pinned: false,
           });
       },
@@ -423,6 +438,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       setRightWidth: (rightWidth) => set({ rightWidth }),
       setResponseSize: (responseSize) => set({ responseSize }),
       setResponsePlacement: (responsePlacement) => set({ responsePlacement }),
+      setActiveView: (activeView) => set({ activeView }),
       resetLayout: () =>
         set({
           leftVisible: true,
@@ -435,14 +451,23 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       setTheme: (theme) => set({ theme }),
       setCommandPaletteOpen: (commandPaletteOpen) =>
         set({ commandPaletteOpen }),
-      setRunnerOpen: (runnerOpen) => set({ runnerOpen }),
-      setCodeGeneratorOpen: (codeGeneratorOpen) =>
-        set({ codeGeneratorOpen }),
       setSidebarSection: (sidebarSection) => set({ sidebarSection }),
+      setImportedSpec: (result) =>
+        set({
+          latestImportedSpec: {
+            specId: result.specId,
+            title: result.title,
+            baseUrl: result.baseUrl,
+            endpoints: result.endpoints,
+          },
+          sidebarSection: "apis",
+          leftVisible: true,
+          activeView: "requests",
+        }),
     }),
     {
       name: workspaceStorageKey,
-      version: 4,
+      version: 6,
       storage: createJSONStorage(() => localStorage),
       migrate: (persistedState, persistedVersion) => {
         const state = persistedState as Partial<WorkspaceState>;
@@ -468,14 +493,21 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             ? ""
             : (state.activeTabID ?? tabs[0]?.id ?? ""),
           recentlyClosed: (state.recentlyClosed ?? []).map(persistedTab),
+          activeView:
+            state.activeView === "mock" ||
+            state.activeView === "json" ||
+            state.activeView === "diagnostics" ||
+            state.activeView === "protocols"
+              ? state.activeView
+              : "requests",
           leftVisible: resetToWelcome
             ? false
             : (state.leftVisible ?? true),
           rightVisible: resetToWelcome
             ? false
             : (state.rightVisible ?? false),
-          sidebarSection:
-            state.sidebarSection === "history" ? "history" : "collections",
+          sidebarSection: "requests",
+          latestImportedSpec: undefined,
         } as WorkspaceState;
       },
       partialize: (state) => ({
@@ -493,8 +525,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
         rightWidth: state.rightWidth,
         responseSize: state.responseSize,
         responsePlacement: state.responsePlacement,
+        activeView: state.activeView,
         theme: state.theme,
-        sidebarSection: state.sidebarSection,
       }),
     },
   ),

@@ -35,7 +35,9 @@ jobs:
       - name: Test Go packages
         run: |
           go test ./...
-          go test -tags wails ./internal/wailsapp
+          go test -tags wails ./internal/wailsapp ./cmd/validex
+          go vet ./...
+          go vet -tags wails ./internal/wailsapp ./cmd/validex
 
   native-macos:
     runs-on: macos-latest
@@ -58,4 +60,9 @@ jobs:
 
       - name: Build native application
         working-directory: cmd/validex
-        run: '"$(go env GOPATH)/bin/wails" build -clean -m -nosyncgomod'
+        run: |
+          go_bin="$(go env GOBIN)"
+          if [ -z "$go_bin" ]; then
+            go_bin="$(go env GOPATH)/bin"
+          fi
+          "$go_bin/wails" build -clean -m -nosyncgomod

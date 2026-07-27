@@ -1,68 +1,63 @@
 import { useMemo, useRef, useState } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { FileJson2, FilePlus2, Search, Waypoints } from "lucide-react";
 import {
-  Boxes,
-  ChevronDown,
-  ChevronRight,
-  Clock3,
-  FileCode2,
-  FileJson2,
-  FilePlus2,
-  Folder,
-  FolderOpen,
-  Search,
-  Star,
-} from "lucide-react";
-import type { BootstrapData, CollectionNode } from "../lib/types";
+  importedEndpointTabID,
+  importedRequestURL,
+} from "../lib/openapi";
+import type { BootstrapData, HTTPMethod, RequestTab } from "../lib/types";
 import { cn } from "../lib/utils";
 import { useWorkspaceStore } from "../stores/workspace";
 import { Button, MethodBadge } from "./ui";
 
 const sections = [
-  { id: "collections", label: "Collections", icon: Boxes },
-  { id: "history", label: "History", icon: Clock3 },
+  { id: "requests", label: "Requests", icon: FileJson2 },
+  { id: "apis", label: "APIs", icon: Waypoints },
 ] as const;
+
+interface SidebarNode {
+  id: string;
+  name: string;
+  method: HTTPMethod;
+  url: string;
+  openApi?: RequestTab["openApi"];
+}
+
+function openSidebarNode(
+  node: SidebarNode,
+  openTab: (tab?: Partial<RequestTab>) => void,
+) {
+  if (!node.method) return;
+  openTab({
+    id: node.id,
+    name: node.name,
+    method: node.method,
+    url: node.url ?? "",
+    openApi: node.openApi,
+    dirty: false,
+  });
+}
 
 function RequestContext({
   node,
   children,
 }: {
-  node: CollectionNode;
+  node: SidebarNode;
   children: React.ReactNode;
 }) {
   const openTab = useWorkspaceStore((state) => state.openTab);
-  const setCodeGeneratorOpen = useWorkspaceStore(
-    (state) => state.setCodeGeneratorOpen,
-  );
-  const selectRequest = () => {
-    if (!node.method) return;
-    openTab({
-      id: node.id,
-      name: node.name,
-      method: node.method,
-      url: node.url ?? "",
-      dirty: false,
-    });
-  };
 
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>{children}</ContextMenu.Trigger>
       <ContextMenu.Portal>
         <ContextMenu.Content className="menu context-menu">
-          <ContextMenu.Item className="menu-item" onSelect={selectRequest}>
-            <FileJson2 size={15} /> Open
-          </ContextMenu.Item>
           <ContextMenu.Item
             className="menu-item"
-            disabled={!node.method}
-            onSelect={() => {
-              selectRequest();
-              setCodeGeneratorOpen(true);
-            }}
+            onSelect={() => openSidebarNode(node, openTab)}
           >
-            <FileCode2 size={15} /> Generate Java test
+            <FileJson2 size={15} /> Open request
           </ContextMenu.Item>
         </ContextMenu.Content>
       </ContextMenu.Portal>
@@ -70,81 +65,53 @@ function RequestContext({
   );
 }
 
-function NodeIcon({
-  node,
-  expanded,
-}: {
-  node: CollectionNode;
-  expanded: boolean;
-}) {
-  if (node.kind === "collection" || node.kind === "folder") {
-    return expanded ? (
-      <FolderOpen size={15} aria-hidden="true" />
-    ) : (
-      <Folder size={15} aria-hidden="true" />
-    );
-  }
-  return null;
-}
-
-export function Sidebar({ bootstrap }: { bootstrap: BootstrapData }) {
+export function Sidebar({ bootstrap: _bootstrap }: { bootstrap: BootstrapData }) {
   const [query, setQuery] = useState("");
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const scrollRef = useRef<HTMLDivElement>(null);
   const section = useWorkspaceStore((state) => state.sidebarSection);
   const setSection = useWorkspaceStore((state) => state.setSidebarSection);
   const openTab = useWorkspaceStore((state) => state.openTab);
-  const historyAvailable = bootstrap.history.length > 0;
-  const activeSection =
-    section === "history" && !historyAvailable ? "collections" : section;
-  const availableSections = historyAvailable
-    ? sections
-    : sections.filter((item) => item.id !== "history");
-  const hasSourceItems =
-    activeSection === "history"
-      ? historyAvailable
-      : bootstrap.collections.length > 0;
+  const tabs = useWorkspaceStore((state) => state.tabs);
+  const importedSpec = useWorkspaceStore((state) => state.latestImportedSpec);
+  const itemCount =
+    section === "apis" ? (importedSpec?.endpoints.length ?? 0) : tabs.length;
 
-  const visibleNodes = useMemo(() => {
+  const visibleNodes = useMemo<SidebarNode[]>(() => {
     const normalized = query.trim().toLocaleLowerCase("tr");
-    if (activeSection === "history") {
-      return bootstrap.history
-        .filter((entry) =>
-          `${entry.requestName} ${entry.method} ${entry.url} ${entry.statusCode} ${entry.environment}`
+    if (section === "apis") {
+      if (!importedSpec) return [];
+      return importedSpec.endpoints
+        .filter((endpoint) =>
+          `${endpoint.summary} ${endpoint.method} ${endpoint.path} ${endpoint.tags.join(" ")}`
             .toLocaleLowerCase("tr")
             .includes(normalized),
         )
-        .map<CollectionNode>((entry) => ({
-          id: entry.id,
-          kind: "request",
-          name: entry.requestName,
-          method: entry.method,
-          url: entry.url,
-          depth: 0,
+        .map((endpoint) => ({
+          id: importedEndpointTabID(importedSpec.specId, endpoint.id),
+          name: endpoint.summary || endpoint.path,
+          method: endpoint.method,
+          url: importedRequestURL(importedSpec.baseUrl, endpoint.path),
+          openApi: {
+            specId: importedSpec.specId,
+            path: endpoint.path,
+          },
         }));
     }
-    if (activeSection !== "collections" && activeSection !== "apis") return [];
-    const byID = new Map(bootstrap.collections.map((node) => [node.id, node]));
-    return bootstrap.collections.filter((node) => {
-      if (!normalized) {
-        let parentID = node.parentId;
-        while (parentID) {
-          if (collapsed.has(parentID)) return false;
-          parentID = byID.get(parentID)?.parentId;
-        }
-        return true;
-      }
-      return `${node.name} ${node.method ?? ""} ${node.url ?? ""}`
-        .toLocaleLowerCase("tr")
-        .includes(normalized);
-    });
-  }, [
-    activeSection,
-    bootstrap.collections,
-    bootstrap.history,
-    collapsed,
-    query,
-  ]);
+
+    return tabs
+      .filter((tab) =>
+        `${tab.name} ${tab.method} ${tab.url}`
+          .toLocaleLowerCase("tr")
+          .includes(normalized),
+      )
+      .map((tab) => ({
+        id: tab.id,
+        name: tab.name,
+        method: tab.method,
+        url: tab.url,
+        openApi: tab.openApi,
+      }));
+  }, [importedSpec, query, section, tabs]);
 
   const virtualizer = useVirtualizer({
     count: visibleNodes.length,
@@ -153,54 +120,47 @@ export function Sidebar({ bootstrap }: { bootstrap: BootstrapData }) {
     overscan: 10,
   });
 
-  const openNode = (node: CollectionNode) => {
-    if (node.kind === "folder" || node.kind === "collection") {
-      setCollapsed((current) => {
-        const next = new Set(current);
-        if (next.has(node.id)) next.delete(node.id);
-        else next.add(node.id);
-        return next;
-      });
-      return;
-    }
-    if (node.kind !== "request" && node.kind !== "operation") return;
-    openTab({
-      id: node.id,
-      name: node.name,
-      method: node.method ?? "GET",
-      url: node.url ?? "",
-      dirty: false,
-    });
-  };
-
   return (
-    <aside className="sidebar" aria-label="Workspace navigation">
-      <nav className="sidebar-sections" aria-label="Workspace sections">
-        {availableSections.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            className={cn("sidebar-section", activeSection === id && "active")}
-            onClick={() => setSection(id)}
-            aria-current={activeSection === id ? "page" : undefined}
-          >
-            <Icon size={15} aria-hidden="true" />
-            <span>{label}</span>
-            {id === "collections" && (
-              <span className="section-count">{bootstrap.collections.length}</span>
-            )}
-          </button>
-        ))}
+    <aside className="sidebar" aria-label="Request navigation">
+      <nav className="sidebar-sections" aria-label="Request sections">
+        {sections.map(({ id, label, icon: Icon }) => {
+          const count =
+            id === "apis" ? (importedSpec?.endpoints.length ?? 0) : tabs.length;
+          return (
+            <button
+              key={id}
+              className={cn("sidebar-section", section === id && "active")}
+              onClick={() => {
+                setSection(id);
+                setQuery("");
+              }}
+              aria-current={section === id ? "page" : undefined}
+              aria-label={label}
+            >
+              <Icon size={15} aria-hidden="true" />
+              <span>{label}</span>
+              <span className="section-count">{count}</span>
+            </button>
+          );
+        })}
       </nav>
 
-      {hasSourceItems && (
+      {section === "apis" && importedSpec && (
+        <div className="sidebar-source" title={importedSpec.title}>
+          <strong>{importedSpec.title || "Imported OpenAPI"}</strong>
+          <span>{importedSpec.endpoints.length} endpoints</span>
+        </div>
+      )}
+
+      {itemCount > 0 && (
         <div className="sidebar-toolbar">
           <label className="sidebar-search">
             <Search size={14} aria-hidden="true" />
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder={`Search ${activeSection}`}
-              aria-label={`Search ${activeSection}`}
+              placeholder={`Search ${section}`}
+              aria-label={`Search ${section}`}
             />
           </label>
         </div>
@@ -214,39 +174,19 @@ export function Sidebar({ bootstrap }: { bootstrap: BootstrapData }) {
           >
             {virtualizer.getVirtualItems().map((virtualItem) => {
               const node = visibleNodes[virtualItem.index];
-              const expanded = Boolean(node.expanded) && !collapsed.has(node.id);
               return (
                 <RequestContext key={node.id} node={node}>
                   <button
                     className="tree-row"
                     style={{
                       transform: `translateY(${virtualItem.start}px)`,
-                      paddingLeft: `${10 + node.depth * 16}px`,
+                      paddingLeft: "10px",
                     }}
-                    onDoubleClick={() => openNode(node)}
-                    onClick={() => openNode(node)}
+                    onClick={() => openSidebarNode(node, openTab)}
                     title={node.url}
                   >
-                    {(node.kind === "folder" || node.kind === "collection") && (
-                      expanded ? (
-                        <ChevronDown className="tree-chevron" size={12} />
-                      ) : (
-                        <ChevronRight className="tree-chevron" size={12} />
-                      )
-                    )}
-                    <NodeIcon node={node} expanded={expanded} />
-                    {node.method && (
-                      <MethodBadge method={node.method} compact />
-                    )}
+                    {node.method && <MethodBadge method={node.method} compact />}
                     <span className="tree-label">{node.name}</span>
-                    {node.favorite && (
-                      <Star
-                        className="favorite"
-                        size={12}
-                        fill="currentColor"
-                        aria-label="Favorite"
-                      />
-                    )}
                   </button>
                 </RequestContext>
               );
@@ -255,18 +195,28 @@ export function Sidebar({ bootstrap }: { bootstrap: BootstrapData }) {
         </div>
       ) : (
         <div className="sidebar-empty">
-          {query.trim() ? <Search size={22} /> : <Boxes size={22} />}
+          {query.trim() ? (
+            <Search size={22} />
+          ) : section === "apis" ? (
+            <Waypoints size={22} />
+          ) : (
+            <FileJson2 size={22} />
+          )}
           <strong>
             {query.trim()
-              ? "Eşleşen öğe bulunamadı"
-              : `Henüz ${activeSection} yok`}
+              ? "Eşleşen request bulunamadı"
+              : section === "apis"
+                ? "Henüz OpenAPI içe aktarılmadı"
+                : "Henüz açık request yok"}
           </strong>
           <span>
             {query.trim()
               ? "Farklı bir arama terimi deneyin."
-              : "İlk API request’inizi oluşturarak başlayın."}
+              : section === "apis"
+                ? "New menüsünden OpenAPI dosyanızı içe aktarın."
+                : "İlk API request’inizi oluşturarak başlayın."}
           </span>
-          {!query.trim() && activeSection === "collections" && (
+          {!query.trim() && section === "requests" && (
             <Button
               size="sm"
               variant="primary"

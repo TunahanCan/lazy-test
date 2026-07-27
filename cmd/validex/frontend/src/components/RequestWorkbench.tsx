@@ -17,7 +17,6 @@ import {
   ChevronDown,
   Clipboard,
   FileText,
-  KeyRound,
   Plus,
   Search,
   Send,
@@ -31,6 +30,8 @@ import {
   useForm,
   type FieldErrors,
 } from "react-hook-form";
+import { backend } from "../lib/backend";
+import { requestURLMatchesOpenAPIPath } from "../lib/openapi";
 import { useCancelRequest, useSendRequest } from "../lib/queries";
 import {
   missingVariables,
@@ -47,7 +48,7 @@ import type {
 } from "../lib/types";
 import { cn } from "../lib/utils";
 import { useWorkspaceStore } from "../stores/workspace";
-import { Button, CountBadge, EmptyState, IconButton, MethodBadge } from "./ui";
+import { Button, CountBadge, IconButton, MethodBadge } from "./ui";
 import { ResponsePanel } from "./ResponsePanel";
 
 const MonacoEditor = lazy(() =>
@@ -66,7 +67,6 @@ const methods: HTTPMethod[] = [
 
 const requestSections = [
   { id: "params", label: "Variables", icon: Variable },
-  { id: "authorization", label: "Authorization", icon: KeyRound },
   { id: "headers", label: "Headers", icon: FileText },
   { id: "body", label: "Body", icon: Braces },
 ] as const;
@@ -315,15 +315,6 @@ function ParamsEditor({
   );
 }
 
-function AuthorizationEditor() {
-  return (
-    <EmptyState
-      title="Authorization header üzerinden yönetiliyor"
-      description="Bearer, Basic veya API key değerini Headers sekmesinde Authorization header’ı olarak ekleyin."
-    />
-  );
-}
-
 function HeadersEditor({
   fields,
   register,
@@ -537,9 +528,6 @@ export function RequestWorkbench({
   const setEnvironmentVariable = useWorkspaceStore(
     (state) => state.setEnvironmentVariable,
   );
-  const setCodeGeneratorOpen = useWorkspaceStore(
-    (state) => state.setCodeGeneratorOpen,
-  );
   const environment =
     bootstrap.environments.find((item) => item.id === environmentID) ??
     bootstrap.environments[0];
@@ -637,11 +625,64 @@ export function RequestWorkbench({
         saveHistory: true,
       });
       if (result.response) {
+        let response = result.response;
+        if (tab.openApi) {
+          if (!requestURLMatchesOpenAPIPath(normalizedURL, tab.openApi.path)) {
+            response = {
+              ...response,
+              contract: {
+                available: false,
+                ok: false,
+                truncated: false,
+                method: values.method,
+                path: tab.openApi.path,
+                findings: [],
+                error: {
+                  code: "operation_changed",
+                  title: "Request OpenAPI operation’dan ayrıldı",
+                  message: `Düzenlenen URL path’i ${tab.openApi.path} ile eşleşmiyor.`,
+                  hint: "Bu response’u o operation ile karşılaştırmak için URL path’ini geri alın veya OpenAPI dosyasından yeni bir sekme açın.",
+                },
+              },
+            };
+          } else {
+            try {
+              const contract = await backend.validateOpenAPIResponse({
+                specId: tab.openApi.specId,
+                method: values.method,
+                path: tab.openApi.path,
+                statusCode: response.statusCode,
+                contentType: response.contentType,
+                body: response.rawBody,
+              });
+              response = { ...response, contract };
+            } catch (error) {
+              response = {
+                ...response,
+                contract: {
+                  available: false,
+                  ok: false,
+                  truncated: false,
+                  method: values.method,
+                  path: tab.openApi.path,
+                  findings: [],
+                  error: {
+                    code: "contract_check_failed",
+                    title: "Contract kontrolü tamamlanamadı",
+                    message: "HTTP response alındı ancak OpenAPI karşılaştırması çalışmadı.",
+                    technical:
+                      error instanceof Error ? error.message : String(error),
+                  },
+                },
+              };
+            }
+          }
+        }
         updateTab(tab.id, {
           running: false,
           error: false,
           userError: undefined,
-          response: result.response,
+          response,
         });
         return;
       }
@@ -806,6 +847,7 @@ export function RequestWorkbench({
               form.setValue("method", method, { shouldValidate: true });
               updateTab(tab.id, {
                 method,
+                openApi: method === tab.method ? tab.openApi : undefined,
                 dirty: true,
                 error: false,
                 userError: undefined,
@@ -907,12 +949,6 @@ export function RequestWorkbench({
                     <DropdownMenu.Item className="menu-item" onSelect={copyAsCurl}>
                       <Clipboard size={15} /> Copy as cURL
                     </DropdownMenu.Item>
-                    <DropdownMenu.Item
-                      className="menu-item"
-                      onSelect={() => setCodeGeneratorOpen(true)}
-                    >
-                      <Sparkles size={15} /> Generate Java test
-                    </DropdownMenu.Item>
                   </DropdownMenu.Content>
                 </DropdownMenu.Portal>
               </DropdownMenu.Root>
@@ -964,9 +1000,6 @@ export function RequestWorkbench({
                   setEnvironmentVariable(environment.id, key, value);
                 }}
               />
-            </Tabs.Content>
-            <Tabs.Content value="authorization">
-              <AuthorizationEditor />
             </Tabs.Content>
             <Tabs.Content value="headers">
               <HeadersEditor

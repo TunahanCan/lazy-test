@@ -1,212 +1,243 @@
 # Validex
 
-Validex, HTTP API istekleri hazırlamak, göndermek, yanıtları incelemek ve açık
-istekten Java test/client ya da contract başlangıç dosyaları üretmek için
-geliştirilmiş bir masaüstü uygulamasıdır.
+Validex, Java backend geliştiricileri için hazırlanmış bir Wails masaüstü API
+inceleme ve tanılama aracıdır. HTTP request gönderir; OpenAPI contract farklarını,
+Spring Boot çalışma zamanı verilerini ve farklı ortamların response’larını aynı
+uygulamada incelemeye yardımcı olur.
 
-Uygulama [Wails v2](https://wails.io/) ile çalışır. Arayüz React ve TypeScript
-ile, native işlemler ve HTTP çağrıları Go ile geliştirilmiştir.
+## Hızlı başlangıç
 
-## Mevcut özellikler
-
-### HTTP çalışma alanı
-
-- GET, POST, PUT, PATCH, DELETE, OPTIONS ve HEAD istekleri gönderir.
-- URL, header ve request body içinde `{{variable}}` değişkenlerini çözer.
-- `localhost:8080` gibi şemasız yerel adreslere `http://`, genel adreslere
-  `https://` ekler. Yalnız HTTP ve HTTPS URL’lerini kabul eder.
-- Tekrarlanan header adlarını destekler.
-- JSON body için `Content-Type` verilmemişse
-  `application/json` header’ını otomatik ekler.
-- İstek sürerken **Cancel** ile native HTTP çağrısını iptal eder.
-- Eksik değişkeni ve geçersiz URL’yi göndermeden önce belirtir; ağ ve timeout
-  hatalarını response alanında gösterir.
-- Açık isteği tanımlı değişkenleri çözerek cURL komutu olarak kopyalar.
-
-### Response inceleme
-
-- Status kodu, süre, boyut, content type ve HTTP protokolünü gösterir.
-- Formatlanmış body ve ham response body arasında geçiş sağlar.
-- Response header ve cookie’lerini listeler.
-- DNS, bağlantı, TLS ve sunucu bekleme aşamalarını timeline üzerinde gösterir.
-- Uzak adresi, TLS özetini ve response’ta bulunan trace kimliğini gösterir.
-
-### Workspace
-
-- Birden fazla isteği sekmelerde açık tutar.
-- Sekmeleri sabitleme, çoğaltma, sıralama ve kapatılan sekmeyi yeniden açma
-  işlemlerini destekler. Temiz, sabitlenmemiş ve çalışmayan sekmeler topluca
-  kapatılabilir.
-- Sistem, açık ve koyu tema seçenekleri sunar.
-- Sol/sağ panellerin görünürlüğünü ve genişliğini, response panelinin
-  konumunu ve boyutunu ayarlamaya izin verir.
-- Komut paletini `⌘ K`, yeni isteği `⌘ N`, son kapatılan sekmeyi `⇧ ⌘ T` ile
-  açar.
-
-Workspace durumu cihazdaki WebView `localStorage` alanında tutulur. İstek
-taslakları, secret anahtarı olarak tanınmayan environment değerleri, sekmeler,
-tema ve panel düzeni uygulama yeniden açıldığında geri yüklenir. Response, hata
-ve çalışan istek durumu saklanmaz.
-
-Secret olarak tanınan environment anahtarlarının değerleri saklanmaz. Secret
-header’lara doğrudan yazılan değerler `localStorage`’a yazılan kopyada
-temizlenir ve ilgili header devre dışı bırakılır; `Bearer {{token}}` gibi yalnız
-değişken referansı içeren değerler korunur. URL ve body sekme taslağının
-parçası olarak saklanır.
-
-### OpenAPI içe aktarma
-
-- OpenAPI 3 YAML, YML veya JSON dosyasını native dosya seçiciyle açar.
-- Dokümanı parse eder ve doğrular.
-- İlk server adresi değişken içermeyen mutlak bir HTTP/HTTPS URL’siyse endpoint
-  path’ini bu adresle birleştirir; aksi durumda düzenlenebilir `{{baseUrl}}`
-  değişkenini kullanır.
-- Sıralanan endpoint’lerin ilk 8 tanesini method ve URL içeren istek sekmeleri
-  olarak açar.
-- Bildirimde açılan endpoint sayısını, 8’den fazla endpoint bulunduğunda toplam
-  sayıyı da gösterir.
-
-### Kod üretimi
-
-Aktif isteği ve varsa son response’u kullanarak şu hedefler için başlangıç
-dosyaları üretir:
-
-- REST Assured
-- MockMvc
-- WebTestClient
-- WireMock
-- Spring Cloud Contract
-- Java HttpClient
-- Spring RestClient
-- Spring WebClient
-
-Üretilen dosyanın önizlemesini gösterir, içeriği panoya kopyalar veya native
-dosya seçiciyle tek dosya kaydeder. Maven ya da Gradle seçimine göre test
-kaynağı, yardımcı sınıflar, fixture/resource dosyaları ve build dosyasından
-oluşan bir proje klasörü de dışa aktarabilir.
-
-## Gereksinimler
+Gereksinimler:
 
 - Go 1.24 veya üzeri
-- Node.js `^20.19.0` veya `>=22.12.0` ve npm
-- `make`
-- Kullanılan işletim sistemi için Wails native derleme araçları
+- Node.js `^20.19.0` veya `>=22.12.0`
+- npm ve `make`
+- İşletim sisteminiz için [Wails v2 gereksinimleri](https://wails.io/docs/gettingstarted/installation)
 
-`make dev` ve `make build`, projede sabitlenen Wails `v2.12.0` aracını
-`$(go env GOPATH)/bin/wails` yolundan çalıştırır. Özel bir `GOBIN` ayarı farklı
-bir dizini göstermemelidir.
-
-## Geliştirme modunda çalıştırma
-
-Projenin kök dizininde:
+Projeyi geliştirme modunda açmak için kök dizinde:
 
 ```bash
 make dev
 ```
 
-Bu hedef frontend bağımlılıklarını `npm ci` ile kurar, Vite geliştirme
-sunucusunu ve Go backend’i başlatır, ardından Validex masaüstü penceresini açar.
+Bu komut sabitlenen Wails `v2.12.0` aracını kurar, React frontend’i ve Go
+backend’i birlikte başlatır, ardından Validex masaüstü penceresini açar.
 
-`make` kullanmadan aynı akışı başlatmak için:
-
-```bash
-go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
-cd cmd/validex
-"$(go env GOPATH)/bin/wails" dev -m -nosyncgomod
-```
-
-## Kullanım
-
-1. Karşılama ekranındaki **New request** butonuyla bir istek sekmesi açın.
-2. HTTP methodunu seçin ve URL’yi yazın.
-3. Gerekirse **Variables**, **Headers** ve **Body** alanlarını düzenleyin.
-   Authorization değeri **Headers** bölümünde `Authorization` header’ı olarak
-   eklenir.
-4. **Send** ile isteği gönderin. Çalışan isteği **Cancel** ile durdurabilirsiniz.
-5. Response panelindeki **Body**, **Headers**, **Cookies**, **Timeline** ve
-   **Raw** görünümlerini inceleyin.
-6. Send menüsünden **Copy as cURL** veya **Generate Java test** işlemini seçin.
-
-OpenAPI dosyası açmak için karşılama ekranındaki **Import OpenAPI** butonunu ya
-da üst menüdeki **New → Import OpenAPI** yolunu kullanın.
-
-## Native build
-
-Kullanılan işletim sistemi için production build oluşturmak üzere:
+Production build:
 
 ```bash
 make build
 ```
 
-Build çıktısı `cmd/validex/build/bin` dizinine yazılır. macOS çıktısını açmak
-için:
+Çıktı `cmd/validex/build/bin` altında oluşur. macOS’ta:
 
 ```bash
 open cmd/validex/build/bin/Validex.app
 ```
 
-### macOS imzalama
+> Yalnız `npm run dev` çalıştırmak native Wails backend’ini başlatmaz. Mock
+> server, dosya seçici, protokol ve Runtime, Environments, Thread & Logs,
+> Coverage gibi native tanılama araçları için `make dev` kullanın.
 
-`make build`, sistemde tek bir Apple Development kimliği bulursa uygulamayı bu
-kimlikle imzalar. Kimliği açıkça seçmek için:
+## Uygulamayı kullanma
 
-```bash
-MACOS_SIGN_IDENTITY="Apple Development: ..." make build
+### HTTP request
+
+1. **Requests → New request** ile bir sekme açın.
+2. Method ve URL’yi yazın. `localhost:8080/health` gibi yerel adreslere
+   otomatik olarak `http://` eklenir.
+3. Gerekirse URL, header veya body içinde `{{variable}}` kullanın ve
+   **Variables** bölümünde değerini girin.
+4. **Send** ile request’i gönderin. Çalışan request **Cancel** ile durdurulabilir.
+5. Response’un body, raw body, header, cookie ve timeline görünümlerini inceleyin.
+6. Send menüsündeki **Copy as cURL** ile request’i cURL olarak kopyalayın.
+
+Validex GET, POST, PUT, PATCH, DELETE, OPTIONS ve HEAD methodlarını; tekrarlanan
+header’ları ve JSON body için otomatik `Content-Type` eklemeyi destekler. URL
+alanı gönderimden önce düzenlenebilir ve eksik variable ya da geçersiz URL
+gönderilmeden gösterilir.
+
+### OpenAPI ve contract drift
+
+Üst menüden **New → Import OpenAPI** ile OpenAPI 3 YAML, YML veya JSON dosyası
+seçin. İlk sekiz endpoint düzenlenebilir request sekmeleri olarak açılır; belgedeki
+tüm endpoint’ler sanallaştırılmış **APIs** panelinde aranabilir ve tek tıkla
+açılabilir. `{id}` path parametreleri request URL’sine `{{id}}` olarak aktarılır.
+
+OpenAPI’den açılmış bir request’in operation method ve path’i korunduğunda,
+eşleşen status veya `default` response altında gerçek `Content-Type` ile eşleşen
+JSON schema varsa response otomatik karşılaştırılır. Buna
+`application/problem+json` ve vendor `+json` media type’ları dahildir.
+**Contract** sekmesi şu farkları gösterir:
+
+- eksik alan;
+- fazladan alan;
+- tip uyuşmazlığı;
+- enum ihlali;
+- sayı, metin, dizi ve nesne sınırları ile yaygın string formatı ihlalleri.
+
+OpenAPI dokümanları yalnız mevcut uygulama oturumunda bellekte tutulur; contract
+cache’i en son sekiz dokümanla sınırlıdır. Uygulama yeniden açıldıktan sonra
+contract kontrolü için dosyayı yeniden içe aktarın. İlk deneme için repo
+kökündeki `openapi.sample.yaml` dosyasını kullanabilirsiniz.
+
+### Mock Server
+
+Sol araç çubuğundan **Mock Server** ekranını açın.
+
+- Route’u method, path, status, header, JSON body ve gecikme ile tanımlayın.
+- `{id}` biçimindeki path parametrelerini kullanın.
+- OpenAPI response example veya schema’larından mock route üretin.
+- Aktif request’in son JSON response’unu seçili route’a aktarın.
+- Port `0` ile boş bir portu otomatik seçin.
+- Çalışan sunucunun eşleşen/eşleşmeyen istek geçmişini izleyin.
+
+Mock server yalnız `127.0.0.1` adresine bağlanır. Editörde yapılan manuel route
+değişiklikleri **Değişiklikleri uygula** seçilmeden sunucuya geçirilmez.
+
+### JSON Lab ve response DTO
+
+**JSON Lab** cihaz üzerinde şu işlemleri yapar:
+
+- format, minify ve anahtar sıralama;
+- iki JSON arasında yapısal/value diff ve ignore path;
+- güvenli JSONPath alt kümesiyle sorgulama;
+- JSON’dan JSON Schema çıkarma;
+- Java `record` veya field içeren response class’tan deterministik mock JSON
+  örneği oluşturma.
+
+Üretilen JSON’u kopyalayıp bir mock route body’sinde kullanabilirsiniz.
+
+### Spring ve runtime tanılama
+
+**Diagnostics** ekranı altı çalışma alanı içerir:
+
+- **Spring Error:** ProblemDetail ve Bean Validation alan hataları için özet;
+  400/401/403/500’e özel kontrol önerileri ve 404/409/5xx kategorileri.
+- **JWT:** expiration, not-before, issuer, audience, subject, role ve scope
+  görüntüleme.
+- **Runtime:** Spring Boot Actuator health, mappings ve seçili metric snapshot’ı.
+- **Environments:** aynı request’i local/test/staging hedeflerine gönderip status,
+  header ve JSON farklarını karşılaştırma.
+- **Thread & Logs:** yapıştırılan thread dump’ta blocked thread/deadlock analizi
+  ve trace/correlation ID ile literal log araması.
+- **Coverage:** **New → Import OpenAPI** ile içe aktarılan endpoint’leri bu
+  oturumda Validex ile başarıyla gönderilen request’lerle veya elle girilen çağrı
+  listesiyle eşleştirme.
+
+Runtime ekranındaki varsayılan metric listesi JVM memory/thread/GC, HikariCP,
+Redis/Lettuce, Kafka ve RabbitMQ adlarını içerir. **Baseline al** ile ilk
+snapshot’ı saklayıp request veya servis işlemi sonrasında ikinci snapshot’ı
+alarak değer ve yüzde farkını görebilirsiniz. İlgili Actuator endpoint ve
+metric’lerinin hedef uygulamada erişime açık olması gerekir.
+
+Güvenlik notları:
+
+- JWT ekranı token’ı yerel olarak decode eder, imzayı doğrulamaz.
+- Ortam karşılaştırması GET/HEAD/OPTIONS dışındaki methodları açık kullanıcı
+  izni olmadan göndermez.
+- Log ve thread dump metni yalnız uygulama belleğinde analiz edilir.
+- Actuator erişim header’ları kullanıcı tarafından açıkça girilir.
+
+### SSE, WebSocket ve gRPC
+
+**Protocols** ekranı gerçek bağlantı kurar:
+
+- SSE event, ID, çok satırlı data ve retry değerlerini sınırlı bir oturumda okur.
+- WebSocket’e text mesajı gönderir ve belirlenen sayıda text/binary mesaj alır.
+- gRPC sunucusuna plaintext veya TLS ile bağlanır; server reflection v1/v1alpha
+  üzerinden yayınlanan servisleri listeler.
+
+Her protokol işlemi kendi **İptal et** düğmesiyle durdurulabilir; SSE event’leri
+ve WebSocket mesajları sabit adet/byte sınırlarıyla bellekte tutulur. Binary
+WebSocket frame’leri kayıpsız base64 ve gerçek byte boyutuyla gösterilir.
+gRPC adresi `host:port` biçiminde olmalı ve hedefte server reflection açık
+olmalıdır. SSE, WebSocket ve gRPC için TLS sertifika doğrulamasını atlama seçeneği
+yalnız HTTPS/WSS/TLS bağlantılarında etkinleşir; bu seçenek yalnız yerel veya
+self-signed geliştirme hedeflerinde kullanılmalıdır.
+
+## Workspace ve yerel veri
+
+- Birden fazla request sekmesi açık tutulabilir; sekmeler sabitlenebilir,
+  çoğaltılabilir, sıralanabilir ve kapatılan sekme geri açılabilir.
+- Sol/sağ request panelleri gizlenebilir ve yeniden boyutlandırılabilir.
+- Response paneli altta veya sağda kullanılabilir.
+- Sistem, açık ve koyu tema desteklenir.
+- `⌘/Ctrl K` komut paletini, `⌘/Ctrl N` yeni request’i açar.
+
+Workspace taslakları WebView `localStorage` alanında tutulur. Response, çalışan
+request ve geçici hata saklanmaz. Secret olarak tanınan environment değerleri
+persist edilmez; doğrudan yazılmış secret header değerleri temizlenip devre dışı
+bırakılır. `Bearer {{token}}` gibi yalnız variable reference içeren header’lar
+korunur.
+
+## Mimari
+
+```text
+cmd/validex/
+├── main.go                         Wails masaüstü girişi
+└── frontend/src/
+    ├── components/                 Request ve developer tool ekranları
+    ├── lib/backend.ts              Tüm native çağrılar için typed adapter
+    ├── lib/developerTools.ts       JSON, Spring, JWT ve DTO pure fonksiyonları
+    └── stores/workspace.ts         Sekme, layout, tema ve güvenli persistence
+
+internal/
+├── core/                           OpenAPI yükleme ve contract drift
+├── mockserver/                     Loopback HTTP mock server
+├── diagnostics/                    Actuator, ortam, thread, log ve coverage
+├── protocols/                      SSE, WebSocket ve gRPC istemcileri
+└── wailsapp/                       UI ile Go arasındaki typed bridge
 ```
 
-Geçerli bir imza kimliği olmadan build’in başarılı sayılmaması için:
+Ana request akışı:
 
-```bash
-MACOS_SIGN_REQUIRED=1 make build
+```text
+React form
+  → lib/backend.ts
+  → Wails Bridge
+  → net/http
+  → response + timeline
+  → varsa OpenAPI contract kontrolü
 ```
+
+Native işlem gerektiren mock, Actuator, ortam karşılaştırma, thread/log,
+coverage ve protokol araçları typed adapter üzerinden ilgili Go paketine gider.
+JSON, Spring response, JWT ve DTO dönüşümleri cihaz içinde frontend’de çalışır.
+Geçici form state’i React’te, workspace ve layout state’i Zustand’da tutulur.
 
 ## Testler
 
-Projenin Makefile’da tanımlı test ve typecheck akışını çalıştırmak için:
+Tüm kontroller:
 
 ```bash
 make test
 ```
 
-Bu hedef sırasıyla frontend bağımlılıklarını kurar, TypeScript typecheck ve
-Vitest testlerini çalıştırır, ardından normal Go paketlerini test eder. Son
-adımda `wails` build tag’li bridge testlerini çalıştırır ve masaüstü giriş
-paketini derler.
+Bu hedef TypeScript typecheck, Vitest, normal Go testleri ve `wails` build tag’li
+bridge testlerini çalıştırır. Hedefli komutlar için
+[test rehberine](examples/testlerin-nasil-calistigi.md) bakın.
 
-Hedefli test komutları için
-[test çalışma rehberine](examples/testlerin-nasil-calistigi.md) bakın.
+Ek kalite kontrolleri:
 
-## Aktif uygulama mimarisi
-
-```text
-cmd/validex/
-├── main.go                    Wails girişi ve frontend embed
-├── wails.json                 Uygulama ve build ayarları
-├── build/                     Native ikon, plist ve build çıktıları
-└── frontend/
-    └── src/
-        ├── components/        Ekranlar ve kullanıcı akışları
-        ├── lib/backend.ts     Tek typed native backend adapter’ı
-        ├── lib/               Query, schema ve OpenAPI yardımcıları
-        └── stores/            Workspace durumu ve secret filtreleme
-
-internal/wailsapp/             Aktif Wails bridge ve native işlemler
-internal/core/openapi.go       Bridge’in kullandığı OpenAPI yükleyici
-Makefile                       Dev, build ve test giriş noktaları
+```bash
+go test -race ./...
+go test -race -tags wails ./internal/wailsapp
+go vet ./...
+go vet -tags wails ./internal/wailsapp ./cmd/validex
 ```
 
-Production çağrı akışı:
+### macOS imzalama
 
-```text
-React bileşeni
-    → src/lib/backend.ts
-    → Wails tarafından üretilen binding
-    → internal/wailsapp.Bridge
-    → net/http, internal/core.LoadOpenAPI veya native dosya işlemleri
+`make build`, sistemde tek Apple Development kimliği bulursa uygulamayı onunla
+imzalar. Açık kimlik seçimi:
+
+```bash
+MACOS_SIGN_IDENTITY="Apple Development: ..." make build
 ```
 
-Frontend native runtime’ı bileşenlerden doğrudan çağırmaz. Bootstrap, istek ve
-OpenAPI işlemlerinin durumunu TanStack Query yönetir; kod üreticisinin kaydetme
-işlemleri typed adapter’ı doğrudan kullanır. Altı backend işlemi bu adapter
-üzerinden geçer: bootstrap, istek gönderme, istek iptali, OpenAPI içe aktarma,
-tek dosya kaydetme ve proje klasörü dışa aktarma.
+İmzasız build’in başarısız olması isteniyorsa:
+
+```bash
+MACOS_SIGN_REQUIRED=1 make build
+```

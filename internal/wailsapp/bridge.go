@@ -15,8 +15,6 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	neturl "net/url"
-	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -24,38 +22,108 @@ import (
 	"time"
 
 	"validex/internal/core"
+	"validex/internal/mockserver"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 var variablePattern = regexp.MustCompile(`\{\{\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*\}\}`)
 
+const (
+	maxHTTPResponseBodyBytes   = int64(16 << 20)
+	maxCachedOpenAPISpecs      = 8
+	maxObservedCoverageEntries = 10_000
+)
+
+type toolOperation struct {
+	cancel context.CancelFunc
+}
+
+type requestOperation struct {
+	cancel context.CancelFunc
+}
+
 type Bridge struct {
-	mu      sync.Mutex
-	ctx     context.Context
-	cancels map[string]context.CancelFunc
+	mu              sync.Mutex
+	ctx             context.Context
+	lifecycleCtx    context.Context
+	lifecycleCancel context.CancelFunc
+	cancels         map[string]*requestOperation
+	toolCancels     map[string]*toolOperation
+	specs           map[string][]core.Endpoint
+	specOrder       []string
+	mock            *mockserver.Server
+	observed        map[string]int
+	observedOrder   []string
+	observedNext    int
 }
 
 func NewBridge() *Bridge {
-	return &Bridge{cancels: map[string]context.CancelFunc{}}
+	lifecycleCtx, lifecycleCancel := context.WithCancel(context.Background())
+	return &Bridge{
+		lifecycleCtx:    lifecycleCtx,
+		lifecycleCancel: lifecycleCancel,
+		cancels:         map[string]*requestOperation{},
+		toolCancels:     map[string]*toolOperation{},
+		specs:           map[string][]core.Endpoint{},
+		specOrder:       make([]string, 0, maxCachedOpenAPISpecs),
+		mock:            mockserver.New(mockserver.Options{}),
+		observed:        map[string]int{},
+		observedOrder:   make([]string, 0, maxObservedCoverageEntries),
+	}
 }
 
 func Startup(b *Bridge) func(context.Context) {
 	return func(ctx context.Context) {
+		if ctx == nil {
+			ctx = context.Background()
+		}
 		b.mu.Lock()
+		previousCancel := b.lifecycleCancel
 		b.ctx = ctx
+		b.lifecycleCtx, b.lifecycleCancel = context.WithCancel(ctx)
 		b.mu.Unlock()
+		if previousCancel != nil {
+			previousCancel()
+		}
 	}
 }
 
 func Shutdown(b *Bridge) func(context.Context) {
-	return func(_ context.Context) {
+	return func(shutdownCtx context.Context) {
 		b.mu.Lock()
-		defer b.mu.Unlock()
-		for _, cancel := range b.cancels {
+		lifecycleCancel := b.lifecycleCancel
+		requestCancels := make([]context.CancelFunc, 0, len(b.cancels))
+		for _, operation := range b.cancels {
+			requestCancels = append(requestCancels, operation.cancel)
+		}
+		toolCancels := make([]context.CancelFunc, 0, len(b.toolCancels))
+		for _, operation := range b.toolCancels {
+			toolCancels = append(toolCancels, operation.cancel)
+		}
+		b.ctx = nil
+		b.cancels = map[string]*requestOperation{}
+		b.toolCancels = map[string]*toolOperation{}
+		mock := b.mock
+		b.mu.Unlock()
+
+		if lifecycleCancel != nil {
+			lifecycleCancel()
+		}
+		for _, cancel := range requestCancels {
 			cancel()
 		}
-		b.cancels = map[string]context.CancelFunc{}
+		for _, cancel := range toolCancels {
+			cancel()
+		}
+		if mock != nil {
+			if shutdownCtx == nil {
+				shutdownCtx = context.Background()
+			}
+			ctx, cancel := context.WithTimeout(shutdownCtx, 3*time.Second)
+			defer cancel()
+			_ = mock.Stop(ctx)
+		}
 	}
 }
 
@@ -73,8 +141,8 @@ func (b *Bridge) Bootstrap() BootstrapData {
 		RecentURLs:  []string{},
 		OnboardingSteps: []string{
 			"İlk request’ini gönder",
-			"Response’u incele",
-			"Java testi üret",
+			"OpenAPI contract farklarını incele",
+			"Mock server başlat",
 		},
 	}
 }
@@ -101,14 +169,28 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 		return failed("invalid_request", "Request oluşturulamadı", "Method veya URL geçerli görünmüyor.", "URL’nin http:// veya https:// ile başladığını kontrol edin.", technical)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(input.TimeoutMS)*time.Millisecond)
+	ctx, cancel := context.WithTimeout(b.operationContext(), time.Duration(input.TimeoutMS)*time.Millisecond)
+	operation := &requestOperation{cancel: cancel}
 	b.mu.Lock()
-	b.cancels[input.ID] = cancel
+	if _, exists := b.cancels[input.ID]; exists {
+		b.mu.Unlock()
+		cancel()
+		return failed(
+			"request_already_running",
+			"Request zaten çalışıyor",
+			"Aynı request ID ile başka bir istek halen devam ediyor.",
+			"Çalışan isteği iptal edin veya tamamlanmasını bekleyin.",
+			"",
+		)
+	}
+	b.cancels[input.ID] = operation
 	b.mu.Unlock()
 	defer func() {
 		cancel()
 		b.mu.Lock()
-		delete(b.cancels, input.ID)
+		if b.cancels[input.ID] == operation {
+			delete(b.cancels, input.ID)
+		}
 		b.mu.Unlock()
 	}()
 
@@ -162,14 +244,21 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 	}
 	defer resp.Body.Close()
 
-	raw, readErr := io.ReadAll(resp.Body)
+	if resp.ContentLength > maxHTTPResponseBodyBytes {
+		return responseTooLarge()
+	}
+	raw, tooLarge, readErr := readHTTPResponseBody(resp.Body, maxHTTPResponseBodyBytes)
 	if readErr != nil {
 		return failed("response_read_failed", "Response okunamadı", "Sunucu yanıt verdi ancak response body tamamlanamadı.", "Bağlantıyı kontrol edip request’i yeniden gönderin.", readErr.Error())
+	}
+	if tooLarge {
+		return responseTooLarge()
 	}
 	end := time.Now()
 	duration := end.Sub(start)
 	pretty := prettyBody(raw, resp.Header.Get("Content-Type"))
-	timeline := trace.timeline(end)
+	traceSnapshot := trace.snapshot()
+	timeline := traceSnapshot.timeline(end)
 
 	cookies := make([]ResponseCookie, 0, len(resp.Cookies()))
 	for _, cookie := range resp.Cookies() {
@@ -188,17 +277,20 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 		tlsSummary = tlsVersion(resp.TLS.Version) + " · " + tls.CipherSuiteName(resp.TLS.CipherSuite)
 	}
 
-	traceID := firstNonEmpty(
-		resp.Header.Get("traceparent"),
-		resp.Header.Get("X-Trace-ID"),
-		resp.Header.Get("X-Request-ID"),
-	)
+	traceID := traceIDFromTraceparent(resp.Header.Get("traceparent"))
+	if traceID == "" {
+		traceID = firstNonEmpty(
+			resp.Header.Get("X-Trace-ID"),
+			resp.Header.Get("X-Request-ID"),
+		)
+	}
+	b.recordObservedCall(input.Method, parsedURL.Path)
 
 	return SendResult{Response: &ResponseEnvelope{
 		RequestID: input.ID, StatusCode: resp.StatusCode, Status: resp.Status,
 		DurationMS: duration.Milliseconds(), SizeBytes: int64(len(raw)),
 		ContentType: resp.Header.Get("Content-Type"), Protocol: resp.Proto,
-		RemoteAddr: trace.remoteAddr, TLS: tlsSummary, TraceID: traceID,
+		RemoteAddr: traceSnapshot.remoteAddr, TLS: tlsSummary, TraceID: traceID,
 		Headers: resp.Header.Clone(), Cookies: cookies, Body: pretty, RawBody: string(raw),
 		Timeline: timeline, ResolvedURL: resolvedURL,
 	}}
@@ -206,10 +298,26 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 
 func (b *Bridge) CancelRequest(requestID string) bool {
 	b.mu.Lock()
-	cancel, ok := b.cancels[requestID]
+	operation, ok := b.cancels[requestID]
 	b.mu.Unlock()
 	if ok {
-		cancel()
+		operation.cancel()
+	}
+	return ok
+}
+
+// CancelToolOperation cancels one running long-lived developer tool operation.
+// Tool operation IDs live in a separate namespace from HTTP request IDs.
+func (b *Bridge) CancelToolOperation(operationID string) bool {
+	operationID = strings.TrimSpace(operationID)
+	if operationID == "" {
+		return false
+	}
+	b.mu.Lock()
+	operation, ok := b.toolCancels[operationID]
+	b.mu.Unlock()
+	if ok {
+		operation.cancel()
 	}
 	return ok
 }
@@ -243,7 +351,9 @@ func (b *Bridge) ImportOpenAPI() ImportSpecResult {
 		}}
 	}
 
-	out := ImportSpecResult{Path: path, Endpoints: make([]ImportedEndpoint, 0, len(endpoints))}
+	specID := fmt.Sprintf("spec-%d", time.Now().UnixNano())
+	b.cacheOpenAPISpec(specID, endpoints)
+	out := ImportSpecResult{SpecID: specID, Path: path, Endpoints: make([]ImportedEndpoint, 0, len(endpoints))}
 	if doc != nil && doc.Info != nil {
 		out.Title = doc.Info.Title
 		out.Version = doc.Info.Version
@@ -269,75 +379,101 @@ func (b *Bridge) ImportOpenAPI() ImportSpecResult {
 	return out
 }
 
-func (b *Bridge) SaveGeneratedFile(input SaveGeneratedFileInput) FileWriteResult {
-	ctx := b.runtimeContext()
-	if ctx == nil {
-		return fileWriteFailure("runtime_unavailable", "Dosya kaydedilemedi", "Desktop runtime henüz hazır değil.", "")
+func (b *Bridge) ValidateOpenAPIResponse(input ContractCheckInput) ContractCheckResult {
+	b.mu.Lock()
+	endpoints := append([]core.Endpoint(nil), b.specs[input.SpecID]...)
+	b.mu.Unlock()
+	if strings.TrimSpace(input.SpecID) == "" || len(endpoints) == 0 {
+		return ContractCheckResult{
+			Error: &UserError{
+				Code:    "spec_unavailable",
+				Title:   "OpenAPI contract bulunamadı",
+				Message: "Bu request’in OpenAPI dokümanı artık bellekte değil.",
+				Hint:    "OpenAPI dosyasını yeniden içe aktarın.",
+			},
+		}
 	}
-	name := filepath.Base(strings.TrimSpace(input.SuggestedName))
-	if name == "." || name == "" {
-		name = "GeneratedTest.java"
+	for _, endpoint := range endpoints {
+		if !strings.EqualFold(endpoint.Method, input.Method) || endpoint.Path != input.Path {
+			continue
+		}
+		drift := core.RunDriftWithContentType(
+			[]byte(input.Body),
+			endpoint.Schema,
+			input.StatusCode,
+			input.ContentType,
+		)
+		if !drift.Compared {
+			contentType := strings.TrimSpace(input.ContentType)
+			if contentType == "" {
+				contentType = "Content-Type belirtilmedi"
+			}
+			return ContractCheckResult{
+				Available: false,
+				Method:    endpoint.Method,
+				Path:      endpoint.Path,
+				Findings:  []ContractFinding{},
+				Error: &UserError{
+					Code:  "response_schema_unavailable",
+					Title: "Karşılaştırılacak JSON schema yok",
+					Message: fmt.Sprintf(
+						"%d response’u için %q ile eşleşen JSON media schema bulunamadı.",
+						input.StatusCode,
+						contentType,
+					),
+					Hint: "OpenAPI dokümanında bu status veya default response altına gerçek response media type’ıyla eşleşen JSON schema ekleyin.",
+				},
+			}
+		}
+		findings := make([]ContractFinding, 0, len(drift.Findings))
+		for _, finding := range drift.Findings {
+			findings = append(findings, ContractFinding{
+				Path:     finding.Path,
+				Type:     string(finding.Type),
+				Expected: finding.Schema,
+				Actual:   finding.Actual,
+				Allowed:  append([]string(nil), finding.Enum...),
+			})
+		}
+		return ContractCheckResult{
+			Available: true,
+			OK:        drift.OK,
+			Truncated: drift.Truncated,
+			Method:    endpoint.Method,
+			Path:      endpoint.Path,
+			Findings:  findings,
+		}
 	}
-	path, err := runtime.SaveFileDialog(ctx, runtime.SaveDialogOptions{
-		Title:           "Üretilen dosyayı kaydet",
-		DefaultFilename: name,
-	})
-	if err != nil {
-		return fileWriteFailure("file_dialog_failed", "Dosya kaydedilemedi", "Sistem dosya seçicisi tamamlanamadı.", err.Error())
+	return ContractCheckResult{
+		Error: &UserError{
+			Code:    "operation_unavailable",
+			Title:   "OpenAPI operation bulunamadı",
+			Message: strings.ToUpper(input.Method) + " " + input.Path + " bu dokümanda bulunamadı.",
+		},
 	}
-	if path == "" {
-		return FileWriteResult{Canceled: true}
-	}
-	if err := writeFileAtomically(path, []byte(input.Content)); err != nil {
-		return fileWriteFailure("file_write_failed", "Dosya yazılamadı", "Seçilen konuma yazma işlemi başarısız oldu.", err.Error())
-	}
-	return FileWriteResult{Path: path, Count: 1}
 }
 
-func (b *Bridge) ExportGeneratedProject(input ExportGeneratedProjectInput) FileWriteResult {
-	files, err := validateGeneratedFiles(input.Files)
-	if err != nil {
-		return fileWriteFailure("unsafe_path", "Dosya yolları geçersiz", "Export başlamadan önce generated file yollarını kontrol edin.", err.Error())
+func (b *Bridge) cacheOpenAPISpec(specID string, endpoints []core.Endpoint) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.specs == nil {
+		b.specs = make(map[string][]core.Endpoint)
 	}
-	ctx := b.runtimeContext()
-	if ctx == nil {
-		return fileWriteFailure("runtime_unavailable", "Proje dışa aktarılamadı", "Desktop runtime henüz hazır değil.", "")
-	}
-	parent, err := runtime.OpenDirectoryDialog(ctx, runtime.OpenDialogOptions{
-		Title: "Üretilen Java projesi için üst klasör seç",
-	})
-	if err != nil {
-		return fileWriteFailure("file_dialog_failed", "Klasör seçilemedi", "Sistem klasör seçicisi tamamlanamadı.", err.Error())
-	}
-	if parent == "" {
-		return FileWriteResult{Canceled: true}
-	}
-
-	projectName := safeDirectoryName(input.ProjectName)
-	target, err := createAvailableDirectory(filepath.Join(parent, projectName))
-	if err != nil {
-		return fileWriteFailure("folder_prepare_failed", "Export klasörü hazırlanamadı", "Yeni proje klasörü oluşturulamadı.", err.Error())
-	}
-	complete := false
-	defer func() {
-		if !complete {
-			_ = os.RemoveAll(target)
+	if _, exists := b.specs[specID]; exists {
+		for index, existingID := range b.specOrder {
+			if existingID == specID {
+				b.specOrder = append(b.specOrder[:index], b.specOrder[index+1:]...)
+				break
+			}
 		}
-	}()
-
-	written := 0
-	for _, file := range files {
-		path := filepath.Join(target, file.relativePath)
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return fileWriteFailure("folder_prepare_failed", "Alt klasör oluşturulamadı", file.relativePath+" için klasör hazırlanamadı.", err.Error())
-		}
-		if err := writeFileAtomically(path, []byte(file.content)); err != nil {
-			return fileWriteFailure("file_write_failed", "Proje tamamlanamadı", file.relativePath+" yazılamadı.", err.Error())
-		}
-		written++
 	}
-	complete = true
-	return FileWriteResult{Path: target, Count: written}
+	b.specs[specID] = append([]core.Endpoint(nil), endpoints...)
+	b.specOrder = append(b.specOrder, specID)
+	for len(b.specOrder) > maxCachedOpenAPISpecs {
+		evictedID := b.specOrder[0]
+		b.specOrder = b.specOrder[1:]
+		delete(b.specs, evictedID)
+	}
 }
 
 func (b *Bridge) runtimeContext() context.Context {
@@ -346,95 +482,68 @@ func (b *Bridge) runtimeContext() context.Context {
 	return b.ctx
 }
 
-func safeDirectoryName(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "validex-generated"
+func (b *Bridge) operationContext() context.Context {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.lifecycleCtx == nil {
+		return context.Background()
 	}
-	invalid := regexp.MustCompile(`[^A-Za-z0-9._-]+`)
-	value = strings.Trim(invalid.ReplaceAllString(value, "-"), ".-")
-	if value == "" {
-		return "validex-generated"
-	}
-	return value
+	return b.lifecycleCtx
 }
 
-func safeRelativePath(value string) (string, bool) {
-	value = filepath.Clean(strings.TrimSpace(value))
-	if value == "." || !filepath.IsLocal(value) || filepath.VolumeName(value) != "" {
-		return "", false
+func (b *Bridge) beginToolOperation(operationID string) (context.Context, func(), error) {
+	operationID = strings.TrimSpace(operationID)
+	if operationID == "" {
+		return nil, nil, errors.New("operation ID is required")
 	}
-	return value, true
-}
-
-type preparedGeneratedFile struct {
-	relativePath string
-	content      string
-}
-
-func validateGeneratedFiles(files []GeneratedFile) ([]preparedGeneratedFile, error) {
-	if len(files) == 0 {
-		return nil, fmt.Errorf("en az bir generated file gerekli")
+	if len(operationID) > 128 {
+		return nil, nil, errors.New("operation ID must be at most 128 characters")
 	}
-	prepared := make([]preparedGeneratedFile, 0, len(files))
-	seen := make(map[string]struct{}, len(files))
-	for _, file := range files {
-		relative, ok := safeRelativePath(file.RelativePath)
-		if !ok {
-			return nil, fmt.Errorf("%s güvenli bir proje yolu değil", file.Name)
+
+	ctx, cancel := context.WithCancel(b.operationContext())
+	b.mu.Lock()
+	if _, exists := b.toolCancels[operationID]; exists {
+		b.mu.Unlock()
+		cancel()
+		return nil, nil, fmt.Errorf("operation %q is already running", operationID)
+	}
+	operation := &toolOperation{cancel: cancel}
+	b.toolCancels[operationID] = operation
+	b.mu.Unlock()
+
+	finish := func() {
+		cancel()
+		b.mu.Lock()
+		if b.toolCancels[operationID] == operation {
+			delete(b.toolCancels, operationID)
 		}
-		key := filepath.Clean(relative)
-		if _, exists := seen[key]; exists {
-			return nil, fmt.Errorf("%s birden fazla kez tanımlandı", relative)
-		}
-		seen[key] = struct{}{}
-		prepared = append(prepared, preparedGeneratedFile{relativePath: relative, content: file.Content})
+		b.mu.Unlock()
 	}
-	return prepared, nil
+	return ctx, finish, nil
 }
 
-func createAvailableDirectory(base string) (string, error) {
-	for index := 1; index <= 999; index++ {
-		candidate := base
-		if index > 1 {
-			candidate = fmt.Sprintf("%s-%d", base, index)
-		}
-		if err := os.Mkdir(candidate, 0o755); err == nil {
-			return candidate, nil
-		} else if !errors.Is(err, os.ErrExist) {
-			return "", err
-		}
-	}
-	return "", fmt.Errorf("uygun export klasörü bulunamadı")
-}
-
-func writeFileAtomically(path string, content []byte) error {
-	temp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+func readHTTPResponseBody(body io.Reader, limit int64) ([]byte, bool, error) {
+	raw, err := io.ReadAll(io.LimitReader(body, limit+1))
 	if err != nil {
-		return err
+		return nil, false, err
 	}
-	tempPath := temp.Name()
-	defer func() {
-		_ = temp.Close()
-		_ = os.Remove(tempPath)
-	}()
-	if err := temp.Chmod(0o644); err != nil {
-		return err
+	if int64(len(raw)) > limit {
+		return nil, true, nil
 	}
-	if _, err := temp.Write(content); err != nil {
-		return err
-	}
-	if err := temp.Sync(); err != nil {
-		return err
-	}
-	if err := temp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tempPath, path)
+	return raw, false, nil
 }
 
-func fileWriteFailure(code, title, message, technical string) FileWriteResult {
-	return FileWriteResult{Error: &UserError{Code: code, Title: title, Message: message, Technical: technical}}
+func responseTooLarge() SendResult {
+	return failed(
+		"response_too_large",
+		"Response sınırı aştı",
+		fmt.Sprintf(
+			"Sunucunun bildirdiği veya alınan response body %d MiB güvenlik sınırını aştığı için indirme durduruldu.",
+			maxHTTPResponseBodyBytes>>20,
+		),
+		"Daha küçük bir veri kümesi isteyin veya endpoint’e sayfalama/filtre ekleyin.",
+		"",
+	)
 }
 
 func failed(code, title, message, hint, technical string) SendResult {
@@ -553,14 +662,46 @@ func tlsVersion(version uint16) string {
 
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
 		}
 	}
 	return ""
 }
 
+func traceIDFromTraceparent(value string) string {
+	parts := strings.Split(strings.TrimSpace(value), "-")
+	if len(parts) != 4 ||
+		len(parts[0]) != 2 ||
+		len(parts[1]) != 32 ||
+		len(parts[2]) != 16 ||
+		len(parts[3]) != 2 ||
+		parts[0] == "ff" ||
+		allZeroHex(parts[1]) ||
+		allZeroHex(parts[2]) {
+		return ""
+	}
+	for _, part := range parts {
+		for _, char := range part {
+			if !((char >= '0' && char <= '9') || (char >= 'a' && char <= 'f')) {
+				return ""
+			}
+		}
+	}
+	return parts[1]
+}
+
+func allZeroHex(value string) bool {
+	for _, char := range value {
+		if char != '0' {
+			return false
+		}
+	}
+	return true
+}
+
 type requestTrace struct {
+	mu                                                  sync.Mutex
 	start, dnsStart, dnsDone, connectStart, connectDone time.Time
 	tlsStart, tlsDone, wroteRequest, firstByte          time.Time
 	remoteAddr                                          string
@@ -568,23 +709,54 @@ type requestTrace struct {
 
 func (t *requestTrace) clientTrace() *httptrace.ClientTrace {
 	return &httptrace.ClientTrace{
-		DNSStart:          func(_ httptrace.DNSStartInfo) { t.dnsStart = time.Now() },
-		DNSDone:           func(_ httptrace.DNSDoneInfo) { t.dnsDone = time.Now() },
-		ConnectStart:      func(_, _ string) { t.connectStart = time.Now() },
-		ConnectDone:       func(_, _ string, _ error) { t.connectDone = time.Now() },
-		TLSHandshakeStart: func() { t.tlsStart = time.Now() },
-		TLSHandshakeDone:  func(_ tls.ConnectionState, _ error) { t.tlsDone = time.Now() },
+		DNSStart:          func(_ httptrace.DNSStartInfo) { t.mark(&t.dnsStart) },
+		DNSDone:           func(_ httptrace.DNSDoneInfo) { t.mark(&t.dnsDone) },
+		ConnectStart:      func(_, _ string) { t.mark(&t.connectStart) },
+		ConnectDone:       func(_, _ string, _ error) { t.mark(&t.connectDone) },
+		TLSHandshakeStart: func() { t.mark(&t.tlsStart) },
+		TLSHandshakeDone:  func(_ tls.ConnectionState, _ error) { t.mark(&t.tlsDone) },
 		GotConn: func(info httptrace.GotConnInfo) {
 			if info.Conn != nil && info.Conn.RemoteAddr() != nil {
+				t.mu.Lock()
 				t.remoteAddr = info.Conn.RemoteAddr().String()
+				t.mu.Unlock()
 			}
 		},
-		WroteRequest:         func(_ httptrace.WroteRequestInfo) { t.wroteRequest = time.Now() },
-		GotFirstResponseByte: func() { t.firstByte = time.Now() },
+		WroteRequest:         func(_ httptrace.WroteRequestInfo) { t.mark(&t.wroteRequest) },
+		GotFirstResponseByte: func() { t.mark(&t.firstByte) },
 	}
 }
 
-func (t *requestTrace) timeline(end time.Time) []TimelinePhase {
+func (t *requestTrace) mark(target *time.Time) {
+	t.mu.Lock()
+	*target = time.Now()
+	t.mu.Unlock()
+}
+
+type requestTraceSnapshot struct {
+	start, dnsStart, dnsDone, connectStart, connectDone time.Time
+	tlsStart, tlsDone, wroteRequest, firstByte          time.Time
+	remoteAddr                                          string
+}
+
+func (t *requestTrace) snapshot() requestTraceSnapshot {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return requestTraceSnapshot{
+		start:        t.start,
+		dnsStart:     t.dnsStart,
+		dnsDone:      t.dnsDone,
+		connectStart: t.connectStart,
+		connectDone:  t.connectDone,
+		tlsStart:     t.tlsStart,
+		tlsDone:      t.tlsDone,
+		wroteRequest: t.wroteRequest,
+		firstByte:    t.firstByte,
+		remoteAddr:   t.remoteAddr,
+	}
+}
+
+func (t requestTraceSnapshot) timeline(end time.Time) []TimelinePhase {
 	total := end.Sub(t.start)
 	phase := func(id, label string, duration time.Duration, description string) TimelinePhase {
 		ms := float64(duration.Microseconds()) / 1000
@@ -621,7 +793,6 @@ func (t *requestTrace) timeline(end time.Time) []TimelinePhase {
 		phase("preparation", "Request preparation", durationBetween(t.start, t.wroteRequest), ""),
 		phase("server", "Server wait", serverWait, waitDescription),
 		phase("download", "Response download", durationBetween(downloadStart, end), ""),
-		phase("assertions", "Assertion execution", 0, "Bu request için assertion tanımlanmadı."),
 		phase("contract", "Contract validation", 0, "Contract doğrulaması isteğe bağlıdır."),
 	}
 }

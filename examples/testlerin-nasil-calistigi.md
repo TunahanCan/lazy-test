@@ -1,17 +1,14 @@
 # Validex Testlerini Çalıştırma
 
-Bu doküman, repoda bulunan frontend, Go ve Wails bridge testlerinin mevcut
-çalıştırma komutlarını açıklar.
+## Tüm test ve tip kontrolü
 
-## Tüm test akışı
-
-Projenin kök dizininde:
+Proje kökünde:
 
 ```bash
 make test
 ```
 
-`make test` şu adımları sırasıyla çalıştırır:
+Çalıştırılan adımlar:
 
 ```bash
 cd cmd/validex/frontend
@@ -24,31 +21,9 @@ go test ./...
 go test -tags wails ./internal/wailsapp ./cmd/validex
 ```
 
-- `npm run typecheck`, TypeScript kaynaklarını çıktı üretmeden kontrol eder.
-- `npm test`, Vitest testlerini tek sefer çalıştırır.
-- `go test ./...`, normal build tag’leriyle Go paket testlerini çalıştırır.
-- Son komut, `wails` build tag’li bridge testlerini çalıştırır ve masaüstü
-  giriş paketini derler.
+## Frontend
 
-## Frontend testleri
-
-Frontend testleri `cmd/validex/frontend/src` altındaki `*.test.ts` ve
-`*.test.tsx` dosyalarındadır.
-
-Testlerin doğruladığı ana alanlar:
-
-| Alan | Test dosyaları |
-| --- | --- |
-| Uygulama açılışı, URL düzenleme, gönderme ve hata akışı | `App.test.tsx` |
-| Request değişkenleri, header’lar ve cURL üretimi | `components/RequestWorkbench.test.tsx` |
-| Response görünümleri ve timeline | `components/ResponsePanel.test.tsx` |
-| Sekme kapatma, pin ve çalışan istek güvenliği | `components/RequestTabs.test.tsx`, `stores/workspace.test.ts` |
-| Panel düzeni, OpenAPI importu ve komut paleti | `components/AppShell.test.tsx`, `components/WorkspaceChrome.test.tsx` |
-| Java/contract dosyası üretimi | `components/CodeGeneratorDialog.test.ts` |
-| URL şeması ve OpenAPI URL oluşturma | `lib/schemas.test.ts`, `lib/openapi.test.ts` |
-| Ortak UI davranışı | `components/ui.test.tsx` |
-
-Tüm frontend testlerini doğrudan çalıştırmak için:
+Tüm frontend testleri:
 
 ```bash
 cd cmd/validex/frontend
@@ -56,49 +31,72 @@ npm ci
 npm test
 ```
 
-Tek bir dosyayı çalıştırmak için dosya yolunu Vitest’e verin:
+Tek dosya:
 
 ```bash
-npm test -- src/components/RequestWorkbench.test.tsx
+npm test -- src/components/MockServerLab.test.tsx
 ```
 
-Değişiklikleri izleyerek test çalıştırmak için:
+Watch modu ve yalnız tip kontrolü:
 
 ```bash
 npm run test:watch
-```
-
-Yalnız TypeScript kontrolünü çalıştırmak için:
-
-```bash
 npm run typecheck
 ```
 
-## Go testleri
+Aktif test alanları:
 
-Normal Go paket testlerini projenin kökünden çalıştırmak için:
+| Alan | Başlıca test dosyaları |
+| --- | --- |
+| Uygulama açılışı, request gönderme, iptal ve hatalar | `App.test.tsx`, `components/RequestWorkbench.test.tsx` |
+| Sekmeler, layout, OpenAPI import ve komut paleti | `components/RequestTabs.test.tsx`, `components/AppShell.test.tsx`, `components/WorkspaceChrome.test.tsx` |
+| Response, timeline ve contract drift görünümü | `components/ResponsePanel.test.tsx` |
+| Mock server arayüzü | `components/MockServerLab.test.tsx` |
+| Spring/JWT/Actuator/ortam/thread/log/coverage arayüzü | `components/DiagnosticsLab.test.tsx` |
+| SSE, WebSocket ve gRPC arayüzü | `components/ProtocolLab.test.tsx` |
+| JSON ve Java DTO araçları | `components/JSONLab.test.tsx`, `lib/developerTools.test.ts` |
+| URL, OpenAPI URL ve güvenli workspace persistence | `lib/schemas.test.ts`, `lib/openapi.test.ts`, `stores/workspace.test.ts` |
+
+## Go paketleri
+
+Normal paketler:
 
 ```bash
 go test ./...
 ```
 
-Native HTTP gönderme, URL normalizasyonu, değişken çözme, timeout, bilinmeyen
-iptal kimliği, path traversal koruması ve atomik dosya yazma davranışları
-`internal/wailsapp/bridge_test.go` içinde, `wails` build tag’iyle test edilir:
+Hedefli örnekler:
 
 ```bash
-go test -tags wails ./internal/wailsapp -v
+go test ./internal/mockserver -v
+go test ./internal/diagnostics -v
+go test ./internal/protocols -v
 ```
 
-Tek bir bridge testini çalıştırmak için:
+Mock route, Actuator, environment, SSE, WebSocket ve gRPC network akışları yerel
+test sunucularıyla doğrulanır. OpenAPI örnekleri, thread dump, log ve coverage
+analizleri deterministik fixture’larla kontrol edilir.
 
-```bash
-go test -tags wails ./internal/wailsapp \
-  -run TestSendRequestReturnsRichResponse -v
-```
-
-Masaüstü giriş paketini de aynı build tag’iyle derleyip kontrol etmek için:
+Wails bridge ve masaüstü giriş paketini kontrol etmek için:
 
 ```bash
 go test -tags wails ./internal/wailsapp ./cmd/validex
+```
+
+Tek bridge testi:
+
+```bash
+go test -tags wails ./internal/wailsapp \
+  -run TestMockServerBridgeLifecycleAndHitSnapshot -v
+```
+
+## Race ve vet
+
+Değişiklik tesliminden önce önerilen ek kontroller:
+
+```bash
+go test -race ./...
+go test -race -tags wails ./internal/wailsapp
+go vet ./...
+go vet -tags wails ./internal/wailsapp ./cmd/validex
 ```

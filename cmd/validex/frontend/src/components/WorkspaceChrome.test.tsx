@@ -84,9 +84,10 @@ describe("workspace chrome simplification", () => {
       tabs: [tab],
       activeTabID: tab.id,
       recentlyClosed: [],
-      sidebarSection: "collections",
+      activeView: "requests",
+      sidebarSection: "requests",
+      latestImportedSpec: undefined,
       commandPaletteOpen: false,
-      codeGeneratorOpen: false,
     });
   });
 
@@ -95,57 +96,52 @@ describe("workspace chrome simplification", () => {
     vi.restoreAllMocks();
   });
 
-  it("offers a new request from an empty collection and hides empty history", () => {
+  it("offers a new request without advertising collections or history", () => {
+    useWorkspaceStore.setState({ tabs: [], activeTabID: "" });
     renderWithProviders(<Sidebar bootstrap={emptyBootstrap} />);
 
-    expect(screen.queryByRole("button", { name: "History" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Requests" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "APIs" })).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Collections" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "History" }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "New request" }));
-    expect(useWorkspaceStore.getState().tabs).toHaveLength(2);
+    expect(useWorkspaceStore.getState().tabs).toHaveLength(1);
   });
 
-  it("filters history using the visible search field", () => {
-    const bootstrap: BootstrapData = {
-      ...emptyBootstrap,
-      history: [
-        {
-          id: "history-first",
-          requestName: "List customers",
-          method: "GET",
-          url: "https://api.example.test/customers",
-          statusCode: 200,
-          durationMs: 42,
-          environment: "Local",
-          createdAt: "2026-07-27T10:00:00Z",
-          assertionsOk: true,
-          resolvedValues: 0,
-        },
-        {
-          id: "history-second",
-          requestName: "Create invoice",
-          method: "POST",
-          url: "https://api.example.test/invoices",
-          statusCode: 201,
-          durationMs: 68,
-          environment: "Local",
-          createdAt: "2026-07-27T10:01:00Z",
-          assertionsOk: true,
-          resolvedValues: 0,
-        },
-      ],
-    };
-    useWorkspaceStore.setState({ sidebarSection: "history" });
-    renderWithProviders(<Sidebar bootstrap={bootstrap} />);
-
-    expect(screen.getByText("List customers")).toBeVisible();
-    expect(screen.getByText("Create invoice")).toBeVisible();
-
-    fireEvent.change(screen.getByRole("textbox", { name: "Search history" }), {
-      target: { value: "invoice" },
+  it("makes every imported OpenAPI endpoint searchable and openable", () => {
+    useWorkspaceStore.getState().setImportedSpec({
+      specId: "commerce-spec",
+      path: "/tmp/openapi.yaml",
+      title: "Commerce API",
+      version: "1.0.0",
+      baseUrl: "/api/v1",
+      endpoints: importedEndpoints(10),
+      canceled: false,
     });
-    expect(screen.queryByText("List customers")).not.toBeInTheDocument();
-    expect(screen.getByText("Create invoice")).toBeVisible();
+    renderWithProviders(<Sidebar bootstrap={emptyBootstrap} />);
+
+    expect(screen.getByText("Resource 0")).toBeVisible();
+    expect(screen.getByText("Resource 9")).toBeVisible();
+
+    fireEvent.change(screen.getByRole("textbox", { name: "Search apis" }), {
+      target: { value: "resource 9" },
+    });
+    expect(screen.queryByText("Resource 0")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Resource 9"));
+
+    const state = useWorkspaceStore.getState();
+    expect(state.tabs).toHaveLength(2);
+    expect(state.tabs[1]).toMatchObject({
+      id: "openapi:commerce-spec:operation-9",
+      url: "{{baseUrl}}/api/v1/resources/9",
+      openApi: { specId: "commerce-spec", path: "/resources/9" },
+    });
   });
 
   it("shows only real context views and reveals secret controls when needed", () => {
@@ -197,6 +193,7 @@ describe("workspace chrome simplification", () => {
 
   it("opens at most eight imported endpoints and reports the actual count", async () => {
     vi.spyOn(backend, "importOpenAPI").mockResolvedValueOnce({
+      specId: "commerce-spec",
       path: "/tmp/openapi.yaml",
       title: "Commerce API",
       version: "1.0.0",
@@ -219,9 +216,13 @@ describe("workspace chrome simplification", () => {
     expect(
       await screen.findByRole("status", undefined, { timeout: 2_000 }),
     ).toHaveTextContent(
-      "Commerce API · 8 endpoint sekmede açıldı (10 endpoint bulundu)",
+      "Commerce API · 8 endpoint sekmede açıldı; 10 endpoint APIs bölümünde erişilebilir",
     );
     expect(useWorkspaceStore.getState().tabs).toHaveLength(9);
+    expect(
+      useWorkspaceStore.getState().latestImportedSpec?.endpoints,
+    ).toHaveLength(10);
+    expect(useWorkspaceStore.getState().sidebarSection).toBe("apis");
   });
 
   it("shows rejected imports as an accessible alert", async () => {
@@ -253,8 +254,9 @@ describe("workspace chrome simplification", () => {
     ).toBeVisible();
     expect(screen.queryByText("Import OpenAPI")).not.toBeInTheDocument();
     expect(screen.queryByText("Open history")).not.toBeInTheDocument();
+    expect(screen.queryByText("Open collections")).not.toBeInTheDocument();
     expect(screen.queryByText("workspace items indexed")).not.toBeInTheDocument();
-    const footer = screen.getByText("6 available commands").closest(
+    const footer = screen.getByText("9 available commands").closest(
       ".palette-footer",
     );
     expect(footer).not.toHaveTextContent("Navigate");
