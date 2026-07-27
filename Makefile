@@ -1,49 +1,20 @@
-.PHONY: build build-desktop test lint run run-desktop lt clean package-desktop package-windows package-macos package-linux
+WAILS_VERSION := v2.12.0
+WAILS_BIN := $(shell go env GOPATH)/bin/wails
+APP_DIR := cmd/lazytest
+FRONTEND_DIR := $(APP_DIR)/frontend
 
-build:
-	go build -o bin/lazytest ./cmd/lazytest
+.PHONY: tools dev build test
 
-build-desktop:
-	go build -tags desktop -o bin/lazytest-desktop ./cmd/lazytest-desktop
+tools:
+	go install github.com/wailsapp/wails/v2/cmd/wails@$(WAILS_VERSION)
 
-# Cross-platform desktop builds
-build-desktop-windows:
-	./scripts/build-desktop.sh windows
+dev: tools
+	cd $(APP_DIR) && $(WAILS_BIN) dev -m -nosyncgomod
 
-build-desktop-macos:
-	./scripts/build-desktop.sh macos
-
-build-desktop-linux:
-	./scripts/build-desktop.sh linux
-
-# Package desktop app with Fyne
-package-desktop:
-	./scripts/package-desktop.sh
-
-package-windows:
-	./scripts/package-desktop.sh windows
-
-package-macos:
-	./scripts/package-desktop.sh macos
-
-package-linux:
-	./scripts/package-desktop.sh linux
+build: tools
+	cd $(APP_DIR) && $(WAILS_BIN) build -clean -m -nosyncgomod
 
 test:
+	cd $(FRONTEND_DIR) && npm ci && npm run typecheck && npm test
 	go test ./...
-
-lint:
-	go vet ./...
-	golangci-lint run ./... 2>/dev/null || true
-
-run: build
-	./bin/lazytest run smoke -f openapi.sample.yaml -e dev --base http://localhost:8080
-
-run-desktop: build-desktop
-	./bin/lazytest-desktop
-
-lt: build
-	./bin/lazytest lt -f examples/taurus/checkouts.yaml
-
-clean:
-	rm -rf bin/
+	go test -tags wails ./internal/wailsapp ./cmd/lazytest

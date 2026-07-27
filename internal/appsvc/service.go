@@ -20,7 +20,7 @@ type realClock struct{}
 
 func (realClock) Now() time.Time { return time.Now() }
 
-// Service is the application service facade used by CLI/Desktop layers.
+// Service is the application-service facade used by product adapters.
 //
 // Java analogy:
 // - This type acts like an "ApplicationService" that orchestrates use-cases.
@@ -42,7 +42,7 @@ type Service struct {
 	// Workspace persistence location.
 	wsPath string
 
-	// Event sink consumed by desktop/cli progress streams.
+	// Event sink consumed by adapter progress streams.
 	sink RunEventSink
 	clk  clock
 

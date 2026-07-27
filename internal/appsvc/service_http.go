@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// SendRequest executes a single HTTP call and normalizes response for UI/CLI.
+// SendRequest executes a single HTTP call and normalizes the response for adapters.
 //
 // Java analogy: similar to a RestTemplate/WebClient call wrapped in a service method.
 func (s *Service) SendRequest(req RequestDTO) (ResponseDTO, error) {

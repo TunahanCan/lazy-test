@@ -1,18 +1,61 @@
 name: ci
-on: [push, pull_request]
+
+on:
+  push:
+  pull_request:
+
 jobs:
-  test:
+  quality:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
-      - run: go test ./...
-      - run: go run ./cmd/lazytest run tcp --plan plans/tcp.yaml --report junit.xml --json out.json || true
-      - uses: actions/upload-artifact@v4
+          go-version: "1.24.x"
+          cache: true
+
+      - uses: actions/setup-node@v4
         with:
-          name: reports
-          path: |
-            junit.xml
-            out.json
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: cmd/lazytest/frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: cmd/lazytest/frontend
+        run: npm ci
+
+      - name: Check frontend
+        working-directory: cmd/lazytest/frontend
+        run: |
+          npm run typecheck
+          npm test
+          npm run build
+
+      - name: Test Go packages
+        run: |
+          go test ./...
+          go test -tags wails ./internal/wailsapp
+
+  native-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: cmd/lazytest/frontend/package-lock.json
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+
+      - name: Build native application
+        working-directory: cmd/lazytest
+        run: '"$(go env GOPATH)/bin/wails" build -clean -m -nosyncgomod'

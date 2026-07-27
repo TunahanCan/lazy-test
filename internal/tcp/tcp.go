@@ -174,7 +174,8 @@ func runOnce(ctx context.Context, s Scenario) ([]StepResult, error) {
 		st := time.Now()
 		switch stp.Kind {
 		case "connect":
-			c, err := dialer.Dial("tcp", fmt.Sprintf("%s:%d", s.Target.Host, s.Target.Port))
+			address := net.JoinHostPort(s.Target.Host, fmt.Sprintf("%d", s.Target.Port))
+			c, err := dialer.Dial("tcp", address)
 			if err != nil {
 				sr.Err = err.Error()
 				sr.ErrorClass = classifyErr(err)

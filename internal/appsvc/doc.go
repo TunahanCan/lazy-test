@@ -1,4 +1,4 @@
-// Package appsvc provides the application-service layer used by CLI and Desktop.
+// Package appsvc provides reusable application services for product adapters.
 //
 // Java developer mapping:
 // - Service: ApplicationService / UseCase facade

@@ -1,441 +1,178 @@
-# lazytest
+# LazyTest
 
-OpenAPI tabanli API dogrulama ve yuk testi aracidir.
+LazyTest, API isteklerini hazırlamak, çalıştırmak, incelemek ve Java test koduna
+dönüştürmek için geliştirilen Wails tabanlı bir masaüstü uygulamasıdır.
 
-`lazytest` iki ana calisma moduna sahiptir:
+Depoda tek bir çalıştırılabilir ürün girişi vardır:
+[`cmd/lazytest`](cmd/lazytest). Native kabuk Wails v2, arayüz ise React ve
+TypeScript kullanır.
 
-- Headless CLI
-- Native Desktop UI (Fyne)
+## Güncel yetenekler
 
-TUI artik kullanilmiyor.
+### API çalışma alanı
 
-## 1) Capability Ozeti
+- Sabit örnek workspace ve environment seçimi
+- Collection ve history için örnek verili; environment, API ve flow için
+  hazırlık durumundaki gezinme bölümleri
+- Büyük collection ağaçlarında sanallaştırılmış liste
+- Statik uygulama komutlarını filtreleyen komut paleti
+- Açma, kapatma, sabitleme, çoğaltma, yeniden sıralama ve son kapatılanı geri
+  açma destekli request sekmeleri
+- Sol ve sağ panelleri gizleme, yeniden boyutlandırma ve yerleşimi sıfırlama
+- Response alanını yatay veya dikey kullanma
+- Örnek workspace için sekme, panel, tema ve görünüm tercihlerini localStorage
+  içinde saklama
+- Sistem, açık ve koyu tema
 
-| Capability | CLI | Desktop | Cikti |
-|---|---|---|---|
-| OpenAPI yukleme ve endpoint kesfi | `lazytest load` | Workspace + Explorer | Spec ozeti |
-| Smoke test | `lazytest run smoke` | Smoke paneli | JUnit + JSON |
-| Contract drift | `lazytest run drift` | Drift paneli | Console + history |
-| A/B compare | `lazytest compare` | Compare paneli | Console + history |
-| Load test (Taurus benzeri YAML) | `lazytest lt` | Load Tests paneli | Console + metrics + history |
-| TCP scenario | `lazytest run tcp` | (CLI odakli) | JUnit + JSON |
-| Gecmis run inceleme/export | dolayli | Reports paneli | JSON/text export |
+### Request ve response
 
-## 2) Gereksinimler
+- GET, POST, PUT, PATCH, DELETE, OPTIONS ve HEAD methodları
+- URL, header ve body içindeki `{{variable}}` değerlerini environment ile
+  çözümleme
+- Aynı isimli birden fazla header’ı sırası korunarak gönderme
+- Gerçek HTTP çağrısı, timeout ve çalışan isteği iptal etme
+- Kullanıcıya yönelik doğrulama, ağ, timeout ve iptal hata mesajları
+- JSON response biçimlendirme
+- Status, süre, boyut, protokol, uzak adres, TLS, trace ID, header, cookie ve
+  ham body gösterimi
+- DNS, TCP, TLS, sunucu bekleme ve indirme adımlarını içeren request timeline
+- cURL kopyalama
 
-- Go `1.24+`
-- Linux desktop icin Fyne bagimliliklari:
-  - `libgl1-mesa-dev`
-  - `xorg-dev`
-- `make` opsiyonel (yoksa dogrudan `go build` komutlariyla devam edebilirsin)
+### OpenAPI ve Java kod üretimi
 
-## 3) Kurulum ve Build
+- Sistem dosya seçicisiyle OpenAPI 3 YAML/JSON içe aktarma
+- İçe aktarılan endpoint özetini gösterme ve bir endpoint grubunu request
+  sekmeleri olarak açma
+- Sekmedeki gerçek request ve response verisinden Java kodu üretme
+- REST Assured, MockMvc, WebTestClient, WireMock, Spring Cloud Contract,
+  Java HttpClient, Spring RestClient ve Spring WebClient hedefleri
+- JUnit assertion’ları, response alanlarından türetilen kontroller ve secret
+  redaction
+- Monaco tabanlı önizleme ve çoklu dosya sekmeleri
+- Tek dosyayı native kaydetme veya Maven/Gradle proje iskeletini güvenli bir
+  dizine aktarma
+- Export sırasında absolute path, path traversal ve yinelenen dosya koruması
 
-### 3.1 Repository hazirligi
+### Runner deneyimi
+
+- Configure, Live Run ve Report aşamalarından oluşan runner akışı
+- Ortam, iteration, concurrency, delay ve stop-on-failure ayarları
+- Canlı progress, request sonuçları, assertion özeti ve export aksiyonları
+
+> Runner metrikleri ve raporları şu anda arayüz demosudur; gerçek execution
+> engine bağlantısı henüz tamamlanmamıştır.
+
+## Hızlı başlangıç
+
+Gereksinimler:
+
+- Go 1.24 veya üzeri
+- Node.js 22
+- npm
+- Native build için platformun Wails gereksinimleri
+
+Geliştirme modunu aç:
 
 ```bash
-go mod tidy
+make dev
 ```
 
-### 3.2 CLI binary
+Tüm kontrolleri çalıştır:
 
 ```bash
-go build -o bin/lazytest ./cmd/lazytest
+make test
 ```
 
-### 3.3 Desktop binary
-
-```bash
-go build -tags desktop -o bin/lazytest-desktop ./cmd/lazytest-desktop
-```
-
-### 3.4 Makefile kullanimlari
+Native uygulamayı üret:
 
 ```bash
 make build
-make build-desktop
-make run
-make run-desktop
-make test
-make lint
 ```
 
-## 4) Konfigurasyon Dosyalari
+`make tools`, projede sabitlenen Wails `v2.12.0` aracını kurar. `dev` ve
+`build` hedefleri bunu otomatik çağırır. macOS çıktısı
+`cmd/lazytest/build/bin/LazyTest.app` altında oluşur.
 
-### 4.1 `env.yaml`
+## Mimari
 
-Ortam bazli baseURL ve ortak header tanimlari:
+```mermaid
+flowchart LR
+    USER[Kullanıcı] --> SHELL[Wails native shell<br/>cmd/lazytest]
+    SHELL --> UI[React + TypeScript UI]
 
-```yaml
-environments:
-  - name: dev
-    baseURL: https://dev.api.local
-    headers:
-      X-Trace: lazytest
-    rateLimitRPS: 5
+    UI --> FORM[React Hook Form + Zod<br/>form ve doğrulama]
+    UI --> STATE[Zustand<br/>workspace UI state]
+    UI --> QUERY[TanStack Query<br/>async server state]
+    UI --> VIRTUAL[TanStack Virtual<br/>uzun listeler]
+
+    QUERY --> ADAPTER[Typed backend adapter<br/>frontend/src/lib/backend.ts]
+    ADAPTER --> BINDING[Wails binding]
+    BINDING --> BRIDGE[Go bridge<br/>internal/wailsapp]
+
+    BRIDGE --> HTTP[net/http + httptrace<br/>send, cancel, timeline]
+    BRIDGE --> NATIVE[Native dialog + filesystem<br/>import, save, export]
+    BRIDGE --> CORE[internal/core<br/>OpenAPI]
+
+    subgraph OUTSIDE[Aktif Wails runtime dışında]
+        SERVICES[Planlanan entegrasyon için reusable engine paketleri<br/>appsvc, config, lt, tcp, report]
+    end
 ```
 
-### 4.2 `auth.yaml`
-
-Auth profile tanimlari:
-
-```yaml
-profiles:
-  - name: default-jwt
-    type: jwt
-    token: "<paste-token>"
-```
-
-Notlar:
-
-- CLI `resolveContext()` akisinda varsayilan olarak `default-jwt` profili okunur.
-- Compare akisinda auth header su an aktif kullanilmiyor.
-
-## 5) Hizli End-to-End Akis
-
-### 5.1 Spec yukle
-
-```bash
-./bin/lazytest load -f openapi.sample.yaml
-```
-
-### 5.2 Smoke kos
-
-```bash
-./bin/lazytest run smoke -f openapi.sample.yaml -e dev --base http://localhost:8080
-```
-
-### 5.3 Drift kos
-
-```bash
-./bin/lazytest run drift -f openapi.sample.yaml --path /health --method GET --base http://localhost:8080
-```
-
-### 5.4 Compare kos
-
-```bash
-./bin/lazytest compare -f openapi.sample.yaml --envA dev --envB test --path /users --method GET --env-config env.yaml
-```
-
-### 5.5 LT kos
-
-```bash
-./bin/lazytest lt -f examples/taurus/checkouts.yaml
-```
-
-### 5.6 TCP kos
-
-```bash
-./bin/lazytest run tcp --plan plans/tcp.yaml --report junit.xml --json out.json
-```
-
-## 6) Capability Rehberi (Detayli)
-
-### 6.1 `load` - OpenAPI dogrula ve ozetle
-
-Amac:
-
-- OpenAPI dosyasini parse/validate etmek
-- Endpoint sayisi ve spec bilgisini gormek
-
-Temel kullanim:
-
-```bash
-lazytest load -f openapi.sample.yaml
-```
-
-Beklenen cikti:
-
-- `Loaded <N> endpoints from ...`
-- `Spec: <title> <version>` (varsa)
-
-### 6.2 `run smoke` - toplu endpoint smoke testi
-
-Amac:
-
-- Tum endpointleri veya secili endpointleri hizli saglik kontrolunden gecirmek
-
-Temel kullanim:
-
-```bash
-lazytest run smoke -f openapi.sample.yaml --base http://localhost:8080
-```
-
-Raporlu kullanim:
-
-```bash
-lazytest run smoke \
-  -f openapi.sample.yaml \
-  -e dev \
-  --workers 12 \
-  --report out/smoke.junit.xml \
-  --json out/smoke.json \
-  --env-config env.yaml \
-  --auth-config auth.yaml
-```
-
-Notlar:
-
-- `--tags` flag'i mevcut ama headless modda aktif filtre uygulamiyor.
-- Base URL zorunlu: `--base` ile ya da `env.yaml` icinden gelmeli.
-
-### 6.3 `run drift` - contract drift analizi
-
-Amac:
-
-- Belirli endpoint response'unun schema ile uyumunu kontrol etmek
-
-Temel kullanim:
-
-```bash
-lazytest run drift \
-  -f openapi.sample.yaml \
-  --path /users \
-  --method GET \
-  --base http://localhost:8080
-```
-
-Ortam dosyasi ile kullanim:
-
-```bash
-lazytest run drift \
-  -f openapi.sample.yaml \
-  --path /health \
-  --method GET \
-  -e dev \
-  --env-config env.yaml
-```
-
-Drift ciktilari:
-
-- `OK=true/false`
-- finding listesi: `missing`, `extra`, `type_mismatch`, `enum_violation`
-
-### 6.4 `compare` - iki ortami karsilastir
-
-Amac:
-
-- Ayni endpointi iki farkli ortamda cagirip status/header/body farklarini bulmak
-
-Temel kullanim:
-
-```bash
-lazytest compare \
-  -f openapi.sample.yaml \
-  --envA dev \
-  --envB test \
-  --path /users \
-  --method GET \
-  --env-config env.yaml
-```
-
-Notlar:
-
-- `envA/envB` mutlaka `env.yaml` icinde tanimli olmali.
-- Compare akisinda baseURL `env.yaml` kaynaklidir.
-
-### 6.5 `lt` - load test plani calistir
-
-Amac:
-
-- Taurus benzeri YAML planini tek node uzerinden calistirmak
-
-Temel kullanim:
-
-```bash
-lazytest lt -f examples/taurus/checkouts.yaml
-```
-
-Kisa kullanim (varsayilan dosya):
-
-```bash
-lazytest lt
-```
-
-Plan alanlari (ozet):
-
-- `execution[*].concurrency`, `ramp-up`, `hold-for`, `scenario`
-- `scenarios.<name>.base-url`, `headers`, `requests`, `assertions`
-- `data-sources` (CSV)
-
-### 6.6 `run tcp` - TCP senaryo testi
-
-Amac:
-
-- TCP seviyesinde adim adim senaryo kosmak (connect/write/read/sleep/close)
-
-Temel kullanim:
-
-```bash
-lazytest run tcp --plan plans/tcp.yaml
-```
-
-Raporlu kullanim:
-
-```bash
-lazytest run tcp \
-  --plan plans/tcp.yaml \
-  --report out/tcp.junit.xml \
-  --json out/tcp.json \
-  -v
-```
-
-TCP plani tipik adimlari:
-
-- `connect`
-- `write` (`bytes` / `base64` / `hex`)
-- `read` (`until` / `size` + `assert`)
-- `sleep`
-- `close`
-
-### 6.7 `plan` yardimci komutlari
-
-Yeni plan olustur:
-
-```bash
-lazytest plan new --kind tcp --out plans/new-tcp.yaml
-```
-
-Plani editorde ac:
-
-```bash
-EDITOR=nano lazytest plan edit plans/new-tcp.yaml
-```
-
-### 6.8 `desktop` - native UI
-
-CLI komutu:
-
-```bash
-lazytest desktop
-```
-
-Onemli:
-
-- Bu komut, binary desktop tag ile build edilmediyse `desktop build tag required` hatasi verir.
-- Dogru:
-  - `go build -tags desktop -o bin/lazytest-desktop ./cmd/lazytest-desktop`
-  - `./bin/lazytest-desktop`
-
-## 7) Desktop UI Kullanim Rehberi
-
-Layout:
-
-- Sol: Navigation
-- Orta: Secili panel
-- Alt: Sabit canli log
-- En alt: Status bar
-
-Panel kullanimi:
-
-- `Dashboard`: hizli gecis, calisma sagligi, telemetri ozeti
-- `Workspace`: spec/env/auth dosyalarini sec, kaydet, spec yukle
-- `Explorer`: endpoint filtrele, example request uret, istek gonder
-- `Smoke`: run-all veya tek endpoint smoke baslat/iptal
-- `Drift`: tek endpoint drift analizi
-- `Compare`: envA-envB endpoint karsilastirma
-- `Load Tests`: LT plan sec, threshold gir, run baslat/iptal
-- `Live Metrics`: p95, rps, error-rate ve status dagilimi
-- `Logs`: run loglarini tam panel olarak inceleme
-- `Reports`: gecmis kosulari filtrele/export et
-
-Kisayollar:
-
-- `Ctrl+O` -> Workspace
-- `Ctrl+E` -> Explorer
-- `Ctrl+R` -> Reports
-- `Esc` -> aktif run iptal
-
-## 8) Raporlama ve Cikti Dosyalari
-
-Varsayilan dosyalar:
-
-- Smoke JUnit: `junit.xml`
-- Smoke JSON: `out.json`
-- TCP JUnit: `junit.xml`
-- TCP JSON: `out.json`
-
-Ornek:
-
-```bash
-lazytest run smoke -f openapi.sample.yaml --base http://localhost:8080 --report out/smoke.junit.xml --json out/smoke.json
-```
-
-## 9) Sorun Giderme
-
-### 9.1 `package cmd/lazytest-desktop is not in std`
-
-Yanlis komut:
-
-```bash
-go run -tags desktop cmd/lazytest-desktop
-```
-
-Dogru komut:
-
-```bash
-go run -tags desktop ./cmd/lazytest-desktop
-```
-
-### 9.2 `desktop build tag required`
-
-Neden:
-
-- Desktop komutu normal (tagsiz) binary ile calistiriliyor.
-
-Cozum:
-
-```bash
-go build -tags desktop -o bin/lazytest-desktop ./cmd/lazytest-desktop
-./bin/lazytest-desktop
-```
-
-### 9.3 `set --base or env config baseURL`
-
-Neden:
-
-- Smoke/Drift icin base URL cozulmedi.
-
-Cozum:
-
-- `--base http://...` gec
-- veya `env.yaml` icinde ilgili `env` icin `baseURL` tanimla
-
-### 9.4 `make: command not found`
-
-Cozum:
-
-- `make` kur
-- veya dogrudan `go build` / `go run` komutlarini kullan
-
-### 9.5 `X11: Failed to open display`
-
-Neden:
-
-- GUI olmayan ortamda desktop binary calistiriliyor.
-
-Cozum:
-
-- Desktop uygulamayi GUI olan lokal oturumda calistir.
-
-## 10) Gelistirici Komutlari
-
-```bash
-# CLI + genel testler
-go test ./...
-
-# Desktop testleri
-go test -tags desktop ./internal/desktop/...
-
-# Desktop build
-go build -tags desktop -o bin/lazytest-desktop ./cmd/lazytest-desktop
-
-# CLI build
-go build -o bin/lazytest ./cmd/lazytest
-```
-
-## 11) Java Gelistirici Notu
-
-Kod tabanini Java mental modeliyle okumak icin:
-
-- [JAVA_DEVELOPER_GUIDE.md](JAVA_DEVELOPER_GUIDE.md)
+### Katman sorumlulukları
+
+| Yol | Sorumluluk |
+| --- | --- |
+| `cmd/lazytest` | Tek uygulama girişi, Wails ayarları, native build kaynakları |
+| `cmd/lazytest/frontend/src/components` | Ürün kabuğu, request/response, Runner ve generator ekranları |
+| `cmd/lazytest/frontend/src/stores` | Workspace bazlı geçici ve kalıcı UI state |
+| `cmd/lazytest/frontend/src/lib` | Tipler, Zod şemaları, query hook’ları ve typed backend adapter |
+| `internal/wailsapp` | React ile Go arasındaki uygulama sınırı; HTTP, iptal, native dosya işlemleri |
+| `internal/core` | OpenAPI yükleme ve yeniden kullanılabilir API analiz fonksiyonları |
+| `internal/appsvc` | Gelecekte bridge’e bağlanabilecek uygulama servisleri |
+| `internal/lt`, `internal/tcp` | Yeniden kullanılabilir load-test ve TCP engine’leri |
+| `internal/config`, `internal/report` | Yapılandırma ile JSON/JUnit rapor desteği |
+
+Frontend componentleri native runtime’a doğrudan erişmez. Tüm backend işlemleri
+`frontend/src/lib/backend.ts` içindeki typed adapter üzerinden Wails bridge’e
+gider. TanStack Query async işlemleri, Zustand ise yalnızca arayüz ve workspace
+durumunu yönetir.
+
+## Veri akışı
+
+Bir request gönderildiğinde:
+
+1. Form girdisi Zod ile doğrulanır.
+2. TanStack Query mutation’ı typed backend adapter’ı çağırır.
+3. Wails bridge variable’ları çözer, request context ve cancel fonksiyonunu
+   oluşturur.
+4. `net/http` çağrısı yapılırken `httptrace` timeline verisini toplar.
+5. Normalize edilen response typed binding üzerinden arayüze döner.
+6. Query cache ve aktif sekme yalnızca ilgili request sonucu ile güncellenir.
+
+## Test ve build
+
+`make test` şu kontrolleri tek komutta çalıştırır:
+
+- TypeScript typecheck
+- Vitest component, store/schema, Runner ve generator testleri
+- Go paket testleri
+- Wails build tag’i ile bridge ve uygulama testleri
+
+CI aynı kontrolleri Linux üzerinde çalıştırır ve ayrıca macOS üzerinde gerçek
+native Wails build’ini doğrular.
+
+## Bilinen sınırlar
+
+- Workspace, collection, environment ve history bootstrap verileri şu anda
+  örnek veridir; kalıcı backend deposu henüz bağlı değildir.
+- Runner arayüzü gerçek load-test engine’ine bağlı değildir.
+- Authorization seçenekleri arayüzde gösterilir; backend bugün request’i URL,
+  header ve body üzerinden gönderir.
+- Scripts, assertions, settings ve documentation alanlarının tamamı henüz
+  çalıştırılabilir değildir.
+- OAuth 2.0, mTLS, işletim sistemi keychain entegrasyonu ve proxy yönetimi
+  tamamlanmamıştır.
+- Üretilen Java projeleri dosya seviyesinde test edilir; ayrı Maven/Gradle
+  compile doğrulaması henüz CI’a eklenmemiştir.
+- Native paketleme macOS CI’da doğrulanır; Windows ve Linux paketleme işleri
+  henüz eklenmemiştir.

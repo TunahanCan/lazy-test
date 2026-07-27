@@ -1,0 +1,251 @@
+import { useMemo, useState } from "react";
+import * as Dialog from "@radix-ui/react-dialog";
+import {
+  Boxes,
+  Clock3,
+  FileCode2,
+  FilePlus2,
+  Import,
+  LayoutPanelLeft,
+  Moon,
+  Play,
+  RotateCcw,
+  Search,
+  Settings,
+  Sparkles,
+  Sun,
+} from "lucide-react";
+import { useImportOpenAPI } from "../lib/queries";
+import type { BootstrapData } from "../lib/types";
+import { fuzzyMatch } from "../lib/utils";
+import { useWorkspaceStore } from "../stores/workspace";
+import { Kbd } from "./ui";
+
+interface CommandItem {
+  id: string;
+  label: string;
+  group: string;
+  keywords: string;
+  shortcut?: string;
+  icon: React.ComponentType<{ size?: number }>;
+  action: () => void | Promise<void>;
+}
+
+export function CommandPalette({ bootstrap }: { bootstrap: BootstrapData }) {
+  const [query, setQuery] = useState("");
+  const open = useWorkspaceStore((state) => state.commandPaletteOpen);
+  const setOpen = useWorkspaceStore((state) => state.setCommandPaletteOpen);
+  const openTab = useWorkspaceStore((state) => state.openTab);
+  const resetLayout = useWorkspaceStore((state) => state.resetLayout);
+  const toggleLeft = useWorkspaceStore((state) => state.toggleLeft);
+  const theme = useWorkspaceStore((state) => state.theme);
+  const setTheme = useWorkspaceStore((state) => state.setTheme);
+  const setSidebarSection = useWorkspaceStore((state) => state.setSidebarSection);
+  const setRunnerOpen = useWorkspaceStore((state) => state.setRunnerOpen);
+  const setCodeGeneratorOpen = useWorkspaceStore(
+    (state) => state.setCodeGeneratorOpen,
+  );
+  const importer = useImportOpenAPI();
+
+  const commands = useMemo<CommandItem[]>(
+    () => [
+      {
+        id: "new-request",
+        label: "New request",
+        group: "Create",
+        keywords: "request istek yeni",
+        shortcut: "⌘ N",
+        icon: FilePlus2,
+        action: () =>
+          openTab({ name: "Untitled request", url: "", dirty: true }),
+      },
+      {
+        id: "import-openapi",
+        label: "Import OpenAPI",
+        group: "Create",
+        keywords: "openapi swagger import api",
+        icon: Import,
+        action: async () => {
+          const result = await importer.mutateAsync();
+          if (!result.error && !result.canceled) {
+            result.endpoints.slice(0, 8).forEach((endpoint) =>
+              openTab({
+                id: `${endpoint.id}-${crypto.randomUUID()}`,
+                name: endpoint.summary || endpoint.path,
+                method: endpoint.method,
+                url: `{{baseUrl}}${endpoint.path}`,
+                dirty: false,
+              }),
+            );
+          }
+        },
+      },
+      {
+        id: "run-collection",
+        label: "Run collection",
+        group: "Run",
+        keywords: "runner collection test run",
+        icon: Play,
+        action: () => setRunnerOpen(true),
+      },
+      {
+        id: "open-history",
+        label: "Open history",
+        group: "Navigate",
+        keywords: "history geçmiş request",
+        shortcut: "⌘ R",
+        icon: Clock3,
+        action: () => setSidebarSection("history"),
+      },
+      {
+        id: "open-collections",
+        label: "Open collections",
+        group: "Navigate",
+        keywords: "collection sidebar",
+        icon: Boxes,
+        action: () => setSidebarSection("collections"),
+      },
+      {
+        id: "generate-java",
+        label: "Generate Java test",
+        group: "Developer",
+        keywords: "rest assured mockmvc webtestclient java",
+        icon: FileCode2,
+        action: () => setCodeGeneratorOpen(true),
+      },
+      {
+        id: "format-body",
+        label: "Format request body",
+        group: "Developer",
+        keywords: "json format prettify body",
+        shortcut: "⇧ ⌥ F",
+        icon: Sparkles,
+        action: () => undefined,
+      },
+      {
+        id: "toggle-theme",
+        label: theme === "dark" ? "Use light theme" : "Use dark theme",
+        group: "Appearance",
+        keywords: "theme dark light tema",
+        icon: theme === "dark" ? Sun : Moon,
+        action: () => setTheme(theme === "dark" ? "light" : "dark"),
+      },
+      {
+        id: "toggle-sidebar",
+        label: "Toggle collection panel",
+        group: "Appearance",
+        keywords: "sidebar panel layout",
+        icon: LayoutPanelLeft,
+        action: toggleLeft,
+      },
+      {
+        id: "reset-layout",
+        label: "Reset panel layout",
+        group: "Appearance",
+        keywords: "panel reset default layout",
+        icon: RotateCcw,
+        action: resetLayout,
+      },
+      {
+        id: "settings",
+        label: "Open settings",
+        group: "Application",
+        keywords: "settings preferences ayarlar",
+        shortcut: "⌘ ,",
+        icon: Settings,
+        action: () => undefined,
+      },
+    ],
+    [
+      importer,
+      openTab,
+      resetLayout,
+      setCodeGeneratorOpen,
+      setRunnerOpen,
+      setSidebarSection,
+      setTheme,
+      theme,
+      toggleLeft,
+    ],
+  );
+
+  const filtered = commands.filter((command) =>
+    fuzzyMatch(
+      `${command.label} ${command.group} ${command.keywords}`,
+      query,
+    ),
+  );
+
+  const runCommand = async (command: CommandItem) => {
+    setOpen(false);
+    setQuery("");
+    await command.action();
+  };
+
+  return (
+    <Dialog.Root
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setQuery("");
+      }}
+    >
+      <Dialog.Portal>
+        <Dialog.Overlay className="dialog-overlay palette-overlay" />
+        <Dialog.Content className="command-palette">
+          <Dialog.Title className="sr-only">Command palette</Dialog.Title>
+          <Dialog.Description className="sr-only">
+            Workspace öğelerini ve komutları fuzzy search ile bulun.
+          </Dialog.Description>
+          <div className="palette-search">
+            <Search size={18} aria-hidden="true" />
+            <input
+              autoFocus
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={`Search ${bootstrap.workspaceName}…`}
+              aria-label="Command palette ara"
+            />
+            <Kbd>ESC</Kbd>
+          </div>
+          <div className="palette-results">
+            {filtered.length ? (
+              filtered.map((command) => {
+                const Icon = command.icon;
+                return (
+                  <button
+                    key={command.id}
+                    onClick={() => void runCommand(command)}
+                  >
+                    <span className="palette-icon">
+                      <Icon size={16} />
+                    </span>
+                    <span>
+                      <strong>{command.label}</strong>
+                      <small>{command.group}</small>
+                    </span>
+                    {command.shortcut && <Kbd>{command.shortcut}</Kbd>}
+                  </button>
+                );
+              })
+            ) : (
+              <div className="palette-empty">
+                “{query}” için eşleşen request veya komut bulunamadı.
+              </div>
+            )}
+          </div>
+          <div className="palette-footer">
+            <span>
+              <Kbd>↑</Kbd>
+              <Kbd>↓</Kbd> Navigate
+            </span>
+            <span>
+              <Kbd>↵</Kbd> Open
+            </span>
+            <span>{bootstrap.collections.length} workspace items indexed</span>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
