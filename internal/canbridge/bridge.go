@@ -133,7 +133,7 @@ func (b *Bridge) Bootstrap() BootstrapData {
 		WorkspaceName: "Validex Workspace",
 		Environments: []EnvironmentSummary{
 			{ID: "none", Name: "No Environment", Variables: map[string]string{}},
-			{ID: "local", Name: "Local", Variables: map[string]string{"baseUrl": "http://localhost:8080", "token": ""}},
+			{ID: "local", Name: "Local", Variables: map[string]string{"baseUrl": "http://localhost:8080"}},
 		},
 		Collections: []CollectionNode{},
 		History:     []HistoryEntry{},
@@ -158,14 +158,19 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 	if len(missing) > 0 {
 		return failed("missing_variables", "Eksik değişken var", "Request gönderilmedi çünkü URL içindeki bazı değişkenlerin değeri yok.", "Environment veya context panelinden şu değerleri tanımlayın: "+strings.Join(missing, ", "), "")
 	}
-	resolvedURL = normalizeHTTPURL(resolvedURL)
 	parsedURL, err := neturl.Parse(resolvedURL)
 	if err != nil || parsedURL.Host == "" || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
 		technical := ""
 		if err != nil {
 			technical = err.Error()
 		}
-		return failed("invalid_request", "Request oluşturulamadı", "Method veya URL geçerli görünmüyor.", "URL’nin http:// veya https:// ile başladığını kontrol edin.", technical)
+		return failed("invalid_request", "URL geçerli değil", "Request gönderilmedi çünkü URL eksiksiz bir HTTP adresi değil.", "URL’yi http:// veya https:// ile başlayacak şekilde açıkça yazın.", technical)
+	}
+	if parsedURL.User != nil {
+		return failed("invalid_request", "URL içinde kullanıcı bilgisi desteklenmiyor", "URL’deki kullanıcı adı veya parola gizli bir Authorization header’ına dönüşebilir.", "Kimlik bilgisini URL’den kaldırın; gerekiyorsa Authorization header’ını açıkça ekleyip etkinleştirin.", "")
+	}
+	if parsedURL.Fragment != "" || strings.Contains(resolvedURL, "#") {
+		return failed("invalid_request", "URL fragment içeriyor", "URL’nin # işaretinden sonraki bölümü HTTP request’ine gönderilmez.", "Fragment bölümünü URL’den kaldırın.", "")
 	}
 
 	ctx, cancel := context.WithTimeout(b.operationContext(), time.Duration(input.TimeoutMS)*time.Millisecond)
@@ -220,9 +225,18 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 		}
 		req.Header.Add(header.Key, value)
 	}
+	if _, explicitlySet := req.Header["User-Agent"]; !explicitlySet {
+		// net/http otherwise adds Go's default User-Agent even though the user did
+		// not enable one in the request editor.
+		req.Header["User-Agent"] = []string{""}
+	}
 
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.DisableCompression = true
+	defer transport.CloseIdleConnections()
 	client := &http.Client{
-		Timeout: time.Duration(input.TimeoutMS) * time.Millisecond,
+		Timeout:   time.Duration(input.TimeoutMS) * time.Millisecond,
+		Transport: transport,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
@@ -580,45 +594,6 @@ func isMaskedSecretValue(value string) bool {
 		}
 	}
 	return true
-}
-
-func normalizeHTTPURL(value string) string {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return trimmed
-	}
-	if strings.HasPrefix(trimmed, "//") {
-		return "https:" + trimmed
-	}
-	if strings.Contains(trimmed, "://") {
-		return trimmed
-	}
-
-	authority := trimmed
-	if boundary := strings.IndexAny(trimmed, "/?#"); boundary >= 0 {
-		authority = trimmed[:boundary]
-	}
-	if authority == "" {
-		return trimmed
-	}
-	host := authority
-	if parsedHost, _, err := net.SplitHostPort(authority); err == nil {
-		host = parsedHost
-	} else if strings.HasPrefix(authority, "[") {
-		if end := strings.Index(authority, "]"); end >= 0 {
-			host = authority[1:end]
-		}
-	} else if strings.Count(authority, ":") == 1 {
-		host = strings.SplitN(authority, ":", 2)[0]
-	}
-
-	scheme := "https"
-	normalizedHost := strings.ToLower(strings.Trim(host, "[]"))
-	ip := net.ParseIP(normalizedHost)
-	if normalizedHost == "localhost" || (ip != nil && (ip.IsLoopback() || ip.IsPrivate())) {
-		scheme = "http"
-	}
-	return scheme + "://" + trimmed
 }
 
 func methodAllowsBody(method string) bool {

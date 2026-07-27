@@ -1210,6 +1210,78 @@ kbd {
   overflow: hidden;
 }
 
+.params-editor-stack {
+  min-height: 100%;
+}
+
+.params-secondary-section {
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-muted);
+}
+
+.query-param-table {
+  margin: 0 12px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.query-param-row {
+  display: grid;
+  min-height: 34px;
+  grid-template-columns: minmax(100px, 1fr) minmax(130px, 1.4fr) 130px 34px;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+}
+
+.query-param-row > * {
+  min-width: 0;
+  padding: 0 8px;
+}
+
+.query-param-row input {
+  width: 100%;
+  height: 27px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.query-param-row input:focus {
+  border-color: var(--focus);
+  background: var(--surface);
+}
+
+.query-param-row:last-child,
+.query-param-table > :last-child {
+  border-bottom: 0;
+}
+
+.query-param-heading {
+  min-height: 28px;
+  background: var(--surface-muted);
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.query-param-empty {
+  margin: 0;
+  padding: 12px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.query-param-empty code {
+  color: var(--text-secondary);
+}
+
+.query-param-composer {
+  border-bottom: 0;
+}
+
 .parameter-row {
   display: grid;
   min-height: 34px;
@@ -1320,6 +1392,13 @@ kbd {
 
 .header-row:last-child {
   border-bottom: 0;
+}
+
+.header-empty {
+  margin: 0;
+  padding: 12px;
+  color: var(--text-muted);
+  font-size: 10px;
 }
 
 .header-row > * {
@@ -2024,10 +2103,15 @@ kbd {
   font-size: 9px;
 }
 
-.auth-ok {
+.auth-status {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.auth-status.ready {
   color: var(--success) !important;
 }
 
@@ -2048,19 +2132,41 @@ kbd {
   gap: 3px;
 }
 
-.auth-context-card strong {
+.auth-context-card strong,
+.auth-empty-state strong {
   color: var(--text);
   font-size: 11px;
 }
 
-.auth-context-card span {
+.auth-context-card span,
+.auth-empty-state span {
   color: var(--text-muted);
   font-size: 9px;
+  line-height: 1.45;
 }
 
 .auth-context-card code {
   color: var(--text-secondary);
   font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+.auth-context-action {
+  width: 100%;
+  justify-content: center;
+  margin-top: 8px;
+}
+
+.auth-empty-state {
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  padding: 18px 10px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-muted);
+  color: var(--text-muted);
+  text-align: center;
 }
 
 .context-note {

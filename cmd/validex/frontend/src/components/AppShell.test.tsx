@@ -187,6 +187,7 @@ describe("AppShell keyboard and layout guards", () => {
     );
     const state = useWorkspaceStore.getState();
     expect(state.latestImportedSpec?.endpoints).toHaveLength(10);
+    expect(state.tabs.every((tab) => tab.headers.length === 0)).toBe(true);
     expect(state.sidebarSection).toBe("apis");
     expect(state.leftVisible).toBe(true);
   });

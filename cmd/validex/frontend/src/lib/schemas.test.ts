@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   missingVariables,
-  normalizeRequestURL,
   resolveVariableReferences,
   requestSchema,
+  requestURLValidationMessage,
 } from "./schemas";
 
 describe("request schema", () => {
@@ -31,33 +31,42 @@ describe("request schema", () => {
     ).toBe(false);
   });
 
-  it("normalizes common schemeless URLs", () => {
-    expect(normalizeRequestURL("localhost:8080/health")).toBe(
-      "http://localhost:8080/health",
-    );
-    expect(normalizeRequestURL("10.20.30.40:8081/api")).toBe(
-      "http://10.20.30.40:8081/api",
-    );
-    expect(normalizeRequestURL("api.example.com/users")).toBe(
-      "https://api.example.com/users",
-    );
-    expect(normalizeRequestURL("[fd00::1]:8080/health")).toBe(
-      "http://[fd00::1]:8080/health",
-    );
-    expect(normalizeRequestURL("127.attacker.example/users")).toBe(
-      "https://127.attacker.example/users",
-    );
-    expect(normalizeRequestURL("10.evil.example/users")).toBe(
-      "https://10.evil.example/users",
-    );
+  it("requires an explicit HTTP or HTTPS scheme without transforming input", () => {
+    for (const value of [
+      "localhost:8080/health",
+      "10.20.30.40:8081/api",
+      "api.example.com/users",
+      "//api.example.com/users",
+    ]) {
+      expect(requestURLValidationMessage(value)).toBe(
+        "URL açıkça http:// veya https:// ile başlamalı.",
+      );
+      expect(
+        requestSchema.safeParse({
+          method: "GET",
+          url: value,
+          body: "",
+          headers: [],
+          timeoutMs: 30_000,
+        }).success,
+      ).toBe(false);
+    }
   });
 
-  it("keeps variable-based and explicit URLs intact", () => {
-    expect(normalizeRequestURL("{{baseUrl}}/v1/users")).toBe(
-      "{{baseUrl}}/v1/users",
+  it("rejects URL fragments and embedded user credentials", () => {
+    expect(
+      requestURLValidationMessage("https://example.test/users#details"),
+    ).toBe("URL fragment (#…) içeremez.");
+    expect(
+      requestURLValidationMessage("https://user:secret@example.test/users"),
+    ).toBe(
+      "URL kullanıcı bilgisi içeremez. Kimlik doğrulamayı Headers üzerinden yönetin.",
     );
-    expect(normalizeRequestURL("http://example.test/users")).toBe(
-      "http://example.test/users",
+    expect(requestURLValidationMessage("https://example.test/users#")).toBe(
+      "URL fragment (#…) içeremez.",
+    );
+    expect(requestURLValidationMessage(" https://example.test/users")).toBe(
+      "URL başında veya sonunda boşluk içeremez.",
     );
   });
 

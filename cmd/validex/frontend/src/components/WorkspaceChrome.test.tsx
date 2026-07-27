@@ -42,7 +42,7 @@ const emptyBootstrap: BootstrapData = {
     {
       id: "local",
       name: "Local",
-      variables: { baseUrl: "http://localhost:8080", token: "" },
+      variables: { baseUrl: "http://localhost:8080" },
     },
   ],
   collections: [],
@@ -140,23 +140,68 @@ describe("workspace chrome simplification", () => {
     expect(state.tabs[1]).toMatchObject({
       id: "openapi:commerce-spec:operation-9",
       url: "{{baseUrl}}/api/v1/resources/9",
+      headers: [],
       openApi: { specId: "commerce-spec", path: "/resources/9" },
     });
   });
 
-  it("shows only real context views and reveals secret controls when needed", () => {
+  it("keeps Auth explicit, disabled by default, and secret-safe", async () => {
     const tab = useWorkspaceStore.getState().tabs[0];
     const { rerender } = renderWithProviders(
       <ContextPanel bootstrap={emptyBootstrap} tab={tab} />,
     );
 
     expect(screen.getByRole("tab", { name: "Variables" })).toBeVisible();
-    expect(screen.getByRole("tab", { name: "Auth" })).toBeVisible();
+    const authTab = screen.getByRole("tab", { name: "Auth" });
+    expect(authTab).toBeVisible();
     expect(screen.queryByRole("tab", { name: "Docs" })).not.toBeInTheDocument();
     expect(screen.queryByText("Resolution order")).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Secret değerlerini göster" }),
     ).not.toBeInTheDocument();
+    expect(useWorkspaceStore.getState().tabs[0].headers).toEqual([]);
+
+    fireEvent.mouseDown(authTab, { button: 0, ctrlKey: false });
+    expect(useWorkspaceStore.getState().tabs[0].headers).toEqual([]);
+    expect(screen.getAllByText("No Auth")).not.toHaveLength(0);
+
+    const addAuthorization = screen.getByRole("button", {
+      name: "Authorization header ekle",
+    });
+    fireEvent.click(addAuthorization);
+    fireEvent.click(addAuthorization);
+
+    await waitFor(() => {
+      const current = useWorkspaceStore.getState().tabs[0];
+      expect(current.headers).toHaveLength(1);
+      expect(current.headers[0]).toMatchObject({
+        enabled: false,
+        key: "Authorization",
+        value: "Bearer ",
+        description: "Kullanıcı tarafından eklendi",
+        source: "Manual",
+      });
+      expect(current.requestSection).toBe("headers");
+    });
+    expect(screen.getByText("Authorization kapalı")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Headers’ta düzenle" }),
+    ).toBeVisible();
+    expect(screen.queryByText("Bearer ")).not.toBeInTheDocument();
+
+    useWorkspaceStore.getState().updateTab(tab.id, {
+      headers: [
+        {
+          ...useWorkspaceStore.getState().tabs[0].headers[0],
+          enabled: true,
+          value: "Bearer top-secret",
+        },
+      ],
+    });
+    await waitFor(() =>
+      expect(screen.getAllByText("Ready")).not.toHaveLength(0),
+    );
+    expect(screen.queryByText("top-secret")).not.toBeInTheDocument();
 
     useWorkspaceStore.setState({ activeEnvironmentID: "local" });
     rerender(
@@ -166,9 +211,14 @@ describe("workspace chrome simplification", () => {
         </Tooltip.Provider>
       </QueryClientProvider>,
     );
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Variables" }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    expect(screen.getByText("{{baseUrl}}")).toBeVisible();
     expect(
-      screen.getByRole("button", { name: "Secret değerlerini göster" }),
-    ).toBeVisible();
+      screen.queryByRole("button", { name: "Secret değerlerini göster" }),
+    ).not.toBeInTheDocument();
   });
 
   it("reports real tab state instead of synthetic connection and git state", () => {
@@ -219,6 +269,11 @@ describe("workspace chrome simplification", () => {
       "Commerce API · 8 endpoint sekmede açıldı; 10 endpoint APIs bölümünde erişilebilir",
     );
     expect(useWorkspaceStore.getState().tabs).toHaveLength(9);
+    expect(
+      useWorkspaceStore.getState().tabs.slice(1).every(
+        (tab) => tab.headers.length === 0,
+      ),
+    ).toBe(true);
     expect(
       useWorkspaceStore.getState().latestImportedSpec?.endpoints,
     ).toHaveLength(10);

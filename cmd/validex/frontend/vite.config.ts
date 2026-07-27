@@ -25,7 +25,7 @@ export default defineConfig({
   server: {
     host: "127.0.0.1",
     port: 34116,
-    strictPort: true,
+    strictPort: false,
   },
   test: {
     environment: "jsdom",

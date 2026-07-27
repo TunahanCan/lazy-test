@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"sync"
 	"time"
 
@@ -22,8 +23,10 @@ import (
 )
 
 const (
-	nativeDispatchName = "__canbridgeNativeDispatch"
-	nativeLogName      = "__canbridgeNativeLog"
+	nativeDispatchName     = "__canbridgeNativeDispatch"
+	nativeLogName          = "__canbridgeNativeLog"
+	developmentPortMinimum = 34116
+	developmentPortMaximum = 34215
 )
 
 type AppOptions struct {
@@ -73,10 +76,16 @@ func Run(options AppOptions) error {
 	}
 
 	targetURL := options.DevURL
+	dynamicPortFallback := false
 	var frontendServer *http.Server
 	if targetURL == "" {
-		handler, err := assetHandler(options.Assets, options.AssetRoot)
+		endpoint, err := listenForFrontendAssets(productionAssetAddress)
 		if err != nil {
+			return err
+		}
+		handler, err := assetHandler(options.Assets, options.AssetRoot, endpoint.Host)
+		if err != nil {
+			_ = endpoint.Close()
 			return fmt.Errorf("prepare embedded frontend assets: %w", err)
 		}
 		if options.Debug {
@@ -86,22 +95,18 @@ func Run(options AppOptions) error {
 				next.ServeHTTP(response, request)
 			})
 		}
-		listener, err := net.Listen("tcp4", productionAssetAddress)
-		if err != nil {
-			return fmt.Errorf(
-				"start embedded frontend server on %s: %w",
-				productionAssetAddress,
-				err,
-			)
-		}
 		frontendServer = &http.Server{
 			Handler:           handler,
 			ReadHeaderTimeout: 5 * time.Second,
 		}
 		go func() {
-			_ = frontendServer.Serve(listener)
+			if serveErr := frontendServer.Serve(endpoint.Listener); serveErr != nil &&
+				!errors.Is(serveErr, http.ErrServerClosed) {
+				log.Printf("[canbridge:error] frontend asset server stopped: %v", serveErr)
+			}
 		}()
-		targetURL = productionAssetURL
+		targetURL = endpoint.URL
+		dynamicPortFallback = endpoint.DynamicFallback
 		defer func() {
 			shutdownContext, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
@@ -147,6 +152,12 @@ func Run(options AppOptions) error {
 	if err := nativeView.Bind(nativeLogName, runtime.logBrowserMessage); err != nil {
 		return fmt.Errorf("bind native canbridge logger: %w", err)
 	}
+	log.Print(canbridgeStartupBanner(
+		options.Title,
+		targetURL,
+		options.DevURL != "",
+		dynamicPortFallback,
+	))
 	nativeView.Init(browserRuntime(capability, allowedOrigin, options.Debug))
 	nativeView.SetTitle(options.Title)
 	nativeView.SetSize(options.Width, options.Height, webview.HintNone)
@@ -280,11 +291,51 @@ func appOrigin(appURL string, development bool) (string, error) {
 		if parsed.Scheme != "http" {
 			return "", fmt.Errorf("canbridge development URL must use http")
 		}
-		if parsed.Port() != "34116" {
-			return "", fmt.Errorf("canbridge development URL must use port 34116")
+		port, portErr := strconv.Atoi(parsed.Port())
+		if portErr != nil ||
+			port < developmentPortMinimum ||
+			port > developmentPortMaximum {
+			return "", fmt.Errorf(
+				"canbridge development URL port must be between %d and %d",
+				developmentPortMinimum,
+				developmentPortMaximum,
+			)
 		}
 	}
 	return parsed.Scheme + "://" + parsed.Host, nil
+}
+
+func canbridgeStartupBanner(
+	title string,
+	targetURL string,
+	development bool,
+	dynamicPortFallback bool,
+) string {
+	parsed, _ := url.Parse(targetURL)
+	mode := "production"
+	portMode := "preferred"
+	if development {
+		mode = "development"
+		portMode = "development"
+	} else if dynamicPortFallback {
+		_, preferredPort, _ := net.SplitHostPort(productionAssetAddress)
+		portMode = "dynamic fallback; preferred " + preferredPort + " was busy"
+	}
+	return fmt.Sprintf(
+		"\n"+
+			"╭─ canbridge ─────────────────────────────────────\n"+
+			"│ %s is powered by canbridge\n"+
+			"│ Frontend  %s\n"+
+			"│ Port      %s (%s)\n"+
+			"│ Mode      %s\n"+
+			"│ Transport native WebView IPC · TypeScript ↔ Go\n"+
+			"╰─ bridge ready",
+		title,
+		targetURL,
+		parsed.Port(),
+		portMode,
+		mode,
+	)
 }
 
 func browserRuntime(capability string, allowedOrigin string, debug bool) string {
@@ -343,10 +394,10 @@ func browserRuntime(capability string, allowedOrigin string, debug bool) string 
   window.addEventListener("unhandledrejection", (event) => {
     reportBrowserError("rejection", event.reason);
   });
-  if (config.debug && typeof nativeLog === "function") {
+  if (typeof nativeLog === "function") {
     nativeLog(
       config.capability,
-      "debug",
+      config.debug ? "debug" : "info",
       "bridge ready origin=" + window.location.origin,
     );
   }

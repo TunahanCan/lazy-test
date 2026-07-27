@@ -146,10 +146,13 @@ describe("RequestWorkbench", () => {
     expect(command).toContain(`O'\\''Reilly`);
     expect(command).toContain(`Ada'\\''s`);
     expect(command).toContain(`Bob'\\''s`);
-    expect(command).toContain("Content-Type: application/json");
+    expect(command).not.toContain("Content-Type");
+    expect(useWorkspaceStore.getState().tabs[0].url).toBe(
+      "https://example.test/users/{{id}}",
+    );
   });
 
-  it("gives every header field an accessible name", () => {
+  it("starts without headers and gives manually added fields accessible names", () => {
     const tab = createRequestTab({
       id: "headers-request",
       requestSection: "headers",
@@ -164,10 +167,100 @@ describe("RequestWorkbench", () => {
     expect(
       within(requestTabs).queryByRole("tab", { name: /Authorization/i }),
     ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Header eklenmedi. Validex request’e otomatik header eklemez.",
+      ),
+    ).toBeVisible();
 
+    fireEvent.click(screen.getByRole("button", { name: "Add header" }));
     expect(screen.getByLabelText("1. header etkin")).toBeVisible();
     expect(screen.getByLabelText("1. header adı")).toBeVisible();
     expect(screen.getByLabelText("1. header değeri")).toBeVisible();
+  });
+
+  it("derives ordered duplicate, blank, encoded, and template query rows from the URL", () => {
+    const rawURL =
+      "https://example.test/search?tag=java&tag=spring%20boot&empty=&flag&scope={{scope}}";
+    const tab = createRequestTab({
+      id: "query-request",
+      url: rawURL,
+    });
+    renderWorkbench(tab);
+
+    expect(
+      screen.getByRole("tab", { name: "Params, 5 query parameters" }),
+    ).toBeVisible();
+    expect(screen.getByLabelText("1. query param adı")).toHaveValue("tag");
+    expect(screen.getByLabelText("1. query param değeri")).toHaveValue("java");
+    expect(screen.getByLabelText("2. query param adı")).toHaveValue("tag");
+    expect(screen.getByLabelText("2. query param değeri")).toHaveValue(
+      "spring boot",
+    );
+    expect(screen.getByLabelText("3. query param değeri")).toHaveValue("");
+    expect(screen.getByLabelText("4. query param değeri")).toHaveValue("");
+    expect(screen.getByLabelText("5. query param değeri")).toHaveValue(
+      "{{scope}}",
+    );
+    expect(screen.getAllByText("URL’den algılandı")).toHaveLength(5);
+    expect(screen.getByLabelText("Request URL")).toHaveValue(rawURL);
+    expect(useWorkspaceStore.getState().tabs[0].url).toBe(rawURL);
+  });
+
+  it("edits, removes, and adds query rows by patching only the URL query", () => {
+    const tab = createRequestTab({
+      id: "query-edit-request",
+      url: "https://example.test/search?tag=spring%20boot&tag={{scope}}&empty=",
+    });
+    renderWorkbench(tab);
+
+    fireEvent.change(screen.getByLabelText("1. query param değeri"), {
+      target: { value: "Spring & Java" },
+    });
+    expect(screen.getByLabelText("Request URL")).toHaveValue(
+      "https://example.test/search?tag=Spring%20%26%20Java&tag={{scope}}&empty=",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "2. query paramı sil" }));
+    expect(screen.getByLabelText("Request URL")).toHaveValue(
+      "https://example.test/search?tag=Spring%20%26%20Java&empty=",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Param ekle" }));
+    fireEvent.change(screen.getByLabelText("Yeni query param adı"), {
+      target: { value: "include details" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Ekle" }));
+
+    const expectedURL =
+      "https://example.test/search?tag=Spring%20%26%20Java&empty=&include%20details=";
+    expect(screen.getByLabelText("Request URL")).toHaveValue(expectedURL);
+    expect(useWorkspaceStore.getState().tabs[0].url).toBe(expectedURL);
+    expect(
+      screen.getByRole("tab", { name: "Params, 3 query parameters" }),
+    ).toBeVisible();
+  });
+
+  it("keeps an invalid schemeless URL unchanged and blocks sending it", () => {
+    const send = vi.spyOn(backend, "sendRequest");
+    const tab = createRequestTab({
+      id: "strict-url-request",
+      url: "api.example.test/orders?limit=10",
+    });
+    renderWorkbench(tab);
+
+    const url = screen.getByLabelText("Request URL");
+    fireEvent.blur(url);
+
+    expect(url).toHaveValue("api.example.test/orders?limit=10");
+    expect(useWorkspaceStore.getState().tabs[0].url).toBe(
+      "api.example.test/orders?limit=10",
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "URL açıkça http:// veya https:// ile başlamalı.",
+    );
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("does not compare an edited URL against the imported operation", async () => {

@@ -85,8 +85,44 @@ describe("Validex workspace", () => {
       screen.getByRole("tab", { name: /Untitled request/i }),
     ).toBeVisible();
     expect(screen.getByLabelText("Request URL")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
-    expect(screen.getAllByRole("tab", { name: "Variables" })).not.toHaveLength(0);
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    expect(screen.getByRole("tab", { name: "Params" })).toBeVisible();
+  });
+
+  it("adds Authorization only after opt-in and syncs it into Headers", async () => {
+    renderApp();
+    await screen.findByLabelText("Validex home");
+
+    expect(useWorkspaceStore.getState().tabs[0].headers).toEqual([]);
+    fireEvent.mouseDown(screen.getByRole("tab", { name: "Auth" }), {
+      button: 0,
+      ctrlKey: false,
+    });
+    expect(useWorkspaceStore.getState().tabs[0].headers).toEqual([]);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Authorization header ekle" }),
+    );
+
+    const requestSettings = screen.getByRole("tablist", {
+      name: "Request settings",
+    });
+    await waitFor(() =>
+      expect(
+        within(requestSettings).getByRole("tab", { name: "Headers" }),
+      ).toHaveAttribute("aria-selected", "true"),
+    );
+    expect(screen.getByLabelText("1. header adı")).toHaveValue(
+      "Authorization",
+    );
+    expect(screen.getByLabelText("1. header değeri")).toHaveValue("Bearer ");
+    expect(screen.getByLabelText("1. header etkin")).not.toBeChecked();
+    expect(useWorkspaceStore.getState().tabs[0].headers[0]).toMatchObject({
+      enabled: false,
+      key: "Authorization",
+      value: "Bearer ",
+      source: "Manual",
+    });
   });
 
   it("starts with a focused welcome screen when there are no requests", async () => {
@@ -119,7 +155,7 @@ describe("Validex workspace", () => {
     expect(screen.getByRole("button", { name: /New request/i })).toBeVisible();
   });
 
-  it("edits and normalizes the URL without accidental form submits", async () => {
+  it("keeps the pasted URL unchanged without accidental form submits", async () => {
     let finishRequest!: (result: SendResult) => void;
     const sendSpy = vi.spyOn(backend, "sendRequest").mockImplementationOnce(
       () =>
@@ -130,8 +166,10 @@ describe("Validex workspace", () => {
     renderApp();
     const url = await screen.findByLabelText("Request URL");
 
-    fireEvent.change(url, { target: { value: "api.example.com/users" } });
-    expect(url).toHaveValue("api.example.com/users");
+    const pastedURL =
+      "https://api.example.com/users?tag=spring%20boot&tag=spring+web";
+    fireEvent.change(url, { target: { value: pastedURL } });
+    expect(url).toHaveValue(pastedURL);
 
     const methodButton = screen.getByRole("button", {
       name: "HTTP method seç",
@@ -145,7 +183,8 @@ describe("Validex workspace", () => {
     ).toHaveAttribute("type", "button");
 
     fireEvent.blur(url);
-    expect(url).toHaveValue("https://api.example.com/users");
+    expect(url).toHaveValue(pastedURL);
+    expect(useWorkspaceStore.getState().tabs[0].url).toBe(pastedURL);
 
     const send = screen.getByRole("button", { name: "Send" });
     fireEvent.click(send);
@@ -161,7 +200,7 @@ describe("Validex workspace", () => {
     expect(screen.getByText("184 ms")).toBeVisible();
     expect(screen.getByText("HTTP/2")).toBeVisible();
     expect(sendSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ url: "https://api.example.com/users" }),
+      expect.objectContaining({ url: pastedURL }),
     );
   });
 
@@ -224,7 +263,9 @@ describe("Validex workspace", () => {
     renderApp();
 
     const baseURL = await screen.findByLabelText("baseUrl variable değeri");
-    fireEvent.change(baseURL, { target: { value: "127.0.0.1:18081" } });
+    fireEvent.change(baseURL, {
+      target: { value: "http://127.0.0.1:18081" },
+    });
     const url = screen.getByLabelText("Request URL");
     fireEvent.change(url, { target: { value: "{{baseUrl}}/health" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
@@ -234,13 +275,13 @@ describe("Validex workspace", () => {
       expect.objectContaining({
         url: "{{baseUrl}}/health",
         variables: expect.objectContaining({
-          baseUrl: "127.0.0.1:18081",
+          baseUrl: "http://127.0.0.1:18081",
         }),
       }),
     );
   });
 
-  it("adds JSON Content-Type for a JSON request body", async () => {
+  it("does not add a hidden Content-Type for a JSON request body", async () => {
     const tab = createRequestTab({
       id: "json-request",
       method: "POST",
@@ -263,15 +304,7 @@ describe("Validex workspace", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Send" }));
     await waitFor(() => expect(sendSpy).toHaveBeenCalled());
 
-    expect(sendSpy.mock.calls[0][0].headers).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          enabled: true,
-          key: "Content-Type",
-          value: "application/json",
-        }),
-      ]),
-    );
+    expect(sendSpy.mock.calls[0][0].headers).toEqual([]);
     expect(
       useWorkspaceStore
         .getState()

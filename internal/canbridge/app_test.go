@@ -17,8 +17,8 @@ import (
 func TestAppOriginRestrictsDevelopmentBridgeToViteLoopback(t *testing.T) {
 	for _, allowed := range []string{
 		"http://127.0.0.1:34116",
-		"http://localhost:34116/path",
-		"http://[::1]:34116",
+		"http://localhost:34117/path",
+		"http://[::1]:34215",
 	} {
 		if _, err := appOrigin(allowed, true); err != nil {
 			t.Errorf("loopback URL %q was rejected: %v", allowed, err)
@@ -26,11 +26,32 @@ func TestAppOriginRestrictsDevelopmentBridgeToViteLoopback(t *testing.T) {
 	}
 	for _, rejected := range []string{
 		"https://127.0.0.1:34116",
-		"http://127.0.0.1:9000",
+		"http://127.0.0.1",
+		"http://127.0.0.1:0",
+		"http://127.0.0.1:34216",
 		"http://example.test:34116",
 	} {
 		if _, err := appOrigin(rejected, true); err == nil {
 			t.Errorf("unsafe development URL %q was accepted", rejected)
+		}
+	}
+}
+
+func TestCanbridgeStartupBannerAdvertisesSelectedURLAndPort(t *testing.T) {
+	banner := canbridgeStartupBanner(
+		"Validex",
+		"http://127.0.0.1:49152/",
+		false,
+		true,
+	)
+	for _, expected := range []string{
+		"Validex is powered by canbridge",
+		"Frontend  http://127.0.0.1:49152/",
+		"Port      49152 (dynamic fallback; preferred 34117 was busy)",
+		"Transport native WebView IPC · TypeScript ↔ Go",
+	} {
+		if !strings.Contains(banner, expected) {
+			t.Fatalf("banner does not contain %q:\n%s", expected, banner)
 		}
 	}
 }

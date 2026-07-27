@@ -78,7 +78,7 @@ const developmentBootstrap: BootstrapData = {
     {
       id: "local",
       name: "Local",
-      variables: { baseUrl: "http://localhost:8080", token: "" },
+      variables: { baseUrl: "http://localhost:8080" },
     },
   ],
   collections: [],

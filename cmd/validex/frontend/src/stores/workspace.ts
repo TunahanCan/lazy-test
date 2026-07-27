@@ -90,25 +90,6 @@ if (typeof localStorage !== "undefined") {
   migrateLegacyWorkspaceStorage(localStorage);
 }
 
-const defaultHeaders = [
-  {
-    id: "header-accept",
-    enabled: true,
-    key: "Accept",
-    value: "application/json",
-    description: "Beklenen response formatı",
-    source: "Generated" as const,
-  },
-  {
-    id: "header-auth",
-    enabled: false,
-    key: "Authorization",
-    value: "Bearer {{token}}",
-    description: "Development bearer token",
-    source: "Environment" as const,
-  },
-];
-
 function withoutSecretVariables(
   environments: Record<string, Record<string, string>>,
 ) {
@@ -119,6 +100,23 @@ function withoutSecretVariables(
         Object.entries(variables).filter(([key]) => !isSecretKey(key)),
       ),
     ]),
+  );
+}
+
+function isLegacyDefaultHeader(
+  header: RequestTab["headers"][number],
+): boolean {
+  return (
+    (header.id === "header-accept" &&
+      header.enabled === true &&
+      header.key === "Accept" &&
+      header.value === "application/json" &&
+      header.source === "Generated") ||
+    (header.id === "header-auth" &&
+      header.enabled === false &&
+      header.key === "Authorization" &&
+      header.value === "Bearer {{token}}" &&
+      header.source === "Environment")
   );
 }
 
@@ -148,12 +146,14 @@ function persistedTab(tab: RequestTab): RequestTab {
     openApi: undefined,
     requestSection,
     responseSection,
-    headers: (tab.headers ?? []).map((header) => {
-      if (!isSecretKey(header.key) || isSafeSecretReference(header.value)) {
-        return header;
-      }
-      return { ...header, enabled: false, value: "" };
-    }),
+    headers: (tab.headers ?? [])
+      .filter((header) => !isLegacyDefaultHeader(header))
+      .map((header) => {
+        if (!isSecretKey(header.key) || isSafeSecretReference(header.value)) {
+          return header;
+        }
+        return { ...header, enabled: false, value: "" };
+      }),
   };
 }
 
@@ -167,7 +167,7 @@ export function createRequestTab(
     method: "GET",
     url: "",
     body: "",
-    headers: defaultHeaders.map((header) => ({ ...header })),
+    headers: [],
     dirty: false,
     running: false,
     error: false,
@@ -467,7 +467,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
     }),
     {
       name: workspaceStorageKey,
-      version: 6,
+      version: 7,
       storage: createJSONStorage(() => localStorage),
       migrate: (persistedState, persistedVersion) => {
         const state = persistedState as Partial<WorkspaceState>;

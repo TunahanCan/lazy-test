@@ -35,12 +35,19 @@ import { requestURLMatchesOpenAPIPath } from "../lib/openapi";
 import { useCancelRequest, useSendRequest } from "../lib/queries";
 import {
   missingVariables,
-  normalizeRequestURL,
   requestSchema,
+  requestURLValidationMessage,
   resolveVariableReferences,
   type RequestFormValues,
 } from "../lib/schemas";
 import { isSecretKey } from "../lib/secrets";
+import {
+  addURLQueryRow,
+  parseURLQuery,
+  removeURLQueryRow,
+  updateURLQueryRow,
+  type URLQueryRow,
+} from "../lib/urlQuery";
 import type {
   BootstrapData,
   HTTPMethod,
@@ -66,7 +73,7 @@ const methods: HTTPMethod[] = [
 ];
 
 const requestSections = [
-  { id: "params", label: "Variables", icon: Variable },
+  { id: "params", label: "Params", icon: Variable },
   { id: "headers", label: "Headers", icon: FileText },
   { id: "body", label: "Body", icon: Braces },
 ] as const;
@@ -77,37 +84,6 @@ function countEnabledHeaders(tab: RequestTab) {
 
 function methodAllowsBody(method: HTTPMethod): boolean {
   return ["POST", "PUT", "PATCH", "DELETE"].includes(method);
-}
-
-function withInferredJSONContentType(
-  values: RequestFormValues,
-): RequestFormValues["headers"] {
-  if (
-    !methodAllowsBody(values.method) ||
-    !values.body.trim() ||
-    values.headers.some(
-      (header) =>
-        header.enabled && header.key.trim().toLowerCase() === "content-type",
-    )
-  ) {
-    return values.headers;
-  }
-  try {
-    JSON.parse(values.body);
-  } catch {
-    return values.headers;
-  }
-  return [
-    ...values.headers,
-    {
-      id: crypto.randomUUID(),
-      enabled: true,
-      key: "Content-Type",
-      value: "application/json",
-      description: "JSON body için otomatik eklendi",
-      source: "Generated",
-    },
-  ];
 }
 
 function validationMessage(errors: FieldErrors<RequestFormValues>) {
@@ -167,6 +143,166 @@ function MethodSelect({
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
+  );
+}
+
+function QueryParamsEditor({
+  rawURL,
+  rows,
+  onURLChange,
+  disabled = false,
+}: {
+  rawURL: string;
+  rows: URLQueryRow[];
+  onURLChange: (url: string) => void;
+  disabled?: boolean;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [newKey, setNewKey] = useState("");
+  const [newValue, setNewValue] = useState("");
+  const [addError, setAddError] = useState("");
+
+  const addParameter = () => {
+    if (!newKey) {
+      setAddError("Query param adı boş bırakılamaz.");
+      return;
+    }
+    onURLChange(
+      addURLQueryRow(rawURL, {
+        key: newKey,
+        value: newValue,
+      }),
+    );
+    setAdding(false);
+    setNewKey("");
+    setNewValue("");
+    setAddError("");
+  };
+
+  return (
+    <section className="query-params-editor" aria-label="Query parameters">
+      <div className="table-toolbar">
+        <div>
+          <strong>Query parameters</strong>
+          <span>URL’den algılandı · değişiklikler doğrudan URL’ye yazılır.</span>
+        </div>
+        <Button
+          size="sm"
+          disabled={disabled}
+          onClick={() => {
+            setAdding(true);
+            setAddError("");
+          }}
+        >
+          <Plus size={13} /> Param ekle
+        </Button>
+      </div>
+      <div className="query-param-table">
+        <div className="query-param-row query-param-heading">
+          <span>Key</span>
+          <span>Value</span>
+          <span>Source</span>
+          <span />
+        </div>
+        {rows.map((row) => (
+          <div className="query-param-row" key={row.id}>
+            <input
+              value={row.key}
+              onChange={(event) =>
+                onURLChange(
+                  updateURLQueryRow(rawURL, row.index, {
+                    key: event.target.value,
+                  }),
+                )
+              }
+              aria-label={`${row.index + 1}. query param adı`}
+              disabled={disabled}
+            />
+            <input
+              value={row.value}
+              onChange={(event) =>
+                onURLChange(
+                  updateURLQueryRow(rawURL, row.index, {
+                    value: event.target.value,
+                  }),
+                )
+              }
+              aria-label={`${row.index + 1}. query param değeri`}
+              disabled={disabled}
+            />
+            <span className="source-badge">URL’den algılandı</span>
+            <IconButton
+              label={`${row.index + 1}. query paramı sil`}
+              disabled={disabled}
+              onClick={() =>
+                onURLChange(removeURLQueryRow(rawURL, row.index))
+              }
+            >
+              <Trash2 size={14} />
+            </IconButton>
+          </div>
+        ))}
+        {rows.length === 0 && !adding && (
+          <p className="query-param-empty">
+            URL’de query param yok. URL’ye <code>?key=value</code> ekleyin veya
+            “Param ekle”yi kullanın.
+          </p>
+        )}
+        {adding && (
+          <div className="variable-composer query-param-composer">
+            <input
+              autoFocus
+              value={newKey}
+              onChange={(event) => {
+                setNewKey(event.target.value);
+                setAddError("");
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  addParameter();
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setAdding(false);
+                }
+              }}
+              placeholder="Param name"
+              aria-label="Yeni query param adı"
+            />
+            <input
+              value={newValue}
+              onChange={(event) => setNewValue(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  addParameter();
+                }
+              }}
+              placeholder="Value"
+              aria-label="Yeni query param değeri"
+            />
+            <Button size="sm" variant="primary" onClick={addParameter}>
+              Ekle
+            </Button>
+            <IconButton
+              label="Query param eklemeyi iptal et"
+              onClick={() => {
+                setAdding(false);
+                setAddError("");
+              }}
+            >
+              <X size={13} />
+            </IconButton>
+          </div>
+        )}
+        {addError && (
+          <p className="variable-composer-error" role="alert">
+            {addError}
+          </p>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -418,6 +554,11 @@ function HeadersEditor({
             </IconButton>
           </div>
         ))}
+        {fields.length === 0 && (
+          <p className="header-empty">
+            Header eklenmedi. Validex request’e otomatik header eklemez.
+          </p>
+        )}
       </div>
     </div>
   );
@@ -560,12 +701,17 @@ export function RequestWorkbench({
       headers: tab.headers,
       timeoutMs: 30_000,
     });
-  }, [tab.id]);
+  }, [tab.headers, tab.id]);
 
   const watchedURL = form.watch("url");
   const watchedBody = form.watch("body");
   const watchedMethod = form.watch("method");
   const watchedHeaders = form.watch("headers");
+  const queryRows = useMemo(() => parseURLQuery(watchedURL), [watchedURL]);
+  const unresolvedURL = useMemo(
+    () => missingVariables(watchedURL, variables),
+    [variables, watchedURL],
+  );
   const unresolved = useMemo(
     () =>
       missingVariables(
@@ -580,6 +726,29 @@ export function RequestWorkbench({
       ),
     [variables, watchedBody, watchedHeaders, watchedMethod, watchedURL],
   );
+  const resolvedURLMessage = useMemo(
+    () =>
+      unresolvedURL.length > 0
+        ? undefined
+        : requestURLValidationMessage(
+            resolveVariableReferences(watchedURL, variables),
+          ),
+    [unresolvedURL.length, variables, watchedURL],
+  );
+
+  const setRequestURL = (url: string) => {
+    form.setValue("url", url, {
+      shouldDirty: true,
+      shouldTouch: true,
+      shouldValidate: true,
+    });
+    updateTab(tab.id, {
+      url,
+      dirty: true,
+      error: false,
+      userError: undefined,
+    });
+  };
 
   const syncHeaders = () => {
     const nextHeaders = form.getValues("headers");
@@ -596,19 +765,19 @@ export function RequestWorkbench({
     updateTab(tab.id, { requestSection: section });
 
   const submit = form.handleSubmit(async (values) => {
-    const normalizedURL = normalizeRequestURL(values.url);
-    const requestHeaders = withInferredJSONContentType(values);
-    form.setValue("url", normalizedURL, {
-      shouldDirty: true,
-      shouldValidate: true,
-    });
+    const resolvedURL = resolveVariableReferences(values.url, variables);
+    const urlError = requestURLValidationMessage(resolvedURL);
+    if (urlError) {
+      form.setError("url", { type: "validate", message: urlError });
+      return;
+    }
     updateTab(tab.id, {
       running: true,
       error: false,
       userError: undefined,
       response: undefined,
       method: values.method,
-      url: normalizedURL,
+      url: values.url,
       body: values.body,
       headers: values.headers,
     });
@@ -617,8 +786,8 @@ export function RequestWorkbench({
         id: tab.id,
         name: tab.name,
         method: values.method,
-        url: normalizedURL,
-        headers: requestHeaders.map(({ id: _id, ...header }) => header),
+        url: values.url,
+        headers: values.headers.map(({ id: _id, ...header }) => header),
         body: values.body,
         variables,
         timeoutMs: values.timeoutMs,
@@ -627,7 +796,7 @@ export function RequestWorkbench({
       if (result.response) {
         let response = result.response;
         if (tab.openApi) {
-          if (!requestURLMatchesOpenAPIPath(normalizedURL, tab.openApi.path)) {
+          if (!requestURLMatchesOpenAPIPath(values.url, tab.openApi.path)) {
             response = {
               ...response,
               contract: {
@@ -745,12 +914,14 @@ export function RequestWorkbench({
 
   const copyAsCurl = () => {
     const values = form.getValues();
-    const requestHeaders = withInferredJSONContentType(values);
     const quote = (value: string) => `'${value.replace(/'/g, "'\\''")}'`;
-    const resolvedURL = normalizeRequestURL(
-      resolveVariableReferences(values.url, variables),
-    );
-    const headerArguments = requestHeaders
+    const resolvedURL = resolveVariableReferences(values.url, variables);
+    const urlError = requestURLValidationMessage(resolvedURL);
+    if (urlError) {
+      form.setError("url", { type: "validate", message: urlError });
+      return;
+    }
+    const headerArguments = values.headers
       .filter((header) => header.enabled && header.key)
       .flatMap((header) => [
         "--header",
@@ -778,10 +949,11 @@ export function RequestWorkbench({
   };
 
   const requestCounts = {
-    params: Object.keys(variables).length,
+    params: queryRows.length,
     headers: countEnabledHeaders(tab),
   };
-  const errorMessage = validationMessage(form.formState.errors);
+  const errorMessage =
+    validationMessage(form.formState.errors) ?? resolvedURLMessage;
   const activeRequestSection = requestSections.some(
     (section) => section.id === tab.requestSection,
   )
@@ -865,36 +1037,7 @@ export function RequestWorkbench({
               aria-label="Request URL"
               aria-invalid={Boolean(errorMessage)}
               disabled={tab.running}
-              onChange={(event) => {
-                form.setValue("url", event.target.value, {
-                  shouldDirty: true,
-                  shouldTouch: true,
-                  shouldValidate: true,
-                });
-                updateTab(tab.id, {
-                  url: event.target.value,
-                  dirty: true,
-                  error: false,
-                  userError: undefined,
-                });
-              }}
-              onBlur={() => {
-                const currentURL = form.getValues("url");
-                const normalizedURL = normalizeRequestURL(currentURL);
-                form.setValue("url", normalizedURL, {
-                  shouldDirty: normalizedURL !== tab.url,
-                  shouldTouch: true,
-                  shouldValidate: true,
-                });
-                if (normalizedURL !== currentURL) {
-                  updateTab(tab.id, {
-                    url: normalizedURL,
-                    dirty: true,
-                    error: false,
-                    userError: undefined,
-                  });
-                }
-              }}
+              onChange={(event) => setRequestURL(event.target.value)}
             />
             <datalist id="recent-url-list">
               {bootstrap.recentUrls.map((url) => (
@@ -924,10 +1067,12 @@ export function RequestWorkbench({
                 type="submit"
                 variant="primary"
                 className="send-button"
-                disabled={unresolved.length > 0}
+                disabled={unresolved.length > 0 || Boolean(errorMessage)}
                 title={
                   unresolved.length > 0
                     ? "Eksik variable değerlerini tamamlayın"
+                    : errorMessage
+                      ? "Geçerli bir HTTP veya HTTPS URL’si girin"
                     : undefined
                 }
               >
@@ -973,7 +1118,15 @@ export function RequestWorkbench({
         >
           <Tabs.List className="request-section-tabs" aria-label="Request settings">
             {requestSections.map(({ id, label, icon: Icon }) => (
-              <Tabs.Trigger key={id} value={id}>
+              <Tabs.Trigger
+                key={id}
+                value={id}
+                aria-label={
+                  id === "params" && requestCounts.params > 0
+                    ? `Params, ${requestCounts.params} query parameters`
+                    : undefined
+                }
+              >
                 <Icon size={13} aria-hidden="true" />
                 {label}
                 {id === "params" && requestCounts.params > 0 && (
@@ -987,19 +1140,32 @@ export function RequestWorkbench({
           </Tabs.List>
           <div className="request-editor-content">
             <Tabs.Content value="params">
-              <ParamsEditor
-                variables={variables}
-                scopeName={
-                  environment?.id === "none"
-                    ? "Workspace"
-                    : (environment?.name ?? "Workspace")
-                }
-                disabled={tab.running}
-                onChange={(key, value) => {
-                  if (!environment) return;
-                  setEnvironmentVariable(environment.id, key, value);
-                }}
-              />
+              <div className="params-editor-stack">
+                <QueryParamsEditor
+                  rawURL={watchedURL}
+                  rows={queryRows}
+                  onURLChange={setRequestURL}
+                  disabled={tab.running}
+                />
+                <section
+                  className="params-secondary-section"
+                  aria-label="Template variables"
+                >
+                  <ParamsEditor
+                    variables={variables}
+                    scopeName={
+                      environment?.id === "none"
+                        ? "Workspace"
+                        : (environment?.name ?? "Workspace")
+                    }
+                    disabled={tab.running}
+                    onChange={(key, value) => {
+                      if (!environment) return;
+                      setEnvironmentVariable(environment.id, key, value);
+                    }}
+                  />
+                </section>
+              </div>
             </Tabs.Content>
             <Tabs.Content value="headers">
               <HeadersEditor

@@ -34,31 +34,32 @@ func TestResolveVariablesTreatsMaskedValuesAsMissing(t *testing.T) {
 	}
 }
 
-func TestNormalizeHTTPURL(t *testing.T) {
-	t.Parallel()
-	tests := map[string]string{
-		"localhost:8080/health":  "http://localhost:8080/health",
-		"10.20.30.40:8081/api":   "http://10.20.30.40:8081/api",
-		"api.example.com/users":  "https://api.example.com/users",
-		"https://example.test/x": "https://example.test/x",
-	}
-	for input, want := range tests {
-		if got := normalizeHTTPURL(input); got != want {
-			t.Errorf("normalizeHTTPURL(%q) = %q, want %q", input, got, want)
+func TestBootstrapLocalEnvironmentDoesNotSeedToken(t *testing.T) {
+	bootstrap := NewBridge().Bootstrap()
+	for _, environment := range bootstrap.Environments {
+		if environment.ID != "local" {
+			continue
 		}
+		if _, exists := environment.Variables["token"]; exists {
+			t.Fatal("local environment must not seed an implicit token variable")
+		}
+		if environment.Variables["baseUrl"] != "http://localhost:8080" {
+			t.Fatalf("unexpected local baseUrl: %q", environment.Variables["baseUrl"])
+		}
+		return
 	}
+	t.Fatal("local environment not found")
 }
 
-func TestSendRequestNormalizesResolvedLocalURL(t *testing.T) {
+func TestSendRequestAcceptsResolvedExplicitHTTPURL(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer server.Close()
 
-	baseURL := strings.TrimPrefix(server.URL, "http://")
 	result := NewBridge().SendRequest(RequestInput{
-		ID: "schemeless", Method: http.MethodGet, URL: "{{baseUrl}}/health",
-		Variables: map[string]string{"baseUrl": baseURL}, TimeoutMS: 2_000,
+		ID: "explicit-url", Method: http.MethodGet, URL: "{{baseUrl}}/health",
+		Variables: map[string]string{"baseUrl": server.URL}, TimeoutMS: 2_000,
 	})
 	if result.Error != nil {
 		t.Fatalf("unexpected error: %#v", result.Error)
@@ -68,12 +69,136 @@ func TestSendRequestNormalizesResolvedLocalURL(t *testing.T) {
 	}
 }
 
-func TestSendRequestRejectsNonHTTPURL(t *testing.T) {
+func TestSendRequestRejectsURLsThatHTTPWouldSilentlyChange(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	tests := map[string]struct {
+		requestURL string
+		variables  map[string]string
+	}{
+		"schemeless": {
+			requestURL: "{{baseUrl}}/health",
+			variables:  map[string]string{"baseUrl": strings.TrimPrefix(server.URL, "http://")},
+		},
+		"network path":      {requestURL: strings.TrimPrefix(server.URL, "http:") + "/health"},
+		"unsupported":       {requestURL: strings.Replace(server.URL, "http://", "ftp://", 1) + "/health"},
+		"userinfo":          {requestURL: strings.Replace(server.URL, "http://", "http://user:secret@", 1) + "/health"},
+		"fragment":          {requestURL: server.URL + "/health#response"},
+		"empty fragment":    {requestURL: server.URL + "/health#"},
+		"surrounding space": {requestURL: " " + server.URL + "/health"},
+	}
+	for name, testCase := range tests {
+		t.Run(name, func(t *testing.T) {
+			result := NewBridge().SendRequest(RequestInput{
+				ID:        "invalid-" + strings.ReplaceAll(name, " ", "-"),
+				Method:    http.MethodGet,
+				URL:       testCase.requestURL,
+				Variables: testCase.variables,
+				TimeoutMS: 250,
+			})
+			if result.Error == nil || result.Error.Code != "invalid_request" {
+				t.Fatalf("expected invalid_request, got %#v", result.Error)
+			}
+		})
+	}
+	if got := requests.Load(); got != 0 {
+		t.Fatalf("invalid URLs reached the server %d times", got)
+	}
+}
+
+func TestSendRequestPreservesRawQueryExactly(t *testing.T) {
+	requestURI := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		requestURI <- request.RequestURI
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	const suffix = "/search?b=2&a=first&a=two%20words&slash=%2F%2f&empty="
 	result := NewBridge().SendRequest(RequestInput{
-		ID: "invalid-scheme", Method: http.MethodGet, URL: "ftp://example.test/file",
+		ID:        "raw-query",
+		Method:    http.MethodGet,
+		URL:       server.URL + suffix,
+		TimeoutMS: 2_000,
 	})
-	if result.Error == nil || result.Error.Code != "invalid_request" {
-		t.Fatalf("expected invalid_request, got %#v", result.Error)
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %#v", result.Error)
+	}
+	if got := <-requestURI; got != suffix {
+		t.Fatalf("RequestURI = %q, want exact %q", got, suffix)
+	}
+	if result.Response == nil || result.Response.ResolvedURL != server.URL+suffix {
+		t.Fatalf("resolved URL was changed: %#v", result.Response)
+	}
+}
+
+func TestSendRequestDoesNotAddOptionalHeaders(t *testing.T) {
+	observed := make(chan http.Header, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		observed <- request.Header.Clone()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	result := NewBridge().SendRequest(RequestInput{
+		ID:        "no-implicit-headers",
+		Method:    http.MethodGet,
+		URL:       server.URL,
+		TimeoutMS: 2_000,
+	})
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %#v", result.Error)
+	}
+	headers := <-observed
+	for _, name := range []string{"User-Agent", "Accept-Encoding", "Authorization"} {
+		if got := headers.Get(name); got != "" {
+			t.Errorf("%s was added implicitly: %q", name, got)
+		}
+	}
+}
+
+func TestSendRequestPreservesExplicitEnabledHeaders(t *testing.T) {
+	observed := make(chan http.Header, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		observed <- request.Header.Clone()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	result := NewBridge().SendRequest(RequestInput{
+		ID:     "explicit-headers",
+		Method: http.MethodGet,
+		URL:    server.URL,
+		Headers: []KeyValue{
+			{Enabled: true, Key: "User-Agent", Value: "Validex-Test/1.0"},
+			{Enabled: true, Key: "Accept-Encoding", Value: "br"},
+			{Enabled: true, Key: "Authorization", Value: "Bearer explicit"},
+			{Enabled: true, Key: "X-Enabled", Value: "yes"},
+			{Enabled: false, Key: "X-Disabled", Value: "no"},
+		},
+		TimeoutMS: 2_000,
+	})
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %#v", result.Error)
+	}
+	headers := <-observed
+	for name, want := range map[string]string{
+		"User-Agent":      "Validex-Test/1.0",
+		"Accept-Encoding": "br",
+		"Authorization":   "Bearer explicit",
+		"X-Enabled":       "yes",
+	} {
+		if got := headers.Get(name); got != want {
+			t.Errorf("%s = %q, want %q", name, got, want)
+		}
+	}
+	if got := headers.Get("X-Disabled"); got != "" {
+		t.Errorf("disabled header was sent: %q", got)
 	}
 }
 

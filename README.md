@@ -26,7 +26,8 @@ make dev
 Bu komut Vite geliştirme sunucusunu ve Go backend’i birlikte başlatır, ardından
 Validex’i sistem WebView’i içindeki masaüstü penceresinde açar. React dosyaları
 Vite’tan gelir; Go çağrıları HTTP yerine native `canbridge` IPC kanalından
-geçer.
+geçer. Geliştirme portu `34116`dan başlayarak seçilir; doluysa sıradaki boş
+loopback portu kullanılır.
 
 Production build:
 
@@ -47,12 +48,16 @@ Keychain veya `codesign` adımı çalıştırmaz.
 > server, dosya seçici, protokol ve Runtime, Environments, Thread & Logs,
 > Coverage gibi native tanılama araçları için `make dev` kullanın.
 
-Production frontend’i binary’ye gömülür ve kalıcı WebView origin’i için yalnız
-`127.0.0.1:34117` origin’inde, aynı host için kesin istek kontrolüyle servis
-edilir. Bu sunucu Go RPC taşımaz; backend çağrıları native WebView IPC kullanır.
-Sabit origin workspace `localStorage` verisini sonraki açılışlarda korur. Port
-doluysa ikinci uygulama örneği başlatılmaz; terminalden çalıştırıldığında port
-hatası doğrudan gösterilir.
+Production frontend’i binary’ye gömülür. Canbridge önce
+`127.0.0.1:34117` adresini kullanır; bu port doluysa işletim sisteminden boş bir
+loopback portu seçer. İsteklerdeki Host kontrolü seçilen gerçek porta göre
+uygulanır. Bu sunucu Go RPC taşımaz; backend çağrıları native WebView IPC
+kullanır. Başlangıçta canbridge adı, efektif frontend URL’si, portu, modu ve
+transport türü terminale yazılır.
+
+Tercih edilen `34117` portu kullanıldığında sabit origin workspace
+`localStorage` verisini sonraki açılışlarda korur. Dinamik fallback portu farklı
+bir origin olduğundan yalnız o uygulama örneğinin workspace alanı ayrıdır.
 
 Önceki masaüstü runtime origin’inde kaydedilmiş workspace, canbridge origin’ine
 otomatik taşınamaz; runtime değişiminden sonraki ilk açılışta yerel workspace bir
@@ -63,18 +68,28 @@ kez sıfırlanır.
 ### HTTP request
 
 1. **Requests → New request** ile bir sekme açın.
-2. Method ve URL’yi yazın. `localhost:8080/health` gibi yerel adreslere
-   otomatik olarak `http://` eklenir.
+2. `http://` veya `https://` ile başlayan URL’yi yazın ya da doğrudan yapıştırın.
+   Query parametreleri **Params** bölümünde otomatik algılanır.
+   Params’taki ekleme, düzenleme ve silme işlemleri doğrudan URL’nin query
+   bölümünü değiştirir; URL tek kaynak olarak kalır.
 3. Gerekirse URL, header veya body içinde `{{variable}}` kullanın ve
    **Variables** bölümünde değerini girin.
-4. **Send** ile request’i gönderin. Çalışan request **Cancel** ile durdurulabilir.
-5. Response’un body, raw body, header, cookie ve timeline görünümlerini inceleyin.
-6. Send menüsündeki **Copy as cURL** ile request’i cURL olarak kopyalayın.
+4. Gerekli `Accept`, `Content-Type` veya `Authorization` değerlerini
+   **Headers** bölümüne kendiniz ekleyin. Sağdaki **Auth** görünümündeki
+   **Authorization header ekle** kısayolu satırı kapalı durumda hazırlar;
+   değerini girip etkinleştirene kadar request ile gönderilmez.
+5. **Send** ile request’i gönderin. Çalışan request **Cancel** ile durdurulabilir.
+6. Response’un body, raw body, header, cookie ve timeline görünümlerini inceleyin.
+7. Send menüsündeki **Copy as cURL** ile request’i cURL olarak kopyalayın.
 
 Validex GET, POST, PUT, PATCH, DELETE, OPTIONS ve HEAD methodlarını; tekrarlanan
-header’ları ve JSON body için otomatik `Content-Type` eklemeyi destekler. URL
-alanı gönderimden önce düzenlenebilir ve eksik variable ya da geçersiz URL
-gönderilmeden gösterilir.
+header adlarını destekler. Yeni request boş header listesiyle açılır; Validex
+`Accept`, `Authorization`, `Content-Type` veya başka bir security header’ını
+kendiliğinden eklemez. HTTP protokolünün zorunlu `Host` ve gövde aktarım
+header’ları transport tarafından gönderilebilir. Yapıştırılan URL blur veya
+gönderim sırasında yeniden yazılmaz. Query parametrelerinin sırası, tekrarlanan
+adları, boş değerleri ve encoding’i kullanıcı düzenleyene kadar korunur. Eksik
+variable veya geçersiz URL request gönderilmeden gösterilir.
 
 ### OpenAPI ve contract drift
 

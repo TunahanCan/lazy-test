@@ -2,19 +2,62 @@ package canbridge
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
+	"net"
 	"net/http"
 	"path"
 	"strings"
+	"syscall"
 )
 
 const (
 	productionAssetAddress = "127.0.0.1:34117"
-	productionAssetHost    = productionAssetAddress
-	productionAssetURL     = "http://" + productionAssetHost + "/"
+	dynamicAssetAddress    = "127.0.0.1:0"
 )
 
-func assetHandler(assets fs.FS, root string) (http.Handler, error) {
+type frontendAssetListener struct {
+	net.Listener
+	Host            string
+	URL             string
+	DynamicFallback bool
+}
+
+func listenForFrontendAssets(preferredAddress string) (frontendAssetListener, error) {
+	listener, preferredErr := net.Listen("tcp4", preferredAddress)
+	dynamicFallback := false
+	if preferredErr != nil {
+		if !errors.Is(preferredErr, syscall.EADDRINUSE) {
+			return frontendAssetListener{}, fmt.Errorf(
+				"listen for frontend assets on %s: %w",
+				preferredAddress,
+				preferredErr,
+			)
+		}
+		listener, preferredErr = net.Listen("tcp4", dynamicAssetAddress)
+		if preferredErr != nil {
+			return frontendAssetListener{}, fmt.Errorf(
+				"preferred frontend address %s is busy and dynamic bind failed: %w",
+				preferredAddress,
+				preferredErr,
+			)
+		}
+		dynamicFallback = true
+	}
+
+	host := listener.Addr().String()
+	return frontendAssetListener{
+		Listener:        listener,
+		Host:            host,
+		URL:             "http://" + host + "/",
+		DynamicFallback: dynamicFallback,
+	}, nil
+}
+
+func assetHandler(assets fs.FS, root string, expectedHost string) (http.Handler, error) {
+	if strings.TrimSpace(expectedHost) == "" {
+		return nil, errors.New("frontend asset host is required")
+	}
 	frontend, err := fs.Sub(assets, root)
 	if err != nil {
 		return nil, err
@@ -25,7 +68,7 @@ func assetHandler(assets fs.FS, root string) (http.Handler, error) {
 	files := http.FileServer(http.FS(frontend))
 
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		if request.Host != productionAssetHost {
+		if request.Host != expectedHost {
 			http.Error(response, "not found", http.StatusNotFound)
 			return
 		}

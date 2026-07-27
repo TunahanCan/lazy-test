@@ -20,6 +20,10 @@ describe("workspace persistence", () => {
     });
   });
 
+  it("creates new requests without automatic headers", () => {
+    expect(createRequestTab({ id: "empty-headers" }).headers).toEqual([]);
+  });
+
   it("does not persist transient errors or common secret values", () => {
     const tab = createRequestTab({
       id: "secret-tab",
@@ -115,6 +119,94 @@ describe("workspace persistence", () => {
     expect(hydrated.running).toBe(false);
     expect(hydrated.error).toBe(false);
     expect(hydrated.userError).toBeUndefined();
+  });
+
+  it("removes only exact legacy default headers during migration", async () => {
+    const legacyTab = createRequestTab({
+      id: "legacy-default-headers",
+      headers: [
+        {
+          id: "header-accept",
+          enabled: true,
+          key: "Accept",
+          value: "application/json",
+          source: "Generated",
+        },
+        {
+          id: "header-auth",
+          enabled: false,
+          key: "Authorization",
+          value: "Bearer {{token}}",
+          source: "Environment",
+        },
+        {
+          id: "manual-accept",
+          enabled: true,
+          key: "Accept",
+          value: "application/json",
+          source: "Manual",
+        },
+        {
+          id: "header-accept",
+          enabled: true,
+          key: "Accept",
+          value: "text/plain",
+          source: "Generated",
+        },
+        {
+          id: "header-auth",
+          enabled: true,
+          key: "Authorization",
+          value: "Bearer {{token}}",
+          source: "Environment",
+        },
+      ],
+    });
+    localStorage.setItem(
+      workspaceStorageKey,
+      JSON.stringify({
+        version: 6,
+        state: {
+          tabs: [legacyTab],
+          activeTabID: legacyTab.id,
+          recentlyClosed: [legacyTab],
+          environmentVariables: {},
+        },
+      }),
+    );
+
+    await useWorkspaceStore.persist.rehydrate();
+
+    expect(
+      useWorkspaceStore.getState().tabs[0].headers.map((header) => ({
+        id: header.id,
+        enabled: header.enabled,
+        value: header.value,
+        source: header.source,
+      })),
+    ).toEqual([
+      {
+        id: "manual-accept",
+        enabled: true,
+        value: "application/json",
+        source: "Manual",
+      },
+      {
+        id: "header-accept",
+        enabled: true,
+        value: "text/plain",
+        source: "Generated",
+      },
+      {
+        id: "header-auth",
+        enabled: true,
+        value: "Bearer {{token}}",
+        source: "Environment",
+      },
+    ]);
+    expect(useWorkspaceStore.getState().recentlyClosed[0].headers).toHaveLength(
+      3,
+    );
   });
 
   it("opens the welcome screen for an untouched legacy demo", async () => {
