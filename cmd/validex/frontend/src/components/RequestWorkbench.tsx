@@ -4,10 +4,10 @@ import {
   useEffect,
   useMemo,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import * as Tabs from "@radix-ui/react-tabs";
 import {
@@ -16,16 +16,11 @@ import {
   Check,
   ChevronDown,
   Clipboard,
-  Code2,
-  FileCode2,
   FileText,
   KeyRound,
-  MoreHorizontal,
   Plus,
   Search,
   Send,
-  Settings2,
-  ShieldCheck,
   Sparkles,
   Trash2,
   Variable,
@@ -41,6 +36,7 @@ import {
   missingVariables,
   normalizeRequestURL,
   requestSchema,
+  resolveVariableReferences,
   type RequestFormValues,
 } from "../lib/schemas";
 import { isSecretKey } from "../lib/secrets";
@@ -48,7 +44,6 @@ import type {
   BootstrapData,
   HTTPMethod,
   RequestTab,
-  ResponseEnvelope,
 } from "../lib/types";
 import { cn } from "../lib/utils";
 import { useWorkspaceStore } from "../stores/workspace";
@@ -74,10 +69,6 @@ const requestSections = [
   { id: "authorization", label: "Authorization", icon: KeyRound },
   { id: "headers", label: "Headers", icon: FileText },
   { id: "body", label: "Body", icon: Braces },
-  { id: "scripts", label: "Scripts", icon: Code2 },
-  { id: "assertions", label: "Assertions", icon: ShieldCheck },
-  { id: "settings", label: "Settings", icon: Settings2 },
-  { id: "documentation", label: "Documentation", icon: FileCode2 },
 ] as const;
 
 function countEnabledHeaders(tab: RequestTab) {
@@ -181,26 +172,58 @@ function MethodSelect({
 
 function ParamsEditor({
   variables,
+  scopeName,
   onChange,
   disabled = false,
 }: {
   variables: Record<string, string>;
+  scopeName: string;
   onChange: (key: string, value: string) => void;
   disabled?: boolean;
 }) {
+  const [adding, setAdding] = useState(false);
+  const [newKey, setNewKey] = useState("");
+  const [newValue, setNewValue] = useState("");
+  const [addError, setAddError] = useState("");
   const rows = Object.entries(variables).map(([key, value]) => ({
     key,
     value,
     type: isSecretKey(key) ? "Secret" : "String",
-    source: "Environment",
+    source: scopeName,
   }));
+  const addVariable = () => {
+    const key = newKey.trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_.-]*$/.test(key)) {
+      setAddError("Variable adı harf veya _ ile başlamalıdır.");
+      return;
+    }
+    if (Object.hasOwn(variables, key)) {
+      setAddError("Bu variable zaten mevcut.");
+      return;
+    }
+    onChange(key, newValue);
+    setAdding(false);
+    setNewKey("");
+    setNewValue("");
+    setAddError("");
+  };
   return (
     <div className="parameter-editor">
       <div className="table-toolbar">
         <div>
-          <strong>Environment variables</strong>
+          <strong>{scopeName} variables</strong>
           <span>URL, header ve body içindeki değişkenlerde kullanılır.</span>
         </div>
+        <Button
+          size="sm"
+          disabled={disabled}
+          onClick={() => {
+            setAdding(true);
+            setAddError("");
+          }}
+        >
+          <Plus size={13} /> Add variable
+        </Button>
       </div>
       <div className="parameter-table">
         <div className="parameter-row parameter-header">
@@ -230,7 +253,61 @@ function ParamsEditor({
         ))}
         {rows.length === 0 && (
           <p className="context-note">
-            Aktif environment için tanımlı variable bulunmuyor.
+            Henüz variable yok. URL’de <code>{"{{baseUrl}}"}</code> gibi bir
+            ifade kullanacaksanız önce değerini ekleyin.
+          </p>
+        )}
+        {adding && (
+          <div className="variable-composer">
+            <input
+              autoFocus
+              value={newKey}
+              onChange={(event) => {
+                setNewKey(event.target.value);
+                setAddError("");
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  addVariable();
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setAdding(false);
+                }
+              }}
+              placeholder="Variable name"
+              aria-label="Yeni variable adı"
+            />
+            <input
+              value={newValue}
+              onChange={(event) => setNewValue(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  addVariable();
+                }
+              }}
+              placeholder="Value"
+              aria-label="Yeni variable değeri"
+            />
+            <Button size="sm" variant="primary" onClick={addVariable}>
+              Add
+            </Button>
+            <IconButton
+              label="Variable eklemeyi iptal et"
+              onClick={() => {
+                setAdding(false);
+                setAddError("");
+              }}
+            >
+              <X size={13} />
+            </IconButton>
+          </div>
+        )}
+        {addError && (
+          <p className="variable-composer-error" role="alert">
+            {addError}
           </p>
         )}
       </div>
@@ -242,7 +319,7 @@ function AuthorizationEditor() {
   return (
     <EmptyState
       title="Authorization header üzerinden yönetiliyor"
-      description="Bearer, Basic veya API key değerini Headers sekmesinde ekleyin. OAuth 2.0 ve mTLS editörleri henüz hazır değil."
+      description="Bearer, Basic veya API key değerini Headers sekmesinde Authorization header’ı olarak ekleyin."
     />
   );
 }
@@ -318,6 +395,7 @@ function HeadersEditor({
               {...register(`headers.${index}.enabled`)}
               onBlur={sync}
               disabled={disabled}
+              aria-label={`${index + 1}. header etkin`}
             />
             <input
               list="header-suggestions"
@@ -325,12 +403,14 @@ function HeadersEditor({
               placeholder="Header name"
               onBlur={sync}
               disabled={disabled}
+              aria-label={`${index + 1}. header adı`}
             />
             <input
               {...register(`headers.${index}.value`)}
               placeholder="Value or {{variable}}"
               onBlur={sync}
               disabled={disabled}
+              aria-label={`${index + 1}. header değeri`}
             />
             <span className="source-badge">
               {field.source ?? "Manual"}
@@ -435,45 +515,6 @@ function BodyEditor({
   );
 }
 
-function EditorEmpty({
-  section,
-}: {
-  section: RequestTab["requestSection"];
-}) {
-  const content: Record<
-    "scripts" | "assertions" | "settings" | "documentation",
-    [string, string]
-  > = {
-    scripts: [
-      "Scripts henüz hazır değil",
-      "Pre-request ve post-response script çalıştırma sonraki sürümde eklenecek.",
-    ],
-    assertions: [
-      "Assertions henüz hazır değil",
-      "Status, süre, header ve JSON assertion çalıştırma sonraki sürümde eklenecek.",
-    ],
-    settings: [
-      "Request ayarları henüz hazır değil",
-      "Redirect, timeout, SSL validation ve history seçenekleri sonraki sürümde eklenecek.",
-    ],
-    documentation: [
-      "Documentation henüz hazır değil",
-      "Request açıklaması ve kullanım notları sonraki sürümde eklenecek.",
-    ],
-  };
-  const [title, description] =
-    content[
-      section as "scripts" | "assertions" | "settings" | "documentation"
-    ];
-  return (
-    <EmptyState
-      icon="new"
-      title={title}
-      description={description}
-    />
-  );
-}
-
 export function RequestWorkbench({
   tab,
   bootstrap,
@@ -481,7 +522,6 @@ export function RequestWorkbench({
   tab: RequestTab;
   bootstrap: BootstrapData;
 }) {
-  const queryClient = useQueryClient();
   const sendMutation = useSendRequest();
   const cancelMutation = useCancelRequest();
   const updateTab = useWorkspaceStore((state) => state.updateTab);
@@ -534,19 +574,23 @@ export function RequestWorkbench({
     });
   }, [tab.id]);
 
-  const responseQuery = useQuery<ResponseEnvelope | null>({
-    queryKey: ["response", tab.id],
-    queryFn: async () => null,
-    enabled: false,
-    initialData: null,
-  });
-
   const watchedURL = form.watch("url");
   const watchedBody = form.watch("body");
   const watchedMethod = form.watch("method");
+  const watchedHeaders = form.watch("headers");
   const unresolved = useMemo(
-    () => missingVariables(watchedURL, variables),
-    [variables, watchedURL],
+    () =>
+      missingVariables(
+        [
+          watchedURL,
+          methodAllowsBody(watchedMethod) ? watchedBody : "",
+          ...watchedHeaders
+            .filter((header) => header.enabled)
+            .map((header) => header.value),
+        ].join("\n"),
+        variables,
+      ),
+    [variables, watchedBody, watchedHeaders, watchedMethod, watchedURL],
   );
 
   const syncHeaders = () => {
@@ -570,7 +614,6 @@ export function RequestWorkbench({
       shouldDirty: true,
       shouldValidate: true,
     });
-    queryClient.setQueryData(["response", tab.id], null);
     updateTab(tab.id, {
       running: true,
       error: false,
@@ -594,7 +637,6 @@ export function RequestWorkbench({
         saveHistory: true,
       });
       if (result.response) {
-        queryClient.setQueryData(["response", tab.id], result.response);
         updateTab(tab.id, {
           running: false,
           error: false,
@@ -662,24 +704,48 @@ export function RequestWorkbench({
 
   const copyAsCurl = () => {
     const values = form.getValues();
-    const headersText = values.headers
-      .filter((header) => header.enabled && header.key)
-      .map((header) => `-H '${header.key}: ${header.value}'`)
-      .join(" ");
-    const bodyText = values.body
-      ? ` --data '${values.body.replace(/'/g, "'\\''")}'`
-      : "";
-    void navigator.clipboard?.writeText(
-      `curl -X ${values.method} ${headersText}${bodyText} '${values.url}'`,
+    const requestHeaders = withInferredJSONContentType(values);
+    const quote = (value: string) => `'${value.replace(/'/g, "'\\''")}'`;
+    const resolvedURL = normalizeRequestURL(
+      resolveVariableReferences(values.url, variables),
     );
+    const headerArguments = requestHeaders
+      .filter((header) => header.enabled && header.key)
+      .flatMap((header) => [
+        "--header",
+        quote(
+          `${header.key}: ${resolveVariableReferences(header.value, variables)}`,
+        ),
+      ]);
+    const bodyArguments =
+      methodAllowsBody(values.method) && values.body
+        ? [
+            "--data-raw",
+            quote(resolveVariableReferences(values.body, variables)),
+          ]
+        : [];
+    const command = [
+      "curl",
+      "--request",
+      values.method,
+      "--url",
+      quote(resolvedURL),
+      ...headerArguments,
+      ...bodyArguments,
+    ].join(" ");
+    void navigator.clipboard?.writeText(command);
   };
 
   const requestCounts = {
-    params: Object.keys(environment?.variables ?? {}).length,
+    params: Object.keys(variables).length,
     headers: countEnabledHeaders(tab),
-    assertions: 0,
   };
   const errorMessage = validationMessage(form.formState.errors);
+  const activeRequestSection = requestSections.some(
+    (section) => section.id === tab.requestSection,
+  )
+    ? tab.requestSection
+    : "params";
 
   const startResponseResize = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -704,6 +770,23 @@ export function RequestWorkbench({
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", stop);
+  };
+  const resizeResponseWithKeyboard = (
+    event: ReactKeyboardEvent<HTMLDivElement>,
+  ) => {
+    const decrease =
+      responsePlacement === "vertical"
+        ? event.key === "ArrowDown"
+        : event.key === "ArrowRight";
+    const increase =
+      responsePlacement === "vertical"
+        ? event.key === "ArrowUp"
+        : event.key === "ArrowLeft";
+    if (!increase && !decrease) return;
+    event.preventDefault();
+    setResponseSize(
+      Math.max(24, Math.min(72, responseSize + (increase ? 2 : -2))),
+    );
   };
 
   return (
@@ -795,7 +878,17 @@ export function RequestWorkbench({
             </Button>
           ) : (
             <div className="send-split">
-              <Button type="submit" variant="primary" className="send-button">
+              <Button
+                type="submit"
+                variant="primary"
+                className="send-button"
+                disabled={unresolved.length > 0}
+                title={
+                  unresolved.length > 0
+                    ? "Eksik variable değerlerini tamamlayın"
+                    : undefined
+                }
+              >
                 <Send size={15} />
                 Send
               </Button>
@@ -836,7 +929,7 @@ export function RequestWorkbench({
         )}
 
         <Tabs.Root
-          value={tab.requestSection}
+          value={activeRequestSection}
           onValueChange={(value) =>
             setSection(value as RequestTab["requestSection"])
           }
@@ -853,19 +946,18 @@ export function RequestWorkbench({
                 {id === "headers" && requestCounts.headers > 0 && (
                   <CountBadge>{requestCounts.headers}</CountBadge>
                 )}
-                {id === "assertions" && requestCounts.assertions > 0 && (
-                  <CountBadge>{requestCounts.assertions}</CountBadge>
-                )}
               </Tabs.Trigger>
             ))}
-            <button type="button" className="tab-overflow" aria-label="Daha fazla">
-              <MoreHorizontal size={15} />
-            </button>
           </Tabs.List>
           <div className="request-editor-content">
             <Tabs.Content value="params">
               <ParamsEditor
                 variables={variables}
+                scopeName={
+                  environment?.id === "none"
+                    ? "Workspace"
+                    : (environment?.name ?? "Workspace")
+                }
                 disabled={tab.running}
                 onChange={(key, value) => {
                   if (!environment) return;
@@ -906,13 +998,6 @@ export function RequestWorkbench({
                 }}
               />
             </Tabs.Content>
-            {(["scripts", "assertions", "settings", "documentation"] as const).map(
-              (section) => (
-                <Tabs.Content value={section} key={section}>
-                  <EditorEmpty section={section} />
-                </Tabs.Content>
-              ),
-            )}
           </div>
         </Tabs.Root>
       </form>
@@ -920,15 +1005,20 @@ export function RequestWorkbench({
       <div
         className="response-resizer"
         onPointerDown={startResponseResize}
+        onKeyDown={resizeResponseWithKeyboard}
         role="separator"
+        tabIndex={0}
         aria-orientation={
           responsePlacement === "vertical" ? "horizontal" : "vertical"
         }
         aria-label="Request ve response alanlarını yeniden boyutlandır"
+        aria-valuemin={24}
+        aria-valuemax={72}
+        aria-valuenow={Math.round(responseSize)}
       >
         <span />
       </div>
-      <ResponsePanel tab={tab} response={responseQuery.data} />
+      <ResponsePanel tab={tab} />
     </main>
   );
 }

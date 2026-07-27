@@ -15,7 +15,6 @@ import {
   FileCode2,
   FolderOutput,
   LoaderCircle,
-  RefreshCw,
   X,
 } from "lucide-react";
 import { backend } from "../lib/backend";
@@ -254,10 +253,29 @@ function mainSource(config: GeneratorConfig, tab: RequestTab) {
   const method = tab.method.toLowerCase();
   const expectedStatus =
     tab.response?.statusCode ?? (tab.method === "POST" ? 201 : 200);
-  const expectedContentType =
+  const expectedResponseContentType =
     tab.response?.contentType?.split(";")[0]?.trim() || "application/json";
-  const escapedContentType = javaString(expectedContentType);
-  const hasBody = ["POST", "PUT", "PATCH"].includes(tab.method);
+  const escapedResponseContentType = javaString(expectedResponseContentType);
+  const hasBody =
+    ["POST", "PUT", "PATCH", "DELETE"].includes(tab.method) &&
+    tab.body.trim().length > 0;
+  const explicitContentType = tab.headers.find(
+    (header) =>
+      header.enabled &&
+      header.key.trim().toLowerCase() === "content-type",
+  );
+  let inferredContentType = "";
+  if (!explicitContentType && hasBody) {
+    try {
+      JSON.parse(tab.body);
+      inferredContentType = "application/json";
+    } catch {
+      // Match the request sender: raw non-JSON bodies do not gain a content type.
+    }
+  }
+  const requestContentType =
+    explicitContentType?.value.trim() ?? inferredContentType;
+  const escapedRequestContentType = javaString(requestContentType);
   const sanitizedRequestBody = safeJSONFixture(
     tab.body || "{}",
     '{\n  "_validex": "Non-JSON request body omitted; review before use."\n}\n',
@@ -270,19 +288,40 @@ function mainSource(config: GeneratorConfig, tab: RequestTab) {
       !secretKeyPattern.test(header.key) &&
       !secretKeyPattern.test(header.value),
   );
+  const replayHeaders =
+    requestContentType && !explicitContentType
+      ? [
+          ...safeHeaders,
+          {
+            id: "generated-content-type",
+            enabled: true,
+            key: "Content-Type",
+            value: requestContentType,
+          },
+        ]
+      : safeHeaders;
   const headerChain = (indent: string) =>
-    safeHeaders
+    replayHeaders
       .map(
         (header) =>
           `${indent}.header("${javaString(header.key)}", "${javaString(header.value)}")`,
       )
       .join("\n");
+  const contractHeaders = safeHeaders.filter(
+    (header) =>
+      !requestContentType ||
+      header.key.trim().toLowerCase() !== "content-type",
+  );
+  const needsGenericDeleteMethod = tab.method === "DELETE" && hasBody;
+  const springClientMethod = needsGenericDeleteMethod
+    ? "method(HttpMethod.DELETE)"
+    : `${method}()`;
   const mockAssertions = [
     config.assertions.status
       ? `.andExpect(status().is(${expectedStatus}))`
       : "",
     config.assertions.contentType
-      ? `.andExpect(content().contentTypeCompatibleWith("${escapedContentType}"))`
+      ? `.andExpect(content().contentTypeCompatibleWith("${escapedResponseContentType}"))`
       : "",
     config.assertions.responseBody
       ? ".andExpect(content().string(not(emptyString())))"
@@ -296,7 +335,7 @@ function mainSource(config: GeneratorConfig, tab: RequestTab) {
       ? `.expectStatus().isEqualTo(${expectedStatus})`
       : "",
     config.assertions.contentType
-      ? `.expectHeader().contentTypeCompatibleWith("${escapedContentType}")`
+      ? `.expectHeader().contentTypeCompatibleWith("${escapedResponseContentType}")`
       : "",
     config.assertions.responseBody
       ? ".expectBody().consumeWith(result -> assertTrue(result.getResponseBody().length > 0))"
@@ -310,7 +349,7 @@ function mainSource(config: GeneratorConfig, tab: RequestTab) {
       ? `        assertEquals(${expectedStatus}, response.statusCode());`
       : "",
     config.assertions.contentType
-      ? `        assertTrue(response.headers().firstValue("Content-Type").orElse("").startsWith("${escapedContentType}"));`
+      ? `        assertTrue(response.headers().firstValue("Content-Type").orElse("").startsWith("${escapedResponseContentType}"));`
       : "",
     config.assertions.responseBody
       ? "        assertFalse(response.body().isBlank());"
@@ -326,7 +365,7 @@ function mainSource(config: GeneratorConfig, tab: RequestTab) {
       ? `        assertThat(response.getStatusCode().value()).isEqualTo(${expectedStatus});`
       : "",
     config.assertions.contentType
-      ? `        assertThat(response.getHeaders().getContentType().toString()).startsWith("${escapedContentType}");`
+      ? `        assertThat(response.getHeaders().getContentType().toString()).startsWith("${escapedResponseContentType}");`
       : "",
     config.assertions.responseBody
       ? "        assertThat(response.getBody()).isNotBlank();"
@@ -350,7 +389,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 @SpringBootTest
@@ -366,7 +404,7 @@ class ${className} {
             : ""
         }${
           hasBody
-            ? `\n                .contentType(MediaType.parseMediaType("${escapedContentType}"))\n                .content("${body}")`
+            ? `\n                .content("${body}")`
             : ""
         })${mockTail}
     }
@@ -380,7 +418,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.web.reactive.server.WebTestClient;
+${needsGenericDeleteMethod ? "import org.springframework.http.HttpMethod;\n" : ""}import org.springframework.test.web.reactive.server.WebTestClient;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class ${className} {
@@ -388,7 +426,7 @@ class ${className} {
 
     @Test
     void ${method}RequestMatchesContract() {
-        client.${method}()
+        client.${springClientMethod}
             .uri("${path}")${
               headerChain("            ")
                 ? `\n${headerChain("            ")}`
@@ -425,10 +463,14 @@ class ${className} {
 
     @Test
     void stub${safeClassName(tab.name)}() {
-        server.stubFor(${method}(urlEqualTo("${path}"))
+        server.stubFor(${method}(urlEqualTo("${path}"))${
+          hasBody
+            ? `\n            .withRequestBody(equalToJson("${body}"))`
+            : ""
+        }
             .willReturn(aResponse()
                 .withStatus(${expectedStatus})
-                .withHeader("Content-Type", "${escapedContentType}")
+                .withHeader("Content-Type", "${escapedResponseContentType}")
                 .withBodyFile("validex-response.json")));
     }
 }
@@ -442,8 +484,8 @@ Contract.make {
         method "${tab.method}"
         url "${path}"
         headers {
-            contentType("${escapedContentType}")
-${safeHeaders
+${requestContentType ? `            contentType("${escapedRequestContentType}")` : ""}
+${contractHeaders
   .map(
     (header) =>
       `            header("${javaString(header.key)}", "${javaString(header.value)}")`,
@@ -455,7 +497,7 @@ ${hasBody ? '        body(file("validex-request.json"))' : ""}
     response {
         status ${expectedStatus}
         headers {
-            contentType("${escapedContentType}")
+            contentType("${escapedResponseContentType}")
         }
 ${config.assertions.responseBody ? '        body(file("validex-response.json"))' : ""}
     }
@@ -479,7 +521,7 @@ class ${className} {
     void ${method}RequestReturnsSuccess() throws Exception {
         var baseUrl = System.getenv().getOrDefault("BASE_URL", "http://localhost:8080");
         var request = HttpRequest.newBuilder(URI.create(baseUrl + "${path}"))
-            .header("Accept", "${escapedContentType}")${
+            .header("Accept", "${escapedResponseContentType}")${
               headerChain("            ")
                 ? `\n${headerChain("            ")}`
                 : ""
@@ -504,7 +546,7 @@ ${junitResponseAssertions || "        // No response assertions selected."}
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.web.client.RestClient;
+${needsGenericDeleteMethod ? "import org.springframework.http.HttpMethod;\n" : ""}import org.springframework.web.client.RestClient;
 
 class ${className} {
     private final RestClient client = RestClient.create(
@@ -514,7 +556,7 @@ class ${className} {
     @Test
     void ${method}RequestReturnsSuccess() {
         var startedAt = System.nanoTime();
-        var response = client.${method}()
+        var response = client.${springClientMethod}
             .uri("${path}")${
               headerChain("            ")
                 ? `\n${headerChain("            ")}`
@@ -534,7 +576,7 @@ ${restClientAssertions || "        // No response assertions selected."}
 import static org.junit.jupiter.api.Assertions.*;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.web.reactive.function.client.WebClient;
+${needsGenericDeleteMethod ? "import org.springframework.http.HttpMethod;\n" : ""}import org.springframework.web.reactive.function.client.WebClient;
 import reactor.test.StepVerifier;
 
 class ${className} {
@@ -544,7 +586,7 @@ class ${className} {
 
     @Test
     void ${method}RequestReturnsSuccess() {
-        var response = client.${method}()
+        var response = client.${springClientMethod}
             .uri("${path}")${
               headerChain("            ")
                 ? `\n${headerChain("            ")}`
@@ -560,7 +602,7 @@ ${[
     ? `                assertEquals(${expectedStatus}, entity.getStatusCode().value());`
     : "",
   config.assertions.contentType
-    ? `                assertTrue(entity.getHeaders().getContentType().toString().startsWith("${escapedContentType}"));`
+    ? `                assertTrue(entity.getHeaders().getContentType().toString().startsWith("${escapedResponseContentType}"));`
     : "",
   config.assertions.responseBody
     ? "                assertNotNull(entity.getBody());\n                assertFalse(entity.getBody().isBlank());"
@@ -576,7 +618,7 @@ ${[
     case "rest-assured":
     default: {
       const assertions =
-        assertionLines(config, expectedStatus, expectedContentType) ||
+        assertionLines(config, expectedStatus, expectedResponseContentType) ||
         `        .statusCode(${expectedStatus})`;
       return `package ${packageName};
 
@@ -589,14 +631,13 @@ class ${className} {
     @Test
     void ${method}RequestMatchesContract() {
         given()
-            .baseUri(System.getenv().getOrDefault("BASE_URL", "http://localhost:8080"))
-            .header("Accept", "${escapedContentType}")${
+            .baseUri(System.getenv().getOrDefault("BASE_URL", "http://localhost:8080"))${
               headerChain("            ")
                 ? `\n${headerChain("            ")}`
                 : ""
             }${
               hasBody
-                ? `\n            .contentType("${escapedContentType}")\n            .body("${body}")`
+                ? `\n            .body("${body}")`
                 : ""
             }
         .when()
@@ -799,7 +840,11 @@ final class ResponseAssertions {
       ),
     },
   ];
-  if (contract && ["POST", "PUT", "PATCH"].includes(tab.method)) {
+  if (
+    contract &&
+    ["POST", "PUT", "PATCH", "DELETE"].includes(tab.method) &&
+    tab.body.trim()
+  ) {
     files.push({
       name: "Request resource",
       relativePath: "src/test/resources/contracts/validex-request.json",
@@ -838,10 +883,9 @@ export function CodeGeneratorDialog() {
       responseTime: false,
     },
   });
-  const [generatedConfig, setGeneratedConfig] = useState(config);
   const files = useMemo(
-    () => (activeTab ? buildGeneratedFiles(generatedConfig, activeTab) : []),
-    [activeTab, generatedConfig],
+    () => (activeTab ? buildGeneratedFiles(config, activeTab) : []),
+    [activeTab, config],
   );
   const [activeFilePath, setActiveFilePath] = useState("");
   const [notice, setNotice] = useState<{
@@ -922,7 +966,7 @@ export function CodeGeneratorDialog() {
     setBusy(true);
     try {
       const selectedBuildFile =
-        generatedConfig.buildSystem === "maven"
+        config.buildSystem === "maven"
           ? "Maven dependency"
           : "Gradle dependency";
       const exportFiles = files.filter(
@@ -930,7 +974,7 @@ export function CodeGeneratorDialog() {
           !file.name.endsWith("dependency") || file.name === selectedBuildFile,
       );
       const result = await backend.exportGeneratedProject(
-        `${safeClassName(generatedConfig.className)}-validex`,
+        `${safeClassName(config.className)}-validex`,
         exportFiles,
       );
       if (result.error) showNotice(result.error.message, "danger");
@@ -961,18 +1005,6 @@ export function CodeGeneratorDialog() {
               </Dialog.Description>
             </div>
             <div className="codegen-header-actions">
-              <Button
-                size="sm"
-                onClick={() => {
-                  setGeneratedConfig({
-                    ...config,
-                    assertions: { ...config.assertions },
-                  });
-                  showNotice("Kod güncel ayarlarla yeniden üretildi.");
-                }}
-              >
-                <RefreshCw size={13} /> Regenerate
-              </Button>
               <Dialog.Close asChild>
                 <IconButton label="Kod üreticisini kapat">
                   <X size={17} />

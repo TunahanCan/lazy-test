@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   missingVariables,
   normalizeRequestURL,
+  resolveVariableReferences,
   requestSchema,
 } from "./schemas";
 
@@ -67,5 +68,17 @@ describe("request schema", () => {
         token: "••••••••••••",
       }),
     ).toEqual(["token"]);
+  });
+
+  it("resolves known references without removing unknown values", () => {
+    expect(
+      resolveVariableReferences(
+        "{{baseUrl}}/users/{{id}}/{{unknown}}",
+        {
+          baseUrl: "https://example.test",
+          id: "42",
+        },
+      ),
+    ).toBe("https://example.test/users/42/{{unknown}}");
   });
 });

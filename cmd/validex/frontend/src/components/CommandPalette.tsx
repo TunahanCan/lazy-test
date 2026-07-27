@@ -2,18 +2,14 @@ import { useMemo, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
   Boxes,
-  Clock3,
   FileCode2,
   FilePlus2,
-  Import,
   LayoutPanelLeft,
   Moon,
   RotateCcw,
   Search,
   Sun,
 } from "lucide-react";
-import { importedRequestURL } from "../lib/openapi";
-import { useImportOpenAPI } from "../lib/queries";
 import type { BootstrapData } from "../lib/types";
 import { fuzzyMatch } from "../lib/utils";
 import { useWorkspaceStore } from "../stores/workspace";
@@ -42,7 +38,6 @@ export function CommandPalette({ bootstrap }: { bootstrap: BootstrapData }) {
   const setCodeGeneratorOpen = useWorkspaceStore(
     (state) => state.setCodeGeneratorOpen,
   );
-  const importer = useImportOpenAPI();
 
   const commands = useMemo<CommandItem[]>(
     () => [
@@ -55,36 +50,6 @@ export function CommandPalette({ bootstrap }: { bootstrap: BootstrapData }) {
         icon: FilePlus2,
         action: () =>
           openTab({ name: "Untitled request", url: "", dirty: true }),
-      },
-      {
-        id: "import-openapi",
-        label: "Import OpenAPI",
-        group: "Create",
-        keywords: "openapi swagger import api",
-        icon: Import,
-        action: async () => {
-          const result = await importer.mutateAsync();
-          if (!result.error && !result.canceled) {
-            result.endpoints.slice(0, 8).forEach((endpoint) =>
-              openTab({
-                id: `${endpoint.id}-${crypto.randomUUID()}`,
-                name: endpoint.summary || endpoint.path,
-                method: endpoint.method,
-                url: importedRequestURL(result.baseUrl, endpoint.path),
-                dirty: false,
-              }),
-            );
-          }
-        },
-      },
-      {
-        id: "open-history",
-        label: "Open history",
-        group: "Navigate",
-        keywords: "history geçmiş request",
-        shortcut: "⌘ R",
-        icon: Clock3,
-        action: () => setSidebarSection("history"),
       },
       {
         id: "open-collections",
@@ -128,7 +93,6 @@ export function CommandPalette({ bootstrap }: { bootstrap: BootstrapData }) {
       },
     ],
     [
-      importer,
       openTab,
       resetLayout,
       setCodeGeneratorOpen,
@@ -165,7 +129,7 @@ export function CommandPalette({ bootstrap }: { bootstrap: BootstrapData }) {
         <Dialog.Content className="command-palette">
           <Dialog.Title className="sr-only">Command palette</Dialog.Title>
           <Dialog.Description className="sr-only">
-            Workspace öğelerini ve komutları fuzzy search ile bulun.
+            Uygulama komutlarını fuzzy search ile bulun.
           </Dialog.Description>
           <div className="palette-search">
             <Search size={18} aria-hidden="true" />
@@ -173,7 +137,7 @@ export function CommandPalette({ bootstrap }: { bootstrap: BootstrapData }) {
               autoFocus
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder={`Search ${bootstrap.workspaceName}…`}
+              placeholder={`Search ${bootstrap.workspaceName} commands…`}
               aria-label="Command palette ara"
             />
             <Kbd>ESC</Kbd>
@@ -200,19 +164,12 @@ export function CommandPalette({ bootstrap }: { bootstrap: BootstrapData }) {
               })
             ) : (
               <div className="palette-empty">
-                “{query}” için eşleşen request veya komut bulunamadı.
+                “{query}” için eşleşen komut bulunamadı.
               </div>
             )}
           </div>
           <div className="palette-footer">
-            <span>
-              <Kbd>↑</Kbd>
-              <Kbd>↓</Kbd> Navigate
-            </span>
-            <span>
-              <Kbd>↵</Kbd> Open
-            </span>
-            <span>{bootstrap.collections.length} workspace items indexed</span>
+            <span>{filtered.length} available commands</span>
           </div>
         </Dialog.Content>
       </Dialog.Portal>

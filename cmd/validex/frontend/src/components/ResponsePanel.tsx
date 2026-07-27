@@ -1,28 +1,20 @@
 import { lazy, Suspense, useMemo, useState } from "react";
+import * as Tabs from "@radix-ui/react-tabs";
 import {
   AlertTriangle,
   Braces,
-  CheckCircle2,
-  ChevronDown,
+  Check,
   Clipboard,
   Clock3,
   FileJson2,
   FileText,
+  LoaderCircle,
   Network,
-  Plus,
-  Search,
-  ShieldCheck,
-  TerminalSquare,
 } from "lucide-react";
 import type { RequestTab, ResponseEnvelope } from "../lib/types";
-import {
-  cn,
-  formatBytes,
-  formatDuration,
-  statusTone,
-} from "../lib/utils";
+import { cn, formatBytes, formatDuration, statusTone } from "../lib/utils";
 import { useWorkspaceStore } from "../stores/workspace";
-import { Button, CountBadge, EmptyState, StatusMark } from "./ui";
+import { CountBadge, EmptyState, StatusMark } from "./ui";
 
 const MonacoEditor = lazy(() =>
   import("@monaco-editor/react").then((module) => ({ default: module.default })),
@@ -32,45 +24,39 @@ const responseSections = [
   { id: "body", label: "Body", icon: Braces },
   { id: "headers", label: "Headers", icon: FileText },
   { id: "cookies", label: "Cookies", icon: FileJson2 },
-  { id: "assertions", label: "Assertions", icon: CheckCircle2 },
   { id: "timeline", label: "Timeline", icon: Clock3 },
-  { id: "contract", label: "Contract", icon: ShieldCheck },
-  { id: "console", label: "Console", icon: TerminalSquare },
   { id: "raw", label: "Raw", icon: Network },
 ] as const;
+
+type ResponseSectionID = (typeof responseSections)[number]["id"];
 
 function EditorFallback() {
   return <div className="editor-loading">Response viewer hazırlanıyor…</div>;
 }
 
 function ResponseBody({ response }: { response: ResponseEnvelope }) {
-  const [mode, setMode] = useState<"pretty" | "raw" | "preview">("pretty");
+  const [copied, setCopied] = useState(false);
+  const copyBody = async () => {
+    try {
+      await navigator.clipboard?.writeText(response.body);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1_500);
+    } catch {
+      setCopied(false);
+    }
+  };
+
   return (
     <div className="response-body">
       <div className="response-toolbar">
-        <div className="segmented">
-          {(["pretty", "raw", "preview"] as const).map((item) => (
-            <button
-              key={item}
-              className={cn(mode === item && "active")}
-              onClick={() => setMode(item)}
-            >
-              {item[0].toUpperCase() + item.slice(1)}
-            </button>
-          ))}
-        </div>
+        <span className="response-format-label">
+          <Braces size={13} aria-hidden="true" />
+          Formatted response
+        </span>
         <div className="response-toolbar-actions">
-          <button>
-            <Search size={14} /> Find
-          </button>
-          <button
-            onClick={() =>
-              void navigator.clipboard?.writeText(
-                mode === "raw" ? response.rawBody : response.body,
-              )
-            }
-          >
-            <Clipboard size={14} /> Copy
+          <button type="button" onClick={() => void copyBody()}>
+            {copied ? <Check size={14} /> : <Clipboard size={14} />}
+            {copied ? "Copied" : "Copy body"}
           </button>
         </div>
       </div>
@@ -80,7 +66,7 @@ function ResponseBody({ response }: { response: ResponseEnvelope }) {
           language={
             response.contentType.toLowerCase().includes("json") ? "json" : "text"
           }
-          value={mode === "raw" ? response.rawBody : response.body}
+          value={response.body}
           theme={
             document.documentElement.dataset.theme === "dark" ? "vs-dark" : "light"
           }
@@ -90,10 +76,11 @@ function ResponseBody({ response }: { response: ResponseEnvelope }) {
             fontSize: 12,
             lineHeight: 19,
             scrollBeyondLastLine: false,
-            wordWrap: mode === "preview" ? "on" : "off",
+            wordWrap: "off",
             folding: true,
-            lineNumbers: mode === "preview" ? "off" : "on",
+            lineNumbers: "on",
             renderLineHighlight: "none",
+            automaticLayout: true,
             padding: { top: 12, bottom: 12 },
           }}
         />
@@ -104,6 +91,14 @@ function ResponseBody({ response }: { response: ResponseEnvelope }) {
 
 function HeaderTable({ response }: { response: ResponseEnvelope }) {
   const entries = Object.entries(response.headers);
+  if (entries.length === 0) {
+    return (
+      <EmptyState
+        title="Bu response header içermiyor"
+        description="Sunucudan header döndüğünde burada listelenir."
+      />
+    );
+  }
   return (
     <div className="kv-table response-kv-table">
       <div className="kv-header">
@@ -122,14 +117,54 @@ function HeaderTable({ response }: { response: ResponseEnvelope }) {
   );
 }
 
+function CookieTable({ response }: { response: ResponseEnvelope }) {
+  if (response.cookies.length === 0) {
+    return (
+      <EmptyState
+        title="Bu response cookie içermiyor"
+        description="Set-Cookie header’ları alındığında güvenlik ve süre bilgileriyle burada listelenir."
+      />
+    );
+  }
+  return (
+    <div className="kv-table response-kv-table cookie-table">
+      <div className="kv-header">
+        <span>Cookie</span>
+        <span>Value and attributes</span>
+      </div>
+      {response.cookies.map((cookie, index) => {
+        const attributes = [
+          cookie.domain && `Domain ${cookie.domain}`,
+          cookie.path && `Path ${cookie.path}`,
+          cookie.httpOnly && "HttpOnly",
+          cookie.secure && "Secure",
+          cookie.expires && `Expires ${cookie.expires}`,
+        ].filter(Boolean);
+        return (
+          <div
+            className="kv-row"
+            key={`${cookie.name}-${cookie.domain}-${cookie.path}-${index}`}
+          >
+            <code>{cookie.name}</code>
+            <span className="cookie-value">
+              <span>{cookie.value}</span>
+              {attributes.length > 0 && <small>{attributes.join(" · ")}</small>}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function Timeline({ response }: { response: ResponseEnvelope }) {
-  const max = Math.max(...response.timeline.map((phase) => phase.durationMs), 1);
+  const total = Math.max(response.durationMs, 1);
   return (
     <div className="timeline">
       <div className="timeline-ruler">
         <span>0 ms</span>
-        <span>{formatDuration(response.durationMs / 2)}</span>
-        <span>{formatDuration(response.durationMs)}</span>
+        <span>{formatDuration(total / 2)}</span>
+        <span>{formatDuration(total)}</span>
       </div>
       {response.timeline.map((phase) => (
         <div className="timeline-row" key={phase.id}>
@@ -144,7 +179,13 @@ function Timeline({ response }: { response: ResponseEnvelope }) {
                 phase.id === "server" && "timeline-bar-slow",
               )}
               style={{
-                width: `${Math.max(phase.durationMs ? 2 : 0, (phase.durationMs / max) * 100)}%`,
+                width: `${Math.min(
+                  100,
+                  Math.max(
+                    phase.durationMs ? 2 : 0,
+                    (phase.durationMs / total) * 100,
+                  ),
+                )}%`,
               }}
             />
           </div>
@@ -157,15 +198,14 @@ function Timeline({ response }: { response: ResponseEnvelope }) {
   );
 }
 
-export function ResponsePanel({
-  tab,
-  response,
-}: {
-  tab: RequestTab;
-  response?: ResponseEnvelope | null;
-}) {
+export function ResponsePanel({ tab }: { tab: RequestTab }) {
   const updateTab = useWorkspaceStore((state) => state.updateTab);
-  const activeSection = tab.responseSection;
+  const response = tab.response;
+  const activeSection: ResponseSectionID = responseSections.some(
+    (section) => section.id === tab.responseSection,
+  )
+    ? (tab.responseSection as ResponseSectionID)
+    : "body";
   const headerCount = response
     ? Object.values(response.headers).reduce(
         (count, values) => count + values.length,
@@ -177,140 +217,136 @@ export function ResponsePanel({
     () => response?.status.replace(/^\d+\s*/, "") || "",
     [response?.status],
   );
+  const canceled = tab.userError?.code === "request_canceled";
 
   return (
-    <section className="response-panel" aria-label="Response">
-      <div className="response-summary">
-        <div className="response-summary-primary">
-          {response ? (
-            <>
-              <StatusMark tone={tone}>
-                {response.statusCode} {responseTitle}
+    <Tabs.Root
+      asChild
+      value={activeSection}
+      onValueChange={(value) =>
+        updateTab(tab.id, {
+          responseSection: value as RequestTab["responseSection"],
+        })
+      }
+    >
+      <section className="response-panel" aria-label="Response">
+        <div className="response-summary" role="status" aria-live="polite">
+          <div className="response-summary-primary">
+            {response ? (
+              <>
+                <StatusMark tone={tone}>
+                  {response.statusCode} {responseTitle}
+                </StatusMark>
+                <span className="response-duration">
+                  <Clock3 size={13} /> {formatDuration(response.durationMs)}
+                </span>
+                <span className="response-size">
+                  {formatBytes(response.sizeBytes)}
+                </span>
+                <span className="response-content-type">
+                  {response.contentType || "Unknown content type"}
+                </span>
+                <span className="response-protocol">{response.protocol}</span>
+              </>
+            ) : tab.running ? (
+              <StatusMark tone="warning">
+                <LoaderCircle className="spin" size={13} /> Sending…
               </StatusMark>
-              <span>
-                <Clock3 size={13} /> {formatDuration(response.durationMs)}
-              </span>
-              <span>{formatBytes(response.sizeBytes)}</span>
-              <span>{response.contentType || "Unknown content type"}</span>
-              <span>{response.protocol}</span>
-            </>
-          ) : tab.userError ? (
-            <StatusMark tone="danger">Request failed</StatusMark>
-          ) : (
-            <span className="response-idle">Response</span>
-          )}
-        </div>
-        {response && (
-          <div className="response-summary-secondary">
-            <span>{response.tls}</span>
-            {response.traceId && (
-              <button
-                onClick={() =>
-                  void navigator.clipboard?.writeText(response.traceId)
-                }
-                title="Trace ID’yi kopyala"
-              >
-                Trace {response.traceId.slice(0, 10)}
-              </button>
+            ) : tab.userError ? (
+              <StatusMark tone={canceled ? "warning" : "danger"}>
+                {canceled ? "Canceled" : "Request failed"}
+              </StatusMark>
+            ) : (
+              <span className="response-idle">Response</span>
             )}
           </div>
-        )}
-      </div>
-
-      <div className="response-tabs" role="tablist" aria-label="Response views">
-        {responseSections.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            role="tab"
-            aria-selected={activeSection === id}
-            className={cn(activeSection === id && "active")}
-            onClick={() => updateTab(tab.id, { responseSection: id })}
-          >
-            <Icon size={13} aria-hidden="true" />
-            {label}
-            {id === "headers" && headerCount > 0 && (
-              <CountBadge>{headerCount}</CountBadge>
-            )}
-            {id === "cookies" && response && response.cookies.length > 0 && (
-              <CountBadge>{response.cookies.length}</CountBadge>
-            )}
-          </button>
-        ))}
-        <button className="response-more" aria-label="Daha fazla response görünümü">
-          <ChevronDown size={14} />
-        </button>
-      </div>
-
-      <div className="response-content">
-        {tab.userError ? (
-          <div className="user-error-card" role="alert">
-            <div className="user-error-icon">
-              <AlertTriangle size={20} />
-            </div>
-            <div>
-              <h3>{tab.userError.title}</h3>
-              <p>{tab.userError.message}</p>
-              {tab.userError.hint && <strong>{tab.userError.hint}</strong>}
-              {tab.userError.technical && (
-                <details>
-                  <summary>Teknik ayrıntı</summary>
-                  <code>{tab.userError.technical}</code>
-                </details>
+          {response && (
+            <div className="response-summary-secondary">
+              {response.remoteAddr && <span>{response.remoteAddr}</span>}
+              {response.tls && <span>{response.tls}</span>}
+              {response.traceId && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    void navigator.clipboard?.writeText(response.traceId)
+                  }
+                  title="Trace ID’yi kopyala"
+                >
+                  Trace {response.traceId.slice(0, 10)}
+                </button>
               )}
             </div>
-          </div>
-        ) : !response ? (
-          <EmptyState
-            title="Henüz response yok"
-            description="Request’i gönderdiğinizde status, süre, body, header ve ayrıntılı zaman çizelgesi burada görünecek."
-          />
-        ) : activeSection === "body" ? (
-          <ResponseBody response={response} />
-        ) : activeSection === "headers" ? (
-          <HeaderTable response={response} />
-        ) : activeSection === "cookies" ? (
-          response.cookies.length ? (
-            <div className="kv-table response-kv-table">
-              {response.cookies.map((cookie) => (
-                <div className="kv-row" key={cookie.name}>
-                  <code>{cookie.name}</code>
-                  <span>{cookie.value}</span>
-                </div>
-              ))}
+          )}
+        </div>
+
+        <Tabs.List className="response-tabs" aria-label="Response views">
+          {responseSections.map(({ id, label, icon: Icon }) => (
+            <Tabs.Trigger key={id} value={id}>
+              <Icon size={13} aria-hidden="true" />
+              {label}
+              {id === "headers" && headerCount > 0 && (
+                <CountBadge>{headerCount}</CountBadge>
+              )}
+              {id === "cookies" && response && response.cookies.length > 0 && (
+                <CountBadge>{response.cookies.length}</CountBadge>
+              )}
+            </Tabs.Trigger>
+          ))}
+        </Tabs.List>
+
+        <div className="response-content">
+          {tab.running ? (
+            <div className="response-loading" role="status">
+              <LoaderCircle className="spin" size={22} aria-hidden="true" />
+              <strong>Request gönderiliyor…</strong>
+              <span>İsterseniz üstteki Cancel düğmesiyle durdurabilirsiniz.</span>
             </div>
-          ) : (
+          ) : tab.userError ? (
+            <div
+              className={cn("user-error-card", canceled && "request-canceled")}
+              role={canceled ? "status" : "alert"}
+            >
+              <div className="user-error-icon">
+                <AlertTriangle size={20} />
+              </div>
+              <div>
+                <h3>{tab.userError.title}</h3>
+                <p>{tab.userError.message}</p>
+                {tab.userError.hint && <strong>{tab.userError.hint}</strong>}
+                {tab.userError.technical && (
+                  <details>
+                    <summary>Teknik ayrıntı</summary>
+                    <code>{tab.userError.technical}</code>
+                  </details>
+                )}
+              </div>
+            </div>
+          ) : !response ? (
             <EmptyState
-              title="Bu response cookie içermiyor"
-              description="Set-Cookie header’ları alındığında güvenlik ve süre bilgileriyle burada listelenir."
+              title="Henüz response yok"
+              description="Request’i gönderdiğinizde status, süre, body, header ve ayrıntılı zaman çizelgesi burada görünecek."
             />
-          )
-        ) : activeSection === "timeline" ? (
-          <Timeline response={response} />
-        ) : activeSection === "raw" ? (
-          <pre className="raw-response">{response.rawBody}</pre>
-        ) : activeSection === "assertions" ? (
-          <EmptyState
-            icon="new"
-            title="Assertion ekleyin"
-            description="Status, süre veya JSON alanlarını doğrulayarak request’i tekrarlanabilir bir teste dönüştürün."
-            primaryLabel="Add assertion"
-          />
-        ) : activeSection === "contract" ? (
-          <EmptyState
-            title="Contract doğrulaması çalıştırılmadı"
-            description="Bu response’u bağlı OpenAPI schema’sı ile karşılaştırarak eksik, fazla veya hatalı tipleri bulun."
-            primaryLabel="Validate contract"
-          />
-        ) : (
-          <div className="console-empty">
-            <TerminalSquare size={18} />
-            <span>Bu request için console kaydı yok.</span>
-            <Button size="sm" variant="ghost">
-              <Plus size={13} /> Add script
-            </Button>
-          </div>
-        )}
-      </div>
-    </section>
+          ) : (
+            <>
+              <Tabs.Content value="body" className="response-tab-content">
+                <ResponseBody response={response} />
+              </Tabs.Content>
+              <Tabs.Content value="headers" className="response-tab-content">
+                <HeaderTable response={response} />
+              </Tabs.Content>
+              <Tabs.Content value="cookies" className="response-tab-content">
+                <CookieTable response={response} />
+              </Tabs.Content>
+              <Tabs.Content value="timeline" className="response-tab-content">
+                <Timeline response={response} />
+              </Tabs.Content>
+              <Tabs.Content value="raw" className="response-tab-content">
+                <pre className="raw-response">{response.rawBody}</pre>
+              </Tabs.Content>
+            </>
+          )}
+        </div>
+      </section>
+    </Tabs.Root>
   );
 }

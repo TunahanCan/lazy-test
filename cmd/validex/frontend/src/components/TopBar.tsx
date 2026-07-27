@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
+  AlertCircle,
   Braces,
+  CheckCircle2,
   ChevronDown,
   Command,
   FilePlus2,
@@ -62,7 +64,10 @@ function ThemeItem({
 }
 
 export function TopBar({ bootstrap }: { bootstrap: BootstrapData }) {
-  const [importMessage, setImportMessage] = useState("");
+  const [importNotice, setImportNotice] = useState<{
+    message: string;
+    tone: "success" | "error";
+  } | null>(null);
   const environmentID = useWorkspaceStore((state) => state.activeEnvironmentID);
   const setEnvironment = useWorkspaceStore((state) => state.setEnvironment);
   const openTab = useWorkspaceStore((state) => state.openTab);
@@ -90,24 +95,51 @@ export function TopBar({ bootstrap }: { bootstrap: BootstrapData }) {
   );
 
   const importSpec = async () => {
-    const result = await importer.mutateAsync();
-    if (result.canceled) return;
-    if (result.error) {
-      setImportMessage(`${result.error.title}: ${result.error.message}`);
-      return;
-    }
-    for (const endpoint of result.endpoints.slice(0, 6)) {
-      openTab({
-        id: endpoint.id,
-        name: endpoint.summary || endpoint.path,
-        method: endpoint.method,
-        url: importedRequestURL(result.baseUrl, endpoint.path),
-        dirty: false,
+    try {
+      const result = await importer.mutateAsync();
+      if (result.canceled) return;
+      if (result.error) {
+        setImportNotice({
+          message: `${result.error.title}: ${result.error.message}`,
+          tone: "error",
+        });
+        return;
+      }
+
+      const openedEndpoints = result.endpoints.slice(0, 8);
+      for (const endpoint of openedEndpoints) {
+        openTab({
+          id: `${endpoint.id}-${crypto.randomUUID()}`,
+          name: endpoint.summary || endpoint.path,
+          method: endpoint.method,
+          url: importedRequestURL(result.baseUrl, endpoint.path),
+          dirty: false,
+        });
+      }
+
+      if (openedEndpoints.length === 0) {
+        setImportNotice({
+          message: `${result.title || "OpenAPI"} · Açılabilir endpoint bulunamadı`,
+          tone: "error",
+        });
+        return;
+      }
+      setImportNotice({
+        message: `${result.title || "OpenAPI"} · ${openedEndpoints.length} endpoint sekmede açıldı${
+          result.endpoints.length > openedEndpoints.length
+            ? ` (${result.endpoints.length} endpoint bulundu)`
+            : ""
+        }`,
+        tone: "success",
+      });
+    } catch (error) {
+      setImportNotice({
+        message: `OpenAPI içe aktarılamadı: ${
+          error instanceof Error ? error.message : "Beklenmeyen bir hata oluştu."
+        }`,
+        tone: "error",
       });
     }
-    setImportMessage(
-      `${result.title || "OpenAPI"} · ${result.endpoints.length} endpoint içe aktarıldı`,
-    );
   };
 
   return (
@@ -154,10 +186,10 @@ export function TopBar({ bootstrap }: { bootstrap: BootstrapData }) {
         <button
           className="global-search"
           onClick={() => setPaletteOpen(true)}
-          aria-label="Global arama ve command palette"
+          aria-label="Command palette aç"
         >
           <Search size={15} aria-hidden="true" />
-          <span>Search requests, APIs and commands…</span>
+          <span>Search commands…</span>
           <Kbd>⌘ K</Kbd>
         </button>
 
@@ -184,7 +216,11 @@ export function TopBar({ bootstrap }: { bootstrap: BootstrapData }) {
                 <FilePlus2 size={16} /> New request
                 <span className="menu-shortcut">⌘N</span>
               </DropdownMenu.Item>
-              <DropdownMenu.Item className="menu-item" onSelect={importSpec}>
+              <DropdownMenu.Item
+                className="menu-item"
+                disabled={importer.isPending}
+                onSelect={importSpec}
+              >
                 <Import size={16} /> Import OpenAPI
               </DropdownMenu.Item>
             </DropdownMenu.Content>
@@ -246,17 +282,27 @@ export function TopBar({ bootstrap }: { bootstrap: BootstrapData }) {
         </DropdownMenu.Root>
       </header>
 
-      {importMessage && (
-        <button
+      {importNotice && (
+        <div
           className="toast"
-          onClick={() => setImportMessage("")}
-          aria-label="Bildirimi kapat"
+          role={importNotice.tone === "error" ? "alert" : "status"}
+          aria-live={importNotice.tone === "error" ? "assertive" : "polite"}
+          aria-atomic="true"
         >
-          <span>{importMessage}</span>
-          <X size={14} />
-        </button>
+          {importNotice.tone === "error" ? (
+            <AlertCircle size={15} aria-hidden="true" />
+          ) : (
+            <CheckCircle2 size={15} aria-hidden="true" />
+          )}
+          <span>{importNotice.message}</span>
+          <IconButton
+            label="Bildirimi kapat"
+            onClick={() => setImportNotice(null)}
+          >
+            <X size={14} />
+          </IconButton>
+        </div>
       )}
-
     </>
   );
 }

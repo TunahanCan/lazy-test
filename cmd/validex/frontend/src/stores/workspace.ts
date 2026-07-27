@@ -120,12 +120,31 @@ function withoutSecretVariables(
 }
 
 function persistedTab(tab: RequestTab): RequestTab {
+  const requestSection = [
+    "params",
+    "authorization",
+    "headers",
+    "body",
+  ].includes(tab.requestSection)
+    ? tab.requestSection
+    : "params";
+  const responseSection = [
+    "body",
+    "headers",
+    "cookies",
+    "timeline",
+    "raw",
+  ].includes(tab.responseSection)
+    ? tab.responseSection
+    : "body";
   return {
     ...tab,
     running: false,
     error: false,
     response: undefined,
     userError: undefined,
+    requestSection,
+    responseSection,
     headers: (tab.headers ?? []).map((header) => {
       if (!isSecretKey(header.key) || isSafeSecretReference(header.value)) {
         return header;
@@ -210,8 +229,6 @@ interface WorkspaceState {
   setSidebarSection: (section: WorkspaceState["sidebarSection"]) => void;
 }
 
-const firstTab = createRequestTab({ id: "request-list-users" });
-
 function isUntouchedLegacyDemoRequest(tabs: RequestTab[] | undefined): boolean {
   if (tabs?.length !== 1) return false;
   const [tab] = tabs;
@@ -224,17 +241,30 @@ function isUntouchedLegacyDemoRequest(tabs: RequestTab[] | undefined): boolean {
   );
 }
 
+function isUntouchedStarterRequest(tabs: RequestTab[] | undefined): boolean {
+  if (tabs?.length !== 1) return false;
+  const [tab] = tabs;
+  return (
+    tab.id === "request-list-users" &&
+    tab.name === "Untitled request" &&
+    tab.url === "" &&
+    tab.body === "" &&
+    !tab.dirty &&
+    !tab.response
+  );
+}
+
 export const useWorkspaceStore = create<WorkspaceState>()(
   persist(
     (set, get) => ({
       workspaceID: "validex-workspace",
       activeEnvironmentID: "none",
       environmentVariables: {},
-      tabs: [firstTab],
-      activeTabID: firstTab.id,
+      tabs: [],
+      activeTabID: "",
       recentlyClosed: [],
-      leftVisible: true,
-      rightVisible: true,
+      leftVisible: false,
+      rightVisible: false,
       leftWidth: 264,
       rightWidth: 292,
       responseSize: 42,
@@ -273,36 +303,78 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       closeTab: (id, force = false) => {
         const state = get();
         const tab = state.tabs.find((candidate) => candidate.id === id);
-        if (!tab || (tab.dirty && !force)) return false;
+        if (!tab || tab.running || (tab.dirty && !force)) return false;
         const index = state.tabs.findIndex((candidate) => candidate.id === id);
         const tabs = state.tabs.filter((candidate) => candidate.id !== id);
         const fallback = tabs[Math.min(index, tabs.length - 1)];
+        const closedTab = {
+          ...tab,
+          running: false,
+          error: false,
+          userError: undefined,
+        };
         set({
           tabs,
           activeTabID:
             state.activeTabID === id ? (fallback?.id ?? "") : state.activeTabID,
-          recentlyClosed: [tab, ...state.recentlyClosed].slice(0, 10),
+          recentlyClosed: [closedTab, ...state.recentlyClosed].slice(0, 10),
         });
         return true;
       },
       closeOtherTabs: (id) =>
-        set((state) => ({
-          tabs: state.tabs.filter((tab) => tab.id === id || tab.pinned),
-          activeTabID: id,
-        })),
+        set((state) => {
+          const closing = state.tabs.filter(
+            (tab) =>
+              tab.id !== id && !tab.pinned && !tab.dirty && !tab.running,
+          );
+          return {
+            tabs: state.tabs.filter(
+              (tab) => tab.id === id || tab.pinned || tab.dirty || tab.running,
+            ),
+            activeTabID: id,
+            recentlyClosed: [
+              ...closing.reverse(),
+              ...state.recentlyClosed,
+            ].slice(0, 10),
+          };
+        }),
       closeTabsToRight: (id) =>
         set((state) => {
           const index = state.tabs.findIndex((tab) => tab.id === id);
+          if (index < 0) return state;
+          const closing = state.tabs.filter(
+            (tab, tabIndex) =>
+              tabIndex > index && !tab.pinned && !tab.dirty && !tab.running,
+          );
           return {
             tabs: state.tabs.filter(
-              (tab, tabIndex) => tabIndex <= index || tab.pinned,
+              (tab, tabIndex) =>
+                tabIndex <= index || tab.pinned || tab.dirty || tab.running,
             ),
+            recentlyClosed: [
+              ...closing.reverse(),
+              ...state.recentlyClosed,
+            ].slice(0, 10),
+            activeTabID: closing.some(
+              (tab) => tab.id === state.activeTabID,
+            )
+              ? id
+              : state.activeTabID,
           };
         }),
       reopenClosedTab: () =>
         set((state) => {
           const [tab, ...rest] = state.recentlyClosed;
           if (!tab) return state;
+          const existing = state.tabs.find(
+            (candidate) => candidate.id === tab.id,
+          );
+          if (existing) {
+            return {
+              activeTabID: existing.id,
+              recentlyClosed: rest,
+            };
+          }
           return {
             tabs: [...state.tabs, tab],
             activeTabID: tab.id,
@@ -316,6 +388,9 @@ export const useWorkspaceStore = create<WorkspaceState>()(
             ...tab,
             id: crypto.randomUUID(),
             name: `${tab.name} copy`,
+            running: false,
+            error: false,
+            userError: undefined,
             pinned: false,
           });
       },
@@ -367,29 +442,38 @@ export const useWorkspaceStore = create<WorkspaceState>()(
     }),
     {
       name: workspaceStorageKey,
-      version: 3,
+      version: 4,
       storage: createJSONStorage(() => localStorage),
       migrate: (persistedState, persistedVersion) => {
         const state = persistedState as Partial<WorkspaceState>;
         const resetLegacyDemo =
           persistedVersion === 0 && isUntouchedLegacyDemoRequest(state.tabs);
-        const tabs = resetLegacyDemo
-          ? [createRequestTab({ id: "request-list-users" })]
+        const resetBlankStarter =
+          persistedVersion < 4 && isUntouchedStarterRequest(state.tabs);
+        const resetToWelcome = resetLegacyDemo || resetBlankStarter;
+        const tabs = resetToWelcome
+          ? []
           : (state.tabs ?? []).map(persistedTab);
         return {
           ...state,
           workspaceID: "validex-workspace",
-          activeEnvironmentID: resetLegacyDemo
+          activeEnvironmentID: resetToWelcome
             ? "none"
             : (state.activeEnvironmentID ?? "none"),
           environmentVariables: withoutSecretVariables(
             state.environmentVariables ?? {},
           ),
           tabs,
-          activeTabID: resetLegacyDemo
-            ? tabs[0].id
+          activeTabID: resetToWelcome
+            ? ""
             : (state.activeTabID ?? tabs[0]?.id ?? ""),
           recentlyClosed: (state.recentlyClosed ?? []).map(persistedTab),
+          leftVisible: resetToWelcome
+            ? false
+            : (state.leftVisible ?? true),
+          rightVisible: resetToWelcome
+            ? false
+            : (state.rightVisible ?? false),
           sidebarSection:
             state.sidebarSection === "history" ? "history" : "collections",
         } as WorkspaceState;

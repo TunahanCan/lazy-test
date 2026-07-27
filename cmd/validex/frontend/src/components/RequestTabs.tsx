@@ -9,7 +9,6 @@ import {
   PinOff,
   Plus,
   RotateCcw,
-  Save,
   X,
 } from "lucide-react";
 import { cn } from "../lib/utils";
@@ -29,13 +28,14 @@ export function RequestTabs() {
   const duplicateTab = useWorkspaceStore((state) => state.duplicateTab);
   const reopenClosedTab = useWorkspaceStore((state) => state.reopenClosedTab);
   const reorderTab = useWorkspaceStore((state) => state.reorderTab);
-  const updateTab = useWorkspaceStore((state) => state.updateTab);
   const togglePin = useWorkspaceStore((state) => state.togglePin);
   const recentlyClosed = useWorkspaceStore((state) => state.recentlyClosed);
   const [pendingCloseID, setPendingCloseID] = useState<string | null>(null);
   const [draggedID, setDraggedID] = useState<string | null>(null);
+  const [focusedCloseID, setFocusedCloseID] = useState<string | null>(null);
 
   const requestClose = (id: string) => {
+    if (tabs.find((tab) => tab.id === id)?.running) return;
     if (!closeTab(id)) setPendingCloseID(id);
   };
   const pendingTab = tabs.find((tab) => tab.id === pendingCloseID);
@@ -44,17 +44,28 @@ export function RequestTabs() {
     <>
       <div className="request-tabs-shell">
         <div className="request-tabs" role="tablist" aria-label="Open requests">
-          {tabs.map((tab) => (
-            <ContextMenu.Root key={tab.id}>
-              <ContextMenu.Trigger asChild>
-                <button
-                  role="tab"
-                  aria-selected={tab.id === activeTabID}
+          {tabs.map((tab, index) => {
+            const canCloseOtherTabs = tabs.some(
+              (candidate) =>
+                candidate.id !== tab.id &&
+                !candidate.pinned &&
+                !candidate.dirty &&
+                !candidate.running,
+            );
+            const canCloseTabsToRight = tabs.some(
+              (candidate, candidateIndex) =>
+                candidateIndex > index &&
+                !candidate.pinned &&
+                !candidate.dirty &&
+                !candidate.running,
+            );
+            return (
+              <ContextMenu.Root key={tab.id}>
+                <div
                   className={cn(
                     "request-tab",
                     tab.id === activeTabID && "active",
                   )}
-                  onClick={() => setActiveTab(tab.id)}
                   draggable
                   onDragStart={() => setDraggedID(tab.id)}
                   onDragOver={(event) => event.preventDefault()}
@@ -63,94 +74,129 @@ export function RequestTabs() {
                     setDraggedID(null);
                   }}
                 >
-                  {tab.pinned && <Pin size={11} className="tab-pin" />}
-                  <MethodBadge method={tab.method} compact />
-                  <span className="tab-name">{tab.name}</span>
-                  {tab.dirty && (
-                    <span className="dirty-dot" aria-label="Kaydedilmemiş değişiklik" />
-                  )}
-                  {tab.running && (
-                    <LoaderCircle
-                      className="spin tab-state-icon"
-                      size={13}
-                      aria-label="Request çalışıyor"
-                    />
-                  )}
-                  {tab.error && !tab.running && (
-                    <AlertCircle
-                      className="tab-state-icon tab-error"
-                      size={13}
-                      aria-label="Request hatası"
-                    />
-                  )}
+                  <ContextMenu.Trigger asChild>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={tab.id === activeTabID}
+                      onClick={() => setActiveTab(tab.id)}
+                      style={{
+                        display: "flex",
+                        minWidth: 0,
+                        height: "100%",
+                        flex: 1,
+                        alignItems: "center",
+                        gap: 6,
+                        padding: 0,
+                        background: "transparent",
+                        color: "inherit",
+                        textAlign: "left",
+                      }}
+                    >
+                      {tab.pinned && <Pin size={11} className="tab-pin" />}
+                      <MethodBadge method={tab.method} compact />
+                      <span className="tab-name">{tab.name}</span>
+                      {tab.dirty && (
+                        <span
+                          className="dirty-dot"
+                          aria-label="Kaydedilmemiş değişiklik"
+                        />
+                      )}
+                      {tab.running && (
+                        <LoaderCircle
+                          className="spin tab-state-icon"
+                          size={13}
+                          aria-label="Request çalışıyor"
+                        />
+                      )}
+                      {tab.error && !tab.running && (
+                        <AlertCircle
+                          className="tab-state-icon tab-error"
+                          size={13}
+                          aria-label="Request hatası"
+                        />
+                      )}
+                    </button>
+                  </ContextMenu.Trigger>
                   {!tab.pinned && (
-                    <span
+                    <button
+                      type="button"
                       className="tab-close"
-                      role="button"
-                      tabIndex={0}
                       aria-label={`${tab.name} sekmesini kapat`}
+                      draggable={false}
+                      disabled={tab.running}
+                      title={
+                        tab.running
+                          ? "Kapatmadan önce request’i iptal edin"
+                          : undefined
+                      }
+                      style={{
+                        padding: 0,
+                        background: "transparent",
+                        color: "inherit",
+                        opacity: focusedCloseID === tab.id ? 1 : undefined,
+                      }}
+                      onFocus={() => setFocusedCloseID(tab.id)}
+                      onBlur={() => setFocusedCloseID(null)}
                       onClick={(event) => {
                         event.stopPropagation();
                         requestClose(tab.id);
                       }}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.stopPropagation();
-                          requestClose(tab.id);
-                        }
-                      }}
                     >
                       <X size={13} />
-                    </span>
+                    </button>
                   )}
-                </button>
-              </ContextMenu.Trigger>
-              <ContextMenu.Portal>
-                <ContextMenu.Content className="menu context-menu">
-                  <ContextMenu.Item
-                    className="menu-item"
-                    onSelect={() => duplicateTab(tab.id)}
-                  >
-                    <Copy size={15} /> Duplicate
-                  </ContextMenu.Item>
-                  <ContextMenu.Item
-                    className="menu-item"
-                    onSelect={() => togglePin(tab.id)}
-                  >
-                    {tab.pinned ? <PinOff size={15} /> : <Pin size={15} />}
-                    {tab.pinned ? "Unpin tab" : "Pin tab"}
-                  </ContextMenu.Item>
-                  <ContextMenu.Separator className="menu-separator" />
-                  <ContextMenu.Item
-                    className="menu-item"
-                    onSelect={() => closeOtherTabs(tab.id)}
-                  >
-                    Close other tabs
-                  </ContextMenu.Item>
-                  <ContextMenu.Item
-                    className="menu-item"
-                    onSelect={() => closeTabsToRight(tab.id)}
-                  >
-                    Close tabs to the right
-                  </ContextMenu.Item>
-                  <ContextMenu.Item
-                    className="menu-item"
-                    disabled={recentlyClosed.length === 0}
-                    onSelect={reopenClosedTab}
-                  >
-                    <RotateCcw size={15} /> Reopen closed tab
-                  </ContextMenu.Item>
-                  <ContextMenu.Separator className="menu-separator" />
-                  <ContextMenu.Item
-                    className="menu-item"
-                    onSelect={() => requestClose(tab.id)}
-                  >
-                    <X size={15} /> Close tab
-                  </ContextMenu.Item>
-                </ContextMenu.Content>
-              </ContextMenu.Portal>
-            </ContextMenu.Root>
-          ))}
+                </div>
+                <ContextMenu.Portal>
+                  <ContextMenu.Content className="menu context-menu">
+                    <ContextMenu.Item
+                      className="menu-item"
+                      onSelect={() => duplicateTab(tab.id)}
+                    >
+                      <Copy size={15} /> Duplicate
+                    </ContextMenu.Item>
+                    <ContextMenu.Item
+                      className="menu-item"
+                      onSelect={() => togglePin(tab.id)}
+                    >
+                      {tab.pinned ? <PinOff size={15} /> : <Pin size={15} />}
+                      {tab.pinned ? "Unpin tab" : "Pin tab"}
+                    </ContextMenu.Item>
+                    <ContextMenu.Separator className="menu-separator" />
+                    <ContextMenu.Item
+                      className="menu-item"
+                      disabled={!canCloseOtherTabs}
+                      onSelect={() => closeOtherTabs(tab.id)}
+                    >
+                      Close other clean tabs
+                    </ContextMenu.Item>
+                    <ContextMenu.Item
+                      className="menu-item"
+                      disabled={!canCloseTabsToRight}
+                      onSelect={() => closeTabsToRight(tab.id)}
+                    >
+                      Close clean tabs to the right
+                    </ContextMenu.Item>
+                    <ContextMenu.Item
+                      className="menu-item"
+                      disabled={recentlyClosed.length === 0}
+                      onSelect={reopenClosedTab}
+                    >
+                      <RotateCcw size={15} /> Reopen closed tab
+                    </ContextMenu.Item>
+                    <ContextMenu.Separator className="menu-separator" />
+                    <ContextMenu.Item
+                      className="menu-item"
+                      disabled={tab.running}
+                      onSelect={() => requestClose(tab.id)}
+                    >
+                      <X size={15} /> Close tab
+                    </ContextMenu.Item>
+                  </ContextMenu.Content>
+                </ContextMenu.Portal>
+              </ContextMenu.Root>
+            );
+          })}
         </div>
         <IconButton
           label="Yeni request sekmesi"
@@ -172,14 +218,16 @@ export function RequestTabs() {
           <Dialog.Content className="dialog unsaved-dialog">
             <div className="dialog-header">
               <div>
-                <Dialog.Title>Değişiklikler kaydedilsin mi?</Dialog.Title>
+                <Dialog.Title>Kaydedilmemiş sekme kapatılsın mı?</Dialog.Title>
                 <Dialog.Description>
-                  “{pendingTab?.name}” sekmesinde kaydedilmemiş değişiklikler var.
+                  “{pendingTab?.name}” sekmesindeki düzenlemeler aktif çalışma
+                  alanından kaldırılacak.
                 </Dialog.Description>
               </div>
             </div>
             <p className="dialog-copy">
-              Kaydetmeden kapatırsanız son düzenlemeler kaybolur.
+              Gerekirse son kapatılan sekmeyi “Reopen closed tab” komutuyla geri
+              açabilirsiniz.
             </p>
             <div className="dialog-actions">
               <Dialog.Close asChild>
@@ -192,19 +240,7 @@ export function RequestTabs() {
                   setPendingCloseID(null);
                 }}
               >
-                Kaydetmeden kapat
-              </Button>
-              <Button
-                variant="primary"
-                onClick={() => {
-                  if (pendingCloseID) {
-                    updateTab(pendingCloseID, { dirty: false });
-                    closeTab(pendingCloseID, true);
-                  }
-                  setPendingCloseID(null);
-                }}
-              >
-                <Save size={15} /> Kaydet
+                Sekmeyi kapat
               </Button>
             </div>
           </Dialog.Content>

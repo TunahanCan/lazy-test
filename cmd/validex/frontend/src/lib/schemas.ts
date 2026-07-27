@@ -102,3 +102,13 @@ export function missingVariables(
   }
   return [...missing].sort();
 }
+
+export function resolveVariableReferences(
+  value: string,
+  variables: Record<string, string>,
+): string {
+  return value.replace(
+    /\{\{\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*}}/g,
+    (reference, key: string) => variables[key] ?? reference,
+  );
+}

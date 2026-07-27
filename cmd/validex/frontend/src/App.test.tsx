@@ -6,6 +6,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
@@ -65,6 +66,26 @@ describe("Validex workspace", () => {
     expect(screen.getByLabelText("Request URL")).toBeVisible();
     expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
     expect(screen.getAllByRole("tab", { name: "Variables" })).not.toHaveLength(0);
+  });
+
+  it("starts with a focused welcome screen when there are no requests", async () => {
+    useWorkspaceStore.setState({ tabs: [], activeTabID: "" });
+    renderApp();
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "API çalışmalarınızı tek bir yerde toplayın.",
+      }),
+    ).toBeVisible();
+    const welcome = screen.getByRole("main");
+    expect(
+      within(welcome).getByRole("button", { name: "New request" }),
+    ).toBeVisible();
+    expect(
+      within(welcome).getByRole("button", { name: "Import OpenAPI" }),
+    ).toBeVisible();
+    expect(screen.queryByRole("tablist", { name: "Open requests" })).not.toBeInTheDocument();
+    expect(document.querySelectorAll("main")).toHaveLength(1);
   });
 
   it("opens the command palette with the global shortcut", async () => {
@@ -253,7 +274,6 @@ describe("Validex workspace", () => {
     fireEvent.change(screen.getByLabelText("Framework"), {
       target: { value: "mockmvc" },
     });
-    fireEvent.click(screen.getByRole("button", { name: /Regenerate/i }));
     await waitFor(() => {
       expect(
         (screen.getByLabelText("Generated code") as HTMLTextAreaElement).value,

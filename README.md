@@ -68,9 +68,11 @@ altındaki `bin`) `PATH` içinde olduğundan emin olun.
 
 ## Uygulama nasıl kullanılır?
 
-1. Üst menüden **New → New request** seçin.
+1. Karşılama ekranındaki **New request** butonunu kullanın. Açık bir çalışma
+   alanındaysanız üst menüdeki **New → New request** yolu da kullanılabilir.
 2. HTTP methodunu ve URL’yi girin.
-3. Gerekirse Variables, Headers veya Body alanlarını düzenleyin.
+3. Gerekirse **Variables → Add variable** ile değişken ekleyin; Headers veya
+   Body alanlarını düzenleyin.
 4. Üst bölümdeki **Send** butonuna basın.
 5. Alt response panelinden body, header, cookie ve timeline bilgilerini
    inceleyin.
@@ -92,9 +94,11 @@ header değerleri tarayıcı depolamasına yazılmaz. Uygulamayı yeniden açtı
 bu değerleri tekrar girmeniz gerekir. Hassas verileri URL veya request body
 içine doğrudan yazmayın; bu alanlar workspace ile birlikte saklanır.
 
-OpenAPI dosyası eklemek için üst menüdeki **Import OpenAPI** seçeneğini
-kullanın. Java kodu üretmek için **Send** butonunun yanındaki açılır menüden
-**Generate Java test** seçeneğini açın.
+OpenAPI dosyası eklemek için karşılama ekranındaki veya üst menüdeki
+**Import OpenAPI** seçeneğini kullanın. Arayüzü kalabalıklaştırmamak için en
+fazla ilk 8 endpoint sekmede açılır; bildirimde dosyada bulunan toplam endpoint
+sayısı da gösterilir. Java kodu üretmek için **Send** butonunun yanındaki açılır
+menüden **Generate Java test** seçeneğini açın.
 
 ## Native uygulama oluşturma
 
@@ -187,6 +191,8 @@ Bilinen sınırlar:
 - Açık sekmeler, environment değerleri ve arayüz yerleşimi cihazdaki WebView
   depolamasında tutulur; dosya veya bulut ile senkronize edilmez.
 - OAuth 2.0, mTLS, keychain ve proxy entegrasyonu tamamlanmamıştır.
+- OpenAPI importu henüz kalıcı bir collection oluşturmaz; tek importta en fazla
+  8 endpoint çalışma sekmesi olarak açılır.
 - Üretilen Java proje iskeletleri henüz Maven/Gradle ile otomatik derlenerek
   doğrulanmamaktadır.
 - Windows ve Linux native paketleri henüz CI üzerinde doğrulanmamaktadır.

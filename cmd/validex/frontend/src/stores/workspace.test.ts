@@ -115,7 +115,7 @@ describe("workspace persistence", () => {
     expect(hydrated.userError).toBeUndefined();
   });
 
-  it("replaces only the untouched legacy demo request during migration", async () => {
+  it("opens the welcome screen for an untouched legacy demo", async () => {
     const legacyTab = createRequestTab({
       id: "request-list-users",
       name: "List users",
@@ -139,12 +139,121 @@ describe("workspace persistence", () => {
     await useWorkspaceStore.persist.rehydrate();
     const state = useWorkspaceStore.getState();
     expect(state.activeEnvironmentID).toBe("none");
-    expect(state.tabs[0]).toMatchObject({
-      id: "request-list-users",
-      name: "Untitled request",
-      url: "",
-      body: "",
+    expect(state.tabs).toEqual([]);
+    expect(state.activeTabID).toBe("");
+    expect(state.leftVisible).toBe(false);
+    expect(state.rightVisible).toBe(false);
+  });
+
+  it("keeps dirty tabs safe during bulk close operations", () => {
+    const active = createRequestTab({ id: "active" });
+    const clean = createRequestTab({ id: "clean" });
+    const dirty = createRequestTab({ id: "dirty", dirty: true });
+    useWorkspaceStore.setState({
+      tabs: [active, clean, dirty],
+      activeTabID: active.id,
+      recentlyClosed: [],
     });
+
+    useWorkspaceStore.getState().closeOtherTabs(active.id);
+
+    expect(useWorkspaceStore.getState().tabs.map((tab) => tab.id)).toEqual([
+      "active",
+      "dirty",
+    ]);
+    expect(useWorkspaceStore.getState().recentlyClosed[0].id).toBe("clean");
+  });
+
+  it("keeps running tabs safe during every close operation", () => {
+    const target = createRequestTab({ id: "target" });
+    const running = createRequestTab({ id: "running", running: true });
+    useWorkspaceStore.setState({
+      tabs: [target, running],
+      activeTabID: running.id,
+      recentlyClosed: [],
+    });
+
+    expect(useWorkspaceStore.getState().closeTab(running.id, true)).toBe(false);
+    useWorkspaceStore.getState().closeTabsToRight(target.id);
+
+    const state = useWorkspaceStore.getState();
+    expect(state.tabs.map((tab) => tab.id)).toEqual(["target", "running"]);
+    expect(state.activeTabID).toBe("running");
+    expect(state.recentlyClosed).toEqual([]);
+  });
+
+  it("falls back to the target tab when closing the active tabs to its right", () => {
+    const target = createRequestTab({ id: "target" });
+    const middle = createRequestTab({ id: "middle" });
+    const active = createRequestTab({ id: "active" });
+    useWorkspaceStore.setState({
+      tabs: [target, middle, active],
+      activeTabID: active.id,
+      recentlyClosed: [],
+    });
+
+    useWorkspaceStore.getState().closeTabsToRight(target.id);
+
+    const state = useWorkspaceStore.getState();
+    expect(state.tabs.map((tab) => tab.id)).toEqual(["target"]);
+    expect(state.activeTabID).toBe("target");
+    expect(state.recentlyClosed.map((tab) => tab.id)).toEqual([
+      "active",
+      "middle",
+    ]);
+  });
+
+  it("focuses an existing tab instead of reopening a duplicate ID", () => {
+    const existing = createRequestTab({
+      id: "shared-id",
+      url: "https://example.test/current",
+    });
+    const closed = createRequestTab({
+      id: "shared-id",
+      url: "https://example.test/closed",
+    });
+    useWorkspaceStore.setState({
+      tabs: [existing],
+      activeTabID: "",
+      recentlyClosed: [closed],
+    });
+
+    useWorkspaceStore.getState().reopenClosedTab();
+
+    const state = useWorkspaceStore.getState();
+    expect(state.tabs).toHaveLength(1);
+    expect(state.tabs[0].url).toBe("https://example.test/current");
+    expect(state.activeTabID).toBe(existing.id);
+    expect(state.recentlyClosed).toEqual([]);
+  });
+
+  it("clears transient request state when duplicating a tab", () => {
+    const running = createRequestTab({
+      id: "running",
+      running: true,
+      error: true,
+      userError: {
+        code: "network_error",
+        title: "Request failed",
+        message: "Temporary failure",
+      },
+    });
+    useWorkspaceStore.setState({
+      tabs: [running],
+      activeTabID: running.id,
+    });
+
+    useWorkspaceStore.getState().duplicateTab(running.id);
+
+    const duplicate = useWorkspaceStore.getState().tabs[1];
+    expect(duplicate.id).not.toBe(running.id);
+    expect(duplicate).toMatchObject({
+      name: "Untitled request copy",
+      running: false,
+      error: false,
+      pinned: false,
+    });
+    expect(duplicate.userError).toBeUndefined();
   });
 
   it("moves a sanitized legacy workspace to the Validex storage key", () => {

@@ -8,6 +8,7 @@ import {
   Clock3,
   FileCode2,
   FileJson2,
+  FilePlus2,
   Folder,
   FolderOpen,
   Search,
@@ -16,7 +17,7 @@ import {
 import type { BootstrapData, CollectionNode } from "../lib/types";
 import { cn } from "../lib/utils";
 import { useWorkspaceStore } from "../stores/workspace";
-import { MethodBadge } from "./ui";
+import { Button, MethodBadge } from "./ui";
 
 const sections = [
   { id: "collections", label: "Collections", icon: Boxes },
@@ -93,20 +94,36 @@ export function Sidebar({ bootstrap }: { bootstrap: BootstrapData }) {
   const section = useWorkspaceStore((state) => state.sidebarSection);
   const setSection = useWorkspaceStore((state) => state.setSidebarSection);
   const openTab = useWorkspaceStore((state) => state.openTab);
+  const historyAvailable = bootstrap.history.length > 0;
+  const activeSection =
+    section === "history" && !historyAvailable ? "collections" : section;
+  const availableSections = historyAvailable
+    ? sections
+    : sections.filter((item) => item.id !== "history");
+  const hasSourceItems =
+    activeSection === "history"
+      ? historyAvailable
+      : bootstrap.collections.length > 0;
 
   const visibleNodes = useMemo(() => {
-    if (section === "history") {
-      return bootstrap.history.map<CollectionNode>((entry) => ({
-        id: entry.id,
-        kind: "request",
-        name: entry.requestName,
-        method: entry.method,
-        url: entry.url,
-        depth: 0,
-      }));
-    }
-    if (section !== "collections" && section !== "apis") return [];
     const normalized = query.trim().toLocaleLowerCase("tr");
+    if (activeSection === "history") {
+      return bootstrap.history
+        .filter((entry) =>
+          `${entry.requestName} ${entry.method} ${entry.url} ${entry.statusCode} ${entry.environment}`
+            .toLocaleLowerCase("tr")
+            .includes(normalized),
+        )
+        .map<CollectionNode>((entry) => ({
+          id: entry.id,
+          kind: "request",
+          name: entry.requestName,
+          method: entry.method,
+          url: entry.url,
+          depth: 0,
+        }));
+    }
+    if (activeSection !== "collections" && activeSection !== "apis") return [];
     const byID = new Map(bootstrap.collections.map((node) => [node.id, node]));
     return bootstrap.collections.filter((node) => {
       if (!normalized) {
@@ -121,7 +138,13 @@ export function Sidebar({ bootstrap }: { bootstrap: BootstrapData }) {
         .toLocaleLowerCase("tr")
         .includes(normalized);
     });
-  }, [bootstrap.collections, bootstrap.history, collapsed, query, section]);
+  }, [
+    activeSection,
+    bootstrap.collections,
+    bootstrap.history,
+    collapsed,
+    query,
+  ]);
 
   const virtualizer = useVirtualizer({
     count: visibleNodes.length,
@@ -153,12 +176,12 @@ export function Sidebar({ bootstrap }: { bootstrap: BootstrapData }) {
   return (
     <aside className="sidebar" aria-label="Workspace navigation">
       <nav className="sidebar-sections" aria-label="Workspace sections">
-        {sections.map(({ id, label, icon: Icon }) => (
+        {availableSections.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
-            className={cn("sidebar-section", section === id && "active")}
+            className={cn("sidebar-section", activeSection === id && "active")}
             onClick={() => setSection(id)}
-            aria-current={section === id ? "page" : undefined}
+            aria-current={activeSection === id ? "page" : undefined}
           >
             <Icon size={15} aria-hidden="true" />
             <span>{label}</span>
@@ -169,17 +192,19 @@ export function Sidebar({ bootstrap }: { bootstrap: BootstrapData }) {
         ))}
       </nav>
 
-      <div className="sidebar-toolbar">
-        <label className="sidebar-search">
-          <Search size={14} aria-hidden="true" />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={`Search ${section}`}
-            aria-label={`Search ${section}`}
-          />
-        </label>
-      </div>
+      {hasSourceItems && (
+        <div className="sidebar-toolbar">
+          <label className="sidebar-search">
+            <Search size={14} aria-hidden="true" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={`Search ${activeSection}`}
+              aria-label={`Search ${activeSection}`}
+            />
+          </label>
+        </div>
+      )}
 
       {visibleNodes.length > 0 ? (
         <div ref={scrollRef} className="tree-scroll" tabIndex={0}>
@@ -230,12 +255,30 @@ export function Sidebar({ bootstrap }: { bootstrap: BootstrapData }) {
         </div>
       ) : (
         <div className="sidebar-empty">
-          <Boxes size={22} />
-          <strong>Henüz {section} yok</strong>
-          <span>Workspace’e eklediğiniz öğeler burada görünür.</span>
+          {query.trim() ? <Search size={22} /> : <Boxes size={22} />}
+          <strong>
+            {query.trim()
+              ? "Eşleşen öğe bulunamadı"
+              : `Henüz ${activeSection} yok`}
+          </strong>
+          <span>
+            {query.trim()
+              ? "Farklı bir arama terimi deneyin."
+              : "İlk API request’inizi oluşturarak başlayın."}
+          </span>
+          {!query.trim() && activeSection === "collections" && (
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={() =>
+                openTab({ name: "Untitled request", url: "", dirty: true })
+              }
+            >
+              <FilePlus2 size={14} /> New request
+            </Button>
+          )}
         </div>
       )}
-
     </aside>
   );
 }
