@@ -71,7 +71,7 @@ func collectEndpoints(doc *openapi3.T) ([]Endpoint, error) {
 				Method:      strings.ToUpper(method),
 				OperationID: op.OperationID,
 				Summary:     op.Summary,
-				Tags:        op.Tags,
+				Tags:        append([]string{}, op.Tags...),
 				Schema:      op,
 			}
 			if ep.Summary == "" {

@@ -11,7 +11,7 @@ import {
   ShieldCheck,
   Trash2,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocale, useTranslation } from "../../i18n";
 import { Button } from "../../shared/ui";
 import { backend } from "../../lib/backend";
@@ -53,6 +53,9 @@ export function MockServerLab() {
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState<ToolNotice | null>(null);
+  const routeRevision = useRef(0);
+  const routeSnapshotRequest = useRef(0);
+  const initialRefreshStarted = useRef(false);
 
   const selectedRoute = useMemo(
     () => routes.find((route) => route.id === selectedId) ?? null,
@@ -60,10 +63,21 @@ export function MockServerLab() {
   );
 
   const acceptSnapshot = useCallback(
-    (snapshot: MockServerSnapshot, includeRoutes: boolean) => {
+    (
+      snapshot: MockServerSnapshot,
+      includeRoutes: boolean,
+      expectedRouteRevision = routeRevision.current,
+      expectedSnapshotRequest = routeSnapshotRequest.current,
+    ) => {
       setServer(snapshot.state);
       setHits(snapshot.hits ?? []);
-      if (!includeRoutes) return;
+      if (
+        !includeRoutes ||
+        expectedRouteRevision !== routeRevision.current ||
+        expectedSnapshotRequest !== routeSnapshotRequest.current
+      ) {
+        return;
+      }
       const nextRoutes = (snapshot.routes ?? []).map(toEditableRoute);
       setRoutes(nextRoutes);
       setSelectedId((current) =>
@@ -81,10 +95,19 @@ export function MockServerLab() {
       includeRoutes: boolean,
       silent = false,
     ): Promise<MockServerSnapshot | undefined> => {
+      const expectedRouteRevision = routeRevision.current;
+      const expectedSnapshotRequest = includeRoutes
+        ? ++routeSnapshotRequest.current
+        : routeSnapshotRequest.current;
       if (!silent) setBusy("refresh");
       try {
         const snapshot = await backend.getMockServer();
-        acceptSnapshot(snapshot, includeRoutes);
+        acceptSnapshot(
+          snapshot,
+          includeRoutes,
+          expectedRouteRevision,
+          expectedSnapshotRequest,
+        );
         return snapshot;
       } catch (error) {
         if (!silent) {
@@ -106,6 +129,8 @@ export function MockServerLab() {
   );
 
   useEffect(() => {
+    if (initialRefreshStarted.current) return;
+    initialRefreshStarted.current = true;
     void refresh(true);
   }, [refresh]);
 
@@ -123,6 +148,10 @@ export function MockServerLab() {
     successMessage: string,
     includeRoutes = false,
   ) => {
+    const expectedRouteRevision = routeRevision.current;
+    const expectedSnapshotRequest = includeRoutes
+      ? ++routeSnapshotRequest.current
+      : routeSnapshotRequest.current;
     setBusy(operation);
     setNotice(null);
     try {
@@ -134,10 +163,20 @@ export function MockServerLab() {
       }
       if (result?.canceled) return;
       if (isMockSnapshot(result)) {
-        acceptSnapshot(result, includeRoutes);
+        acceptSnapshot(
+          result,
+          includeRoutes,
+          expectedRouteRevision,
+          expectedSnapshotRequest,
+        );
       } else {
         const snapshot = await backend.getMockServer();
-        acceptSnapshot(snapshot, includeRoutes);
+        acceptSnapshot(
+          snapshot,
+          includeRoutes,
+          expectedRouteRevision,
+          expectedSnapshotRequest,
+        );
       }
       setNotice({ tone: "success", text: successMessage });
     } catch (error) {
@@ -161,6 +200,7 @@ export function MockServerLab() {
         route.id === selectedRoute.id ? { ...route, ...patch } : route,
       ),
     );
+    routeRevision.current += 1;
     setDirty(true);
     setNotice(null);
   };
@@ -169,6 +209,7 @@ export function MockServerLab() {
     const route = createRouteDraft();
     setRoutes((current) => [...current, route]);
     setSelectedId(route.id);
+    routeRevision.current += 1;
     setDirty(true);
     setNotice(null);
   };
@@ -179,6 +220,7 @@ export function MockServerLab() {
     const next = routes.filter((route) => route.id !== selectedRoute.id);
     setRoutes(next);
     setSelectedId(next[Math.min(index, next.length - 1)]?.id ?? "");
+    routeRevision.current += 1;
     setDirty(true);
     setNotice(null);
   };
@@ -456,7 +498,12 @@ export function MockServerLab() {
               <span className="mock-route-empty-description">
                 {t("mock.routes.empty.description")}
               </span>
-              <Button variant="primary" size="sm" onClick={addRoute}>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={addRoute}
+                disabled={isBusy}
+              >
                 <Plus size={13} /> {t("mock.action.addFirst")}
               </Button>
             </div>
@@ -472,6 +519,7 @@ export function MockServerLab() {
                     selectedId === route.id && "active",
                     !route.enabled && "disabled",
                   )}
+                  aria-pressed={selectedId === route.id}
                   onClick={() => setSelectedId(route.id)}
                 >
                   <strong className="mock-route-method">
@@ -552,6 +600,7 @@ export function MockServerLab() {
                   {t("mock.field.method")}
                   <select
                     value={selectedRoute.method}
+                    disabled={isBusy}
                     onChange={(event) => updateSelected({ method: event.target.value })}
                   >
                     {mockHTTPMethods.map((method) => (
@@ -563,6 +612,7 @@ export function MockServerLab() {
                   {t("mock.field.path")}
                   <input
                     value={selectedRoute.path}
+                    disabled={isBusy}
                     onChange={(event) => updateSelected({ path: event.target.value })}
                     placeholder="/users/{id}"
                     spellCheck={false}
@@ -572,9 +622,10 @@ export function MockServerLab() {
                   {t("mock.field.status")}
                   <input
                     type="number"
-                    min={100}
+                    min={200}
                     max={599}
                     value={selectedRoute.status}
+                    disabled={isBusy}
                     onChange={(event) =>
                       updateSelected({ status: Number(event.target.value) })
                     }
@@ -587,6 +638,7 @@ export function MockServerLab() {
                     min={0}
                     max={600000}
                     value={selectedRoute.delayMs}
+                    disabled={isBusy}
                     onChange={(event) =>
                       updateSelected({ delayMs: Number(event.target.value) })
                     }
@@ -596,6 +648,7 @@ export function MockServerLab() {
                   <input
                     type="checkbox"
                     checked={selectedRoute.enabled}
+                    disabled={isBusy}
                     onChange={(event) =>
                       updateSelected({ enabled: event.target.checked })
                     }
@@ -612,6 +665,7 @@ export function MockServerLab() {
                     className="tool-code-input mock-route-code-input"
                     aria-label={t("mock.field.headersAria")}
                     value={selectedRoute.headersText}
+                    disabled={isBusy}
                     onChange={(event) =>
                       updateSelected({ headersText: event.target.value })
                     }
@@ -626,6 +680,7 @@ export function MockServerLab() {
                     className="tool-code-input mock-route-code-input"
                     aria-label={t("mock.field.bodyAria")}
                     value={selectedRoute.body}
+                    disabled={isBusy}
                     onChange={(event) => updateSelected({ body: event.target.value })}
                     spellCheck={false}
                   />

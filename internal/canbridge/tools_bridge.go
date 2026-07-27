@@ -73,21 +73,25 @@ func (b *Bridge) ClearMockHits() MockServerSnapshot {
 func (b *Bridge) ImportMockOpenAPI() MockServerSnapshot {
 	ctx := b.runtimeContext()
 	if ctx == nil {
-		return MockServerSnapshot{Error: &UserError{
+		out := mockSnapshot(b.currentMockServer(), "")
+		out.Error = &UserError{
 			Code:    "runtime_unavailable",
 			Title:   "OpenAPI dosyası seçilemedi",
 			Message: "Desktop runtime henüz hazır değil.",
-		}}
+		}
+		return out
 	}
 	path, err := b.filePicker.Open(ctx, fileDialogOptions{
 		Title:      "Mock route üretilecek OpenAPI dosyasını seç",
 		Extensions: []string{"yaml", "yml", "json"},
 	})
 	if err != nil {
-		return MockServerSnapshot{Error: &UserError{
+		out := mockSnapshot(b.currentMockServer(), "")
+		out.Error = &UserError{
 			Code: "file_dialog_failed", Title: "OpenAPI dosyası seçilemedi",
 			Message: "Sistem dosya seçicisi tamamlanamadı.", Technical: err.Error(),
-		}}
+		}
+		return out
 	}
 	if path == "" {
 		snapshot := mockSnapshot(b.currentMockServer(), "")
@@ -129,7 +133,7 @@ func (b *Bridge) RunSSE(input SSEInput) SSEResult {
 func mapSSEResult(result protocols.SSEResult, err error) SSEResult {
 	out := SSEResult{
 		StatusCode: result.StatusCode,
-		Headers:    result.Headers,
+		Headers:    nonNilMap(result.Headers),
 		Events:     make([]SSEEvent, 0, len(result.Events)),
 		DurationMS: result.Duration.Milliseconds(),
 	}
@@ -238,7 +242,7 @@ func (b *Bridge) RunWebSocket(input WebSocketInput) WebSocketResult {
 	})
 	out := WebSocketResult{
 		StatusCode: result.StatusCode,
-		Headers:    result.Headers,
+		Headers:    nonNilMap(result.Headers),
 		Protocol:   result.Protocol,
 		Messages:   make([]WebSocketMessage, 0, len(result.Messages)),
 		DurationMS: result.Duration.Milliseconds(),
@@ -282,7 +286,7 @@ func (b *Bridge) InspectGRPC(input GRPCInput) GRPCResult {
 		InsecureSkipVerify: input.InsecureSkipVerify,
 	})
 	out := GRPCResult{
-		Services: result.Services, ReflectionVersion: result.ReflectionVersion,
+		Services: nonNilSlice(result.Services), ReflectionVersion: result.ReflectionVersion,
 		ConnectionState: result.ConnectionState, DurationMS: result.Duration.Milliseconds(),
 	}
 	if err != nil {
@@ -292,6 +296,7 @@ func (b *Bridge) InspectGRPC(input GRPCInput) GRPCResult {
 }
 
 func (b *Bridge) InspectActuator(input ActuatorInspectInput) ActuatorInspectResult {
+	out := emptyActuatorInspectResult()
 	headers := make(http.Header, len(input.Headers))
 	for key, value := range input.Headers {
 		headers.Set(key, value)
@@ -301,31 +306,35 @@ func (b *Bridge) InspectActuator(input ActuatorInspectInput) ActuatorInspectResu
 		Timeout: durationFromMS(input.TimeoutMS),
 	})
 	if err != nil {
-		return ActuatorInspectResult{Error: diagnosticError("Actuator bağlantısı hazırlanamadı", err)}
+		out.Error = diagnosticError("Actuator bağlantısı hazırlanamadı", err)
+		return out
 	}
 	ctx := b.operationContext()
 	health, err := client.FetchHealth(ctx)
 	if err != nil {
-		return ActuatorInspectResult{Error: diagnosticError("Actuator health okunamadı", err)}
+		out.Error = diagnosticError("Actuator health okunamadı", err)
+		return out
+	}
+	out.Health = &ActuatorHealth{
+		Status: health.Status, Components: health.Components,
+		Groups: health.Groups, Data: nonNilMap(health.Data),
 	}
 	metrics, err := client.FetchMetrics(ctx, input.MetricNames)
 	if err != nil {
-		return ActuatorInspectResult{Error: diagnosticError("Actuator metric’leri okunamadı", err)}
+		out.Error = diagnosticError("Actuator metric’leri okunamadı", err)
+		return out
 	}
-	out := ActuatorInspectResult{
-		Health: &ActuatorHealth{
-			Status: health.Status, Components: health.Components,
-			Groups: health.Groups, Data: health.Data,
-		},
-		Metrics: fromMetricSnapshot(metrics),
-		Deltas:  []ActuatorMetricDelta{},
-	}
+	out.Metrics = fromMetricSnapshot(metrics)
 	if input.IncludeMappings {
 		mappings, mappingsErr := client.FetchMappings(ctx)
 		if mappingsErr != nil {
-			return ActuatorInspectResult{Error: diagnosticError("Actuator mappings okunamadı", mappingsErr)}
+			out.Error = diagnosticError("Actuator mappings okunamadı", mappingsErr)
+			return out
 		}
-		out.Mappings = &ActuatorMappings{Contexts: mappings.Contexts, Data: mappings.Data}
+		out.Mappings = &ActuatorMappings{
+			Contexts: mappings.Contexts,
+			Data:     nonNilMap(mappings.Data),
+		}
 	}
 	if input.Before != nil {
 		for _, delta := range diagnostics.DiffMetricSnapshots(toMetricSnapshot(*input.Before), metrics) {
@@ -340,6 +349,12 @@ func (b *Bridge) InspectActuator(input ActuatorInspectInput) ActuatorInspectResu
 }
 
 func (b *Bridge) CompareEnvironments(input EnvironmentCompareInput) EnvironmentCompareResult {
+	out := EnvironmentCompareResult{
+		Method:      input.Method,
+		Path:        input.Path,
+		Responses:   []EnvironmentResponse{},
+		Comparisons: []EnvironmentDiff{},
+	}
 	targets := make([]diagnostics.EnvironmentTarget, 0, len(input.Targets))
 	for _, target := range input.Targets {
 		targets = append(targets, diagnostics.EnvironmentTarget{
@@ -353,13 +368,13 @@ func (b *Bridge) CompareEnvironments(input EnvironmentCompareInput) EnvironmentC
 		AllowUnsafe: input.AllowUnsafe,
 	}, diagnostics.EnvironmentCompareOptions{Timeout: durationFromMS(input.TimeoutMS)})
 	if err != nil {
-		return EnvironmentCompareResult{Error: diagnosticError("Ortam karşılaştırması tamamlanamadı", err)}
+		out.Error = diagnosticError("Ortam karşılaştırması tamamlanamadı", err)
+		return out
 	}
-	out := EnvironmentCompareResult{
-		Method: result.Method, Path: result.Path,
-		Responses:   make([]EnvironmentResponse, 0, len(result.Responses)),
-		Comparisons: make([]EnvironmentDiff, 0, len(result.Comparisons)),
-	}
+	out.Method = result.Method
+	out.Path = result.Path
+	out.Responses = make([]EnvironmentResponse, 0, len(result.Responses))
+	out.Comparisons = make([]EnvironmentDiff, 0, len(result.Comparisons))
 	for _, response := range result.Responses {
 		out.Responses = append(out.Responses, EnvironmentResponse{
 			Name: response.Name, URL: response.URL, StatusCode: response.StatusCode,
@@ -395,7 +410,10 @@ func (b *Bridge) CompareEnvironments(input EnvironmentCompareInput) EnvironmentC
 func (b *Bridge) AnalyzeThreadDump(input ThreadDumpInput) ThreadDumpResult {
 	report, err := diagnostics.AnalyzeThreadDump(input.Text, diagnostics.ThreadDumpOptions{})
 	if err != nil {
-		return ThreadDumpResult{Error: diagnosticError("Thread dump analiz edilemedi", err)}
+		return ThreadDumpResult{
+			StateCounts: map[string]int{},
+			Error:       diagnosticError("Thread dump analiz edilemedi", err),
+		}
 	}
 	out := ThreadDumpResult{
 		ThreadCount: report.ThreadCount, StateCounts: report.StateCounts,
@@ -422,7 +440,10 @@ func (b *Bridge) SearchTraceLog(input LogSearchInput) LogSearchResult {
 		CaseSensitive: input.CaseSensitive,
 	})
 	if err != nil {
-		return LogSearchResult{Error: diagnosticError("Log araması tamamlanamadı", err)}
+		return LogSearchResult{
+			Matches: []LogMatch{},
+			Error:   diagnosticError("Log araması tamamlanamadı", err),
+		}
 	}
 	out := LogSearchResult{
 		Query: result.Query, ScannedLines: result.ScannedLines,
@@ -440,12 +461,15 @@ func (b *Bridge) AnalyzeEndpointCoverage(input CoverageInput) CoverageResult {
 	if len(input.Known) == 0 && len(input.Observed) == 0 {
 		input.Known, input.Observed = b.recordedCoverageInput()
 		if len(input.Known) == 0 {
-			return CoverageResult{Error: &UserError{
-				Code:    "coverage_spec_missing",
-				Title:   "Coverage kaynağı bulunamadı",
-				Message: "Bu oturumda içe aktarılmış OpenAPI endpoint’i yok.",
-				Hint:    "Önce OpenAPI dosyası içe aktarın veya endpoint listesini elle girin.",
-			}}
+			return CoverageResult{
+				Endpoints: []EndpointCoverage{},
+				Error: &UserError{
+					Code:    "coverage_spec_missing",
+					Title:   "Coverage kaynağı bulunamadı",
+					Message: "Bu oturumda içe aktarılmış OpenAPI endpoint’i yok.",
+					Hint:    "Önce OpenAPI dosyası içe aktarın veya endpoint listesini elle girin.",
+				},
+			}
 		}
 	}
 	known := make([]diagnostics.KnownEndpoint, 0, len(input.Known))
@@ -462,7 +486,10 @@ func (b *Bridge) AnalyzeEndpointCoverage(input CoverageInput) CoverageResult {
 	}
 	report, err := diagnostics.AnalyzeEndpointCoverage(known, observed)
 	if err != nil {
-		return CoverageResult{Error: diagnosticError("Endpoint coverage hesaplanamadı", err)}
+		return CoverageResult{
+			Endpoints: []EndpointCoverage{},
+			Error:     diagnosticError("Endpoint coverage hesaplanamadı", err),
+		}
 	}
 	out := CoverageResult{
 		TotalKnown: report.TotalKnown, Covered: report.Covered,
@@ -600,7 +627,7 @@ func mockSnapshot(server *mockserver.Server, importedPath string) MockServerSnap
 	for _, route := range server.Routes() {
 		out.Routes = append(out.Routes, MockRoute{
 			ID: route.ID, Method: route.Method, Path: route.Path,
-			Status: route.Status, Headers: route.Headers, Body: route.Body,
+			Status: route.Status, Headers: nonNilMap(route.Headers), Body: route.Body,
 			DelayMS: route.DelayMS, Enabled: route.Enabled,
 		})
 	}
@@ -676,11 +703,14 @@ func fromMetricSnapshot(snapshot diagnostics.MetricSnapshot) ActuatorMetricSnaps
 	for name, metric := range snapshot.Metrics {
 		tags := make([]ActuatorMetricTag, 0, len(metric.AvailableTags))
 		for _, tag := range metric.AvailableTags {
-			tags = append(tags, ActuatorMetricTag{Tag: tag.Tag, Values: tag.Values})
+			tags = append(tags, ActuatorMetricTag{
+				Tag:    tag.Tag,
+				Values: nonNilSlice(tag.Values),
+			})
 		}
 		out.Metrics[name] = ActuatorMetricSample{
 			Name: metric.Name, Description: metric.Description, BaseUnit: metric.BaseUnit,
-			Measurements: metric.Measurements, AvailableTags: tags,
+			Measurements: nonNilMap(metric.Measurements), AvailableTags: tags,
 		}
 	}
 	return out

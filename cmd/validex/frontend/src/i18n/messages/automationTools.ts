@@ -349,7 +349,7 @@ export const automationToolsMessages = defineMessages(
     "mock.validation.signatureDuplicate":
       "{label}: {signature} is defined more than once.",
     "mock.validation.status":
-      "{label}: status must be between 100 and 599.",
+      "{label}: final status must be between 200 and 599.",
     "mock.validation.delay":
       "{label}: delay must be between 0 and 600000 ms.",
     "mock.validation.headersObject":
@@ -773,7 +773,7 @@ export const automationToolsMessages = defineMessages(
     "mock.validation.signatureDuplicate":
       "{label}: {signature} birden fazla kez tanımlanmış.",
     "mock.validation.status":
-      "{label}: status 100–599 arasında olmalı.",
+      "{label}: final status 200–599 arasında olmalı.",
     "mock.validation.delay":
       "{label}: gecikme 0–600000 ms arasında olmalı.",
     "mock.validation.headersObject":

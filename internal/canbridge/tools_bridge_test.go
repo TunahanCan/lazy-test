@@ -620,6 +620,82 @@ func TestInspectActuatorMapsHealthMappingsMetricsAndBaselineDelta(t *testing.T) 
 	}
 }
 
+func TestBridgeErrorResultsKeepRequiredCollectionsNonNull(t *testing.T) {
+	t.Parallel()
+
+	bridge := NewBridge()
+	tests := []struct {
+		name      string
+		result    any
+		fragments []string
+	}{
+		{
+			name:   "OpenAPI import",
+			result: bridge.ImportOpenAPI(),
+			fragments: []string{
+				`"endpoints":[]`,
+			},
+		},
+		{
+			name:   "contract validation",
+			result: bridge.ValidateOpenAPIResponse(ContractCheckInput{}),
+			fragments: []string{
+				`"findings":[]`,
+			},
+		},
+		{
+			name: "gRPC inspection",
+			result: bridge.InspectGRPC(GRPCInput{
+				OperationID: "grpc-contract-error",
+				Address:     "127.0.0.1:0",
+				TimeoutMS:   1,
+			}),
+			fragments: []string{
+				`"services":[]`,
+			},
+		},
+		{
+			name: "Actuator inspection",
+			result: bridge.InspectActuator(ActuatorInspectInput{
+				BaseURL:   "not-an-http-url",
+				TimeoutMS: 1_000,
+			}),
+			fragments: []string{
+				`"metrics":{"capturedAt":"","metrics":{}}`,
+				`"deltas":[]`,
+			},
+		},
+		{
+			name:   "thread dump",
+			result: bridge.AnalyzeThreadDump(ThreadDumpInput{}),
+			fragments: []string{
+				`"stateCounts":{}`,
+			},
+		},
+		{
+			name:   "coverage",
+			result: bridge.AnalyzeEndpointCoverage(CoverageInput{}),
+			fragments: []string{
+				`"endpoints":[]`,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			payload, err := json.Marshal(test.result)
+			if err != nil {
+				t.Fatalf("json.Marshal() error = %v", err)
+			}
+			for _, fragment := range test.fragments {
+				if !bytes.Contains(payload, []byte(fragment)) {
+					t.Fatalf("JSON = %s, want fragment %s", payload, fragment)
+				}
+			}
+		})
+	}
+}
+
 func TestCompareEnvironmentsMapsLocalTestAndStagingDifferences(t *testing.T) {
 	t.Parallel()
 

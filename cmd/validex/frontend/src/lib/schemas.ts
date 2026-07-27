@@ -1,4 +1,5 @@
 import type { FieldErrors, Resolver } from "react-hook-form";
+import { HTTP_METHODS } from "./http";
 import { isMaskedSecretValue } from "./secrets";
 import type { HTTPMethod, RequestTab } from "./types";
 
@@ -38,15 +39,7 @@ export function requestURLValidationMessage(value: string): string | undefined {
   return undefined;
 }
 
-const requestMethods = new Set<HTTPMethod>([
-  "GET",
-  "POST",
-  "PUT",
-  "PATCH",
-  "DELETE",
-  "OPTIONS",
-  "HEAD",
-]);
+const requestMethods = new Set<HTTPMethod>(HTTP_METHODS);
 
 const headerSources = new Set([
   "Manual",

@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   LocaleProvider,
   localeStorageKey,
+  useLocale,
   type Locale,
 } from "../../i18n";
 import { backend } from "../../lib/backend";
@@ -24,6 +25,30 @@ function renderLab(locale: Locale = "tr") {
   return render(
     <LocaleProvider>
       <MockServerLab />
+    </LocaleProvider>,
+  );
+}
+
+function LocaleSwitchingLab() {
+  const { locale, setLocale } = useLocale();
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setLocale(locale === "tr" ? "en" : "tr")}
+      >
+        Switch language
+      </button>
+      <MockServerLab />
+    </>
+  );
+}
+
+function renderLocaleSwitchingLab(locale: Locale = "tr") {
+  localStorage.setItem(localeStorageKey, locale);
+  return render(
+    <LocaleProvider>
+      <LocaleSwitchingLab />
     </LocaleProvider>,
   );
 }
@@ -85,6 +110,42 @@ describe("MockServerLab", () => {
     expect(await screen.findByText("GET /users")).toBeInTheDocument();
     expect(screen.getAllByText("/users")).not.toHaveLength(0);
     expect(backend.getMockServer).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves an unsaved route draft when the locale changes", async () => {
+    renderLocaleSwitchingLab();
+    await screen.findByText("GET /users");
+
+    fireEvent.change(screen.getByPlaceholderText("/users/{id}"), {
+      target: { value: "/draft-orders" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Switch language" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Mock Server" }),
+    ).toBeVisible();
+    expect(screen.getByDisplayValue("/draft-orders")).toBeVisible();
+    expect(backend.getMockServer).toHaveBeenCalledTimes(1);
+  });
+
+  it("locks route creation until a delayed initial snapshot is applied", async () => {
+    let resolveInitialSnapshot:
+      | ((value: MockServerSnapshot) => void)
+      | undefined;
+    vi.mocked(backend.getMockServer).mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveInitialSnapshot = resolve;
+      }),
+    );
+    renderLab();
+
+    expect(screen.getByRole("button", { name: "Ekle" })).toBeDisabled();
+    resolveInitialSnapshot?.(snapshot());
+
+    expect(await screen.findByText("GET /users")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Ekle" })).toBeEnabled();
   });
 
   it("edits a new route and sends the actual route payload only after Apply", async () => {

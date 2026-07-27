@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,6 +14,114 @@ import (
 	"validex/internal/core"
 )
 
+const (
+	// MaxOpenAPIImportRoutes bounds the number of mock routes materialized from
+	// one OpenAPI document.
+	MaxOpenAPIImportRoutes int64 = 2_000
+	// MaxOpenAPIImportBodyBytes bounds the aggregate encoded response-body
+	// bytes retained across every route in one OpenAPI import.
+	MaxOpenAPIImportBodyBytes int64 = 32 << 20
+)
+
+// OpenAPIImportErrorCode identifies a structured OpenAPI mock-import failure.
+type OpenAPIImportErrorCode string
+
+const (
+	// CodeOpenAPIImportLimitExceeded identifies a document-wide mock-import
+	// budget exhaustion.
+	CodeOpenAPIImportLimitExceeded OpenAPIImportErrorCode = "openapi_import_limit_exceeded"
+)
+
+// OpenAPIImportBudget identifies the document-wide resource that was
+// exhausted during an OpenAPI mock import.
+type OpenAPIImportBudget string
+
+const (
+	// OpenAPIImportBudgetRoutes is the number of routes materialized from the
+	// document.
+	OpenAPIImportBudgetRoutes OpenAPIImportBudget = "routes"
+	// OpenAPIImportBudgetBodyBytes is the aggregate encoded response-body size.
+	OpenAPIImportBudgetBodyBytes OpenAPIImportBudget = "body_bytes"
+)
+
+// OpenAPIImportLimitError is safe to surface to an end user and exposes stable
+// fields for callers that want to branch on the exhausted import-wide budget.
+type OpenAPIImportLimitError struct {
+	Code      OpenAPIImportErrorCode `json:"code"`
+	Budget    OpenAPIImportBudget    `json:"budget"`
+	Limit     int64                  `json:"limit"`
+	Attempted int64                  `json:"attempted"`
+	Message   string                 `json:"message"`
+	Hint      string                 `json:"hint,omitempty"`
+}
+
+func (e *OpenAPIImportLimitError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.Hint == "" {
+		return e.Message
+	}
+	return e.Message + " " + e.Hint
+}
+
+type openAPIImportLimits struct {
+	routeCount int64
+	bodyBytes  int64
+}
+
+type openAPIImportBudget struct {
+	limits        openAPIImportLimits
+	routesUsed    int64
+	bodyBytesUsed int64
+}
+
+func defaultOpenAPIImportLimits() openAPIImportLimits {
+	return openAPIImportLimits{
+		routeCount: MaxOpenAPIImportRoutes,
+		bodyBytes:  MaxOpenAPIImportBodyBytes,
+	}
+}
+
+func (b *openAPIImportBudget) consumeRoutes(count int64) error {
+	attempted := b.routesUsed + count
+	if attempted > b.limits.routeCount {
+		return &OpenAPIImportLimitError{
+			Code:      CodeOpenAPIImportLimitExceeded,
+			Budget:    OpenAPIImportBudgetRoutes,
+			Limit:     b.limits.routeCount,
+			Attempted: attempted,
+			Message: fmt.Sprintf(
+				"The OpenAPI document would create %d mock routes, exceeding the safe import limit of %d.",
+				attempted,
+				b.limits.routeCount,
+			),
+			Hint: "Split the document or remove operations that do not need mock routes.",
+		}
+	}
+	b.routesUsed = attempted
+	return nil
+}
+
+func (b *openAPIImportBudget) consumeBodyBytes(count int64) error {
+	attempted := b.bodyBytesUsed + count
+	if attempted > b.limits.bodyBytes {
+		return &OpenAPIImportLimitError{
+			Code:      CodeOpenAPIImportLimitExceeded,
+			Budget:    OpenAPIImportBudgetBodyBytes,
+			Limit:     b.limits.bodyBytes,
+			Attempted: attempted,
+			Message: fmt.Sprintf(
+				"The OpenAPI mock response bodies exceed the safe aggregate import limit of %d bytes.",
+				b.limits.bodyBytes,
+			),
+			Hint: "Reduce response examples, generated collection sizes, or the number of mocked operations.",
+		}
+	}
+	b.bodyBytesUsed = attempted
+	return nil
+}
+
 // ImportOpenAPI converts every OpenAPI operation into one enabled mock route.
 // It prefers an explicit 2xx response, then a patterned 2xx response, any
 // explicit response, another patterned response, and finally the default
@@ -21,6 +130,17 @@ import (
 func ImportOpenAPI(path string) ([]Route, error) {
 	endpoints, _, err := core.LoadOpenAPI(path)
 	if err != nil {
+		return nil, err
+	}
+	return importOpenAPIEndpoints(endpoints, defaultOpenAPIImportLimits())
+}
+
+func importOpenAPIEndpoints(
+	endpoints []core.Endpoint,
+	limits openAPIImportLimits,
+) ([]Route, error) {
+	budget := openAPIImportBudget{limits: limits}
+	if err := budget.consumeRoutes(int64(len(endpoints))); err != nil {
 		return nil, err
 	}
 	sort.Slice(endpoints, func(i, j int) bool {
@@ -36,6 +156,9 @@ func ImportOpenAPI(path string) ([]Route, error) {
 		body, err := responseBody(response, status)
 		if err != nil {
 			return nil, fmt.Errorf("%s %s response: %w", endpoint.Method, endpoint.Path, err)
+		}
+		if err := budget.consumeBodyBytes(int64(len(body))); err != nil {
+			return nil, fmt.Errorf("%s %s response body: %w", endpoint.Method, endpoint.Path, err)
 		}
 		routes = append(routes, Route{
 			ID:      endpoint.Method + " " + endpoint.Path,
@@ -66,8 +189,8 @@ func selectResponse(responses *openapi3.Responses) (int, *openapi3.Response) {
 	candidates := make([]candidate, 0, responses.Len())
 	for key := range responses.Map() {
 		normalized := strings.ToUpper(key)
-		if status, err := strconv.Atoi(key); err == nil && status >= 100 && status <= 599 {
-			priority := 1
+		if status, err := strconv.Atoi(key); err == nil && status >= 200 && status <= 599 {
+			priority := 2
 			if status >= 200 && status <= 299 {
 				priority = 0
 			}
@@ -75,7 +198,7 @@ func selectResponse(responses *openapi3.Responses) (int, *openapi3.Response) {
 			continue
 		}
 		if len(normalized) == 3 && normalized[1:] == "XX" &&
-			normalized[0] >= '1' && normalized[0] <= '5' {
+			normalized[0] >= '2' && normalized[0] <= '5' {
 			status := int(normalized[0]-'0') * 100
 			priority := 3
 			if status == 200 {
@@ -110,7 +233,9 @@ func selectResponse(responses *openapi3.Responses) (int, *openapi3.Response) {
 }
 
 func responseBody(response *openapi3.Response, status int) (string, error) {
-	if status == 204 || status == 304 {
+	if status == http.StatusNoContent ||
+		status == http.StatusResetContent ||
+		status == http.StatusNotModified {
 		return "", nil
 	}
 	if response == nil || len(response.Content) == 0 {

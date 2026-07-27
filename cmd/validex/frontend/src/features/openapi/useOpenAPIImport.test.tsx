@@ -90,8 +90,10 @@ describe("useOpenAPIImport localization", () => {
   });
 
   it("reports an empty import in Turkish", async () => {
+    useWorkspaceStore.setState({ latestImportedSpec: importedSpec });
     vi.spyOn(backend, "importOpenAPI").mockResolvedValue({
       ...importedSpec,
+      specId: "empty-spec",
       endpoints: [],
     });
     renderHarness("tr");
@@ -110,5 +112,8 @@ describe("useOpenAPIImport localization", () => {
     expect(
       screen.getByText("Payments API · No usable endpoints found."),
     ).toBeVisible();
+    expect(useWorkspaceStore.getState().latestImportedSpec).toEqual(
+      importedSpec,
+    );
   });
 });

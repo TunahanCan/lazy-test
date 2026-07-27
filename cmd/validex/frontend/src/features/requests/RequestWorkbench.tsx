@@ -28,6 +28,7 @@ import {
   type TranslationKey,
 } from "../../i18n";
 import { backend } from "../../lib/backend";
+import { methodAllowsBody } from "../../lib/http";
 import { requestURLMatchesOpenAPIPath } from "../../lib/openapi";
 import { useCancelRequest, useSendRequest } from "../../lib/queries";
 import {
@@ -96,10 +97,6 @@ const untitledRequestNames = new Set(
 
 function countEnabledHeaders(tab: RequestTab) {
   return tab.headers.filter((header) => header.enabled && header.key).length;
-}
-
-function methodAllowsBody(method: HTTPMethod): boolean {
-  return ["POST", "PUT", "PATCH", "DELETE"].includes(method);
 }
 
 function validationMessage(errors: FieldErrors<RequestFormValues>) {

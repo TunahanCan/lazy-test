@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -175,6 +176,9 @@ func TestCORSPreflight(t *testing.T) {
 	if response.Header.Get("Access-Control-Allow-Headers") != "X-Trace-ID" {
 		t.Fatalf("preflight allow headers = %q", response.Header.Get("Access-Control-Allow-Headers"))
 	}
+	if !strings.Contains(response.Header.Get("Access-Control-Allow-Methods"), http.MethodTrace) {
+		t.Fatalf("preflight allow methods = %q, want TRACE", response.Header.Get("Access-Control-Allow-Methods"))
+	}
 }
 
 func TestValidateRoutes(t *testing.T) {
@@ -198,7 +202,7 @@ func TestValidateRoutes(t *testing.T) {
 			name: "invalid status",
 			routes: []Route{func() Route {
 				route := valid
-				route.Status = 700
+				route.Status = http.StatusContinue
 				return route
 			}()},
 		},
@@ -252,4 +256,122 @@ func TestValidateRoutes(t *testing.T) {
 	if err == nil || errors.Is(err, ErrAlreadyRunning) {
 		t.Fatalf("Start(-1) error = %v", err)
 	}
+}
+
+func TestServerPrefersStaticRouteOverEarlierParameterRoute(t *testing.T) {
+	t.Parallel()
+
+	server := New(Options{})
+	if err := server.ReplaceRoutes([]Route{
+		{
+			ID:      "generic-user",
+			Method:  http.MethodGet,
+			Path:    "/users/{id}",
+			Status:  http.StatusOK,
+			Body:    `{"route":"parameter"}`,
+			Enabled: true,
+		},
+		{
+			ID:      "current-user",
+			Method:  http.MethodGet,
+			Path:    "/users/me",
+			Status:  http.StatusOK,
+			Body:    `{"route":"static"}`,
+			Enabled: true,
+		},
+	}); err != nil {
+		t.Fatalf("ReplaceRoutes() error = %v", err)
+	}
+
+	request, err := http.NewRequest(http.MethodGet, "/users/me", nil)
+	if err != nil {
+		t.Fatalf("NewRequest() error = %v", err)
+	}
+	recorder := newResponseRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.status != http.StatusOK || string(recorder.body) != `{"route":"static"}` {
+		t.Fatalf("response = status %d body %q, want static route", recorder.status, recorder.body)
+	}
+	hits := server.Hits()
+	if len(hits) != 1 || hits[0].RouteID != "current-user" {
+		t.Fatalf("hits = %#v, want current-user", hits)
+	}
+}
+
+func TestValidateRoutesRejectsEquivalentPathTemplates(t *testing.T) {
+	t.Parallel()
+
+	err := ValidateRoutes([]Route{
+		{
+			ID:      "user-by-id",
+			Method:  http.MethodGet,
+			Path:    "/users/{id}",
+			Status:  http.StatusOK,
+			Body:    `{}`,
+			Enabled: true,
+		},
+		{
+			ID:      "user-by-name",
+			Method:  http.MethodGet,
+			Path:    "/users/{name}",
+			Status:  http.StatusOK,
+			Body:    `{}`,
+			Enabled: true,
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "duplicate method and path template") {
+		t.Fatalf("ValidateRoutes() error = %v, want template conflict", err)
+	}
+}
+
+func TestServerDoesNotWriteBodyForResetContent(t *testing.T) {
+	t.Parallel()
+
+	server := New(Options{})
+	if err := server.ReplaceRoutes([]Route{{
+		ID:      "reset",
+		Method:  http.MethodPost,
+		Path:    "/reset",
+		Status:  http.StatusResetContent,
+		Body:    `{"must":"not be written"}`,
+		Enabled: true,
+	}}); err != nil {
+		t.Fatalf("ReplaceRoutes() error = %v", err)
+	}
+
+	request, err := http.NewRequest(http.MethodPost, "/reset", nil)
+	if err != nil {
+		t.Fatalf("NewRequest() error = %v", err)
+	}
+	recorder := newResponseRecorder()
+	server.ServeHTTP(recorder, request)
+	if recorder.status != http.StatusResetContent || len(recorder.body) != 0 {
+		t.Fatalf("response = status %d body %q", recorder.status, recorder.body)
+	}
+}
+
+type responseRecorder struct {
+	header http.Header
+	body   []byte
+	status int
+}
+
+func newResponseRecorder() *responseRecorder {
+	return &responseRecorder{header: make(http.Header)}
+}
+
+func (r *responseRecorder) Header() http.Header {
+	return r.header
+}
+
+func (r *responseRecorder) WriteHeader(status int) {
+	r.status = status
+}
+
+func (r *responseRecorder) Write(body []byte) (int, error) {
+	if r.status == 0 {
+		r.status = http.StatusOK
+	}
+	r.body = append(r.body, body...)
+	return len(body), nil
 }

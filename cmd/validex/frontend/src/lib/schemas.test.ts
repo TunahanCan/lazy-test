@@ -19,6 +19,18 @@ describe("request schema", () => {
     ).toBe(true);
   });
 
+  it("accepts TRACE through the shared HTTP method contract", () => {
+    expect(
+      requestSchema.safeParse({
+        method: "TRACE",
+        url: "https://example.test/debug",
+        body: "",
+        headers: [],
+        timeoutMs: 30_000,
+      }).success,
+    ).toBe(true);
+  });
+
   it("rejects malformed URLs", () => {
     expect(
       requestSchema.safeParse({

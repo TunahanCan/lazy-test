@@ -346,30 +346,36 @@ func (b *Bridge) CancelToolOperation(operationID string) bool {
 }
 
 func (b *Bridge) ImportOpenAPI() ImportSpecResult {
+	result := ImportSpecResult{Endpoints: []ImportedEndpoint{}}
 	b.mu.Lock()
 	ctx := b.ctx
 	b.mu.Unlock()
 	if ctx == nil {
-		return ImportSpecResult{Error: &UserError{Code: "runtime_unavailable", Title: "Dosya seçici açılamadı", Message: "Desktop runtime henüz hazır değil."}}
+		result.Error = &UserError{Code: "runtime_unavailable", Title: "Dosya seçici açılamadı", Message: "Desktop runtime henüz hazır değil."}
+		return result
 	}
 	path, err := b.filePicker.Open(ctx, fileDialogOptions{
 		Title:      "OpenAPI dosyası seç",
 		Extensions: []string{"yaml", "yml", "json"},
 	})
 	if err != nil {
-		return ImportSpecResult{Error: &UserError{Code: "file_dialog_failed", Title: "Dosya seçilemedi", Message: "Sistem dosya seçicisi tamamlanamadı.", Technical: err.Error()}}
+		result.Error = &UserError{Code: "file_dialog_failed", Title: "Dosya seçilemedi", Message: "Sistem dosya seçicisi tamamlanamadı.", Technical: err.Error()}
+		return result
 	}
 	if path == "" {
-		return ImportSpecResult{Canceled: true}
+		result.Canceled = true
+		return result
 	}
 
 	endpoints, doc, err := core.LoadOpenAPI(path)
 	if err != nil {
-		return ImportSpecResult{Path: path, Error: &UserError{
+		result.Path = path
+		result.Error = &UserError{
 			Code: "invalid_openapi", Title: "OpenAPI içe aktarılamadı",
 			Message: "Dosya geçerli bir OpenAPI dokümanı değil.",
 			Hint:    "YAML/JSON sözdizimini ve schema referanslarını kontrol edin.", Technical: err.Error(),
-		}}
+		}
+		return result
 	}
 
 	specID := fmt.Sprintf("spec-%d", time.Now().UnixNano())
@@ -388,7 +394,8 @@ func (b *Bridge) ImportOpenAPI() ImportSpecResult {
 			id = endpoint.Method + " " + endpoint.Path
 		}
 		out.Endpoints = append(out.Endpoints, ImportedEndpoint{
-			ID: id, Method: endpoint.Method, Path: endpoint.Path, Summary: endpoint.Summary, Tags: endpoint.Tags,
+			ID: id, Method: endpoint.Method, Path: endpoint.Path, Summary: endpoint.Summary,
+			Tags: nonNilSlice(endpoint.Tags),
 		})
 	}
 	sort.Slice(out.Endpoints, func(i, j int) bool {
@@ -406,6 +413,7 @@ func (b *Bridge) ValidateOpenAPIResponse(input ContractCheckInput) ContractCheck
 	b.mu.Unlock()
 	if strings.TrimSpace(input.SpecID) == "" || len(endpoints) == 0 {
 		return ContractCheckResult{
+			Findings: []ContractFinding{},
 			Error: &UserError{
 				Code:    "spec_unavailable",
 				Title:   "OpenAPI contract bulunamadı",
@@ -466,6 +474,7 @@ func (b *Bridge) ValidateOpenAPIResponse(input ContractCheckInput) ContractCheck
 		}
 	}
 	return ContractCheckResult{
+		Findings: []ContractFinding{},
 		Error: &UserError{
 			Code:    "operation_unavailable",
 			Title:   "OpenAPI operation bulunamadı",
@@ -622,7 +631,15 @@ func methodAllowsBody(method string) bool {
 	}
 }
 
+const (
+	maxPrettyJSONBytes        = int64(32 << 20)
+	maxPrettyJSONNestingDepth = 128
+)
+
 func prettyBody(raw []byte, contentType string) string {
+	if !prettyJSONWithinBudget(raw) {
+		return string(raw)
+	}
 	if strings.Contains(strings.ToLower(contentType), "json") || json.Valid(raw) {
 		var formatted bytes.Buffer
 		if err := json.Indent(&formatted, raw, "", "  "); err == nil {
@@ -630,6 +647,55 @@ func prettyBody(raw []byte, contentType string) string {
 		}
 	}
 	return string(raw)
+}
+
+// prettyJSONWithinBudget estimates json.Indent's expansion before allocating
+// its destination. Structural characters inside JSON strings are ignored.
+func prettyJSONWithinBudget(raw []byte) bool {
+	if int64(len(raw)) > maxPrettyJSONBytes {
+		return false
+	}
+	estimatedBytes := int64(len(raw))
+	depth := 0
+	inString := false
+	escaped := false
+	for _, character := range raw {
+		if inString {
+			switch {
+			case escaped:
+				escaped = false
+			case character == '\\':
+				escaped = true
+			case character == '"':
+				inString = false
+			}
+			continue
+		}
+		if character == '"' {
+			inString = true
+			continue
+		}
+
+		switch character {
+		case '{', '[':
+			depth++
+			if depth > maxPrettyJSONNestingDepth {
+				return false
+			}
+			estimatedBytes += 1 + int64(depth*2)
+		case ',':
+			estimatedBytes += 1 + int64(depth*2)
+		case '}', ']':
+			if depth > 0 {
+				depth--
+			}
+			estimatedBytes += 1 + int64(depth*2)
+		}
+		if estimatedBytes > maxPrettyJSONBytes {
+			return false
+		}
+	}
+	return true
 }
 
 func tlsVersion(version uint16) string {

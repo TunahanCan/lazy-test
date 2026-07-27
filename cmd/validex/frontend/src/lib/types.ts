@@ -1,11 +1,6 @@
-export type HTTPMethod =
-  | "GET"
-  | "POST"
-  | "PUT"
-  | "PATCH"
-  | "DELETE"
-  | "OPTIONS"
-  | "HEAD";
+import type { HTTPMethod } from "./http";
+
+export type { HTTPMethod } from "./http";
 
 export type ThemePreference = "system" | "light" | "dark";
 export type ResponsePlacement = "vertical" | "horizontal";

@@ -101,8 +101,11 @@ export function useOpenAPIImport() {
         return result;
       }
 
-      setImportedSpec(result);
-      setNoticeState(successNotice(result));
+      const nextNotice = successNotice(result);
+      if (nextNotice.tone === "success") {
+        setImportedSpec(result);
+      }
+      setNoticeState(nextNotice);
       return result;
     } catch (error) {
       const details =

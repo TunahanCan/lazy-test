@@ -33,6 +33,14 @@ const (
 	DriftEnumViolation DriftType = "enum_violation"
 
 	maxDriftFindings = 1000
+	// Schema graphs may be cyclic, and valid response bodies may be much wider
+	// or deeper than a useful interactive drift report. Keep both dimensions
+	// bounded independently from the finding limit.
+	maxDriftTraversalDepth = 256
+	maxDriftTraversalNodes = 10_000
+	maxDriftFindingBytes   = 4 << 20
+	maxDriftFindingText    = 1 << 10
+	maxDriftEnumValues     = 32
 )
 
 // DriftFinding is one contract drift finding.
@@ -52,6 +60,8 @@ type DriftResult struct {
 	Compared  bool
 	Truncated bool
 	OK        bool
+
+	findingBytes int
 }
 
 // RunDrift compares a JSON response body against its OpenAPI response schema.
@@ -84,7 +94,8 @@ func RunDriftWithContentType(respBody []byte, op *openapi3.Operation, statusCode
 		addDriftFinding(&res, DriftFinding{Path: "$", Type: DriftTypeMismatch, Schema: "valid JSON", Actual: "invalid JSON"})
 		return res
 	}
-	compareSchemaToValue(content.Schema.Value, "", body, &res)
+	traversal := newDriftTraversal()
+	traversal.compareSchemaToValue(content.Schema.Value, "", body, rootDriftValueID, 0, &res)
 	res.OK = len(res.Findings) == 0 && !res.Truncated
 	return res
 }
@@ -207,33 +218,77 @@ func schemaTypes(s *openapi3.Schema) []string {
 	return types
 }
 
-func compareSchemaToValue(s *openapi3.Schema, path string, value interface{}, res *DriftResult) {
+type driftValueID uint64
+
+const rootDriftValueID driftValueID = 1
+
+// driftValueID identifies a location in the decoded JSON tree. Composed schemas
+// retain the ID because they inspect the same value; properties and array items
+// receive new IDs. This distinguishes a schema-graph cycle from an ordinary
+// recursive schema advancing through a finite response body.
+type driftVisit struct {
+	schema  *openapi3.Schema
+	valueID driftValueID
+}
+
+type driftTraversal struct {
+	active      map[driftVisit]struct{}
+	nodes       int
+	nextValueID driftValueID
+	exhausted   bool
+}
+
+func newDriftTraversal() *driftTraversal {
+	return &driftTraversal{
+		active:      make(map[driftVisit]struct{}),
+		nextValueID: rootDriftValueID,
+	}
+}
+
+func (t *driftTraversal) compareSchemaToValue(
+	s *openapi3.Schema,
+	path string,
+	value interface{},
+	valueID driftValueID,
+	depth int,
+	res *DriftResult,
+) {
 	if s == nil || res.Truncated {
 		return
 	}
 	if path == "" {
 		path = "$"
 	}
+	visit := driftVisit{schema: s, valueID: valueID}
+	if !t.enter(visit, depth, res) {
+		return
+	}
+	defer delete(t.active, visit)
+
 	for _, schemaRef := range s.AllOf {
 		if schemaRef != nil && schemaRef.Value != nil {
-			compareSchemaToValue(schemaRef.Value, path, value, res)
+			t.compareSchemaToValue(schemaRef.Value, path, value, valueID, depth+1, res)
 			if res.Truncated {
 				return
 			}
 		}
 	}
-	compareSchemaAlternatives("oneOf", s.OneOf, path, value, res)
+	t.compareSchemaAlternatives("oneOf", s.OneOf, path, value, valueID, depth+1, res)
 	if res.Truncated {
 		return
 	}
-	compareSchemaAlternatives("anyOf", s.AnyOf, path, value, res)
+	t.compareSchemaAlternatives("anyOf", s.AnyOf, path, value, valueID, depth+1, res)
 	if res.Truncated {
 		return
 	}
 
 	if len(s.Enum) > 0 && !enumContains(s.Enum, value) {
 		allowed := make([]string, 0, len(s.Enum))
-		for _, enumValue := range s.Enum {
+		for index, enumValue := range s.Enum {
+			if index >= maxDriftEnumValues {
+				allowed = append(allowed, "…")
+				break
+			}
 			allowed = append(allowed, stringify(enumValue))
 		}
 		addDriftFinding(res, DriftFinding{
@@ -304,7 +359,7 @@ func compareSchemaToValue(s *openapi3.Schema, path string, value interface{}, re
 				}
 				continue
 			}
-			compareSchemaToValue(prop.Value, subPath, actual, res)
+			t.compareSchemaToValue(prop.Value, subPath, actual, t.newValueID(), depth+1, res)
 			if res.Truncated {
 				return
 			}
@@ -320,7 +375,7 @@ func compareSchemaToValue(s *openapi3.Schema, path string, value interface{}, re
 				continue
 			}
 			if additional := s.AdditionalProperties.Schema; additional != nil && additional.Value != nil {
-				compareSchemaToValue(additional.Value, path+"."+name, actual, res)
+				t.compareSchemaToValue(additional.Value, path+"."+name, actual, t.newValueID(), depth+1, res)
 				if res.Truncated {
 					return
 				}
@@ -341,13 +396,42 @@ func compareSchemaToValue(s *openapi3.Schema, path string, value interface{}, re
 		itemSchema := s.Items
 		if itemSchema != nil && itemSchema.Value != nil {
 			for i, item := range arr {
-				compareSchemaToValue(itemSchema.Value, path+"["+strconv.Itoa(i)+"]", item, res)
+				t.compareSchemaToValue(itemSchema.Value, path+"["+strconv.Itoa(i)+"]", item, t.newValueID(), depth+1, res)
 				if res.Truncated {
 					return
 				}
 			}
 		}
 	}
+}
+
+func (t *driftTraversal) enter(visit driftVisit, depth int, res *DriftResult) bool {
+	if depth >= maxDriftTraversalDepth {
+		markDriftTruncated(res)
+		return false
+	}
+	if t.exhausted || t.nodes >= maxDriftTraversalNodes {
+		t.exhausted = true
+		markDriftTruncated(res)
+		return false
+	}
+	if _, exists := t.active[visit]; exists {
+		markDriftTruncated(res)
+		return false
+	}
+	t.nodes++
+	t.active[visit] = struct{}{}
+	return true
+}
+
+func (t *driftTraversal) newValueID() driftValueID {
+	t.nextValueID++
+	return t.nextValueID
+}
+
+func markDriftTruncated(res *DriftResult) {
+	res.OK = false
+	res.Truncated = true
 }
 
 func compareValueConstraints(s *openapi3.Schema, path string, value any, res *DriftResult) {
@@ -561,30 +645,69 @@ func addDriftFinding(res *DriftResult, finding DriftFinding) bool {
 		res.Truncated = true
 		return false
 	}
+	finding.Path = truncateDriftText(finding.Path)
+	finding.Schema = truncateDriftText(finding.Schema)
+	finding.Actual = truncateDriftText(finding.Actual)
+	if len(finding.Enum) > maxDriftEnumValues+1 {
+		finding.Enum = append(
+			append([]string{}, finding.Enum[:maxDriftEnumValues]...),
+			"…",
+		)
+	}
+	findingBytes := len(finding.Path) + len(finding.Schema) + len(finding.Actual)
+	for index := range finding.Enum {
+		finding.Enum[index] = truncateDriftText(finding.Enum[index])
+		findingBytes += len(finding.Enum[index])
+	}
+	if res.findingBytes+findingBytes > maxDriftFindingBytes {
+		res.Truncated = true
+		return false
+	}
+	res.findingBytes += findingBytes
 	res.Findings = append(res.Findings, finding)
 	return true
 }
 
-func compareSchemaAlternatives(
+func (t *driftTraversal) compareSchemaAlternatives(
 	kind string,
 	alternatives openapi3.SchemaRefs,
 	path string,
 	value interface{},
+	valueID driftValueID,
+	depth int,
 	res *DriftResult,
 ) {
 	if len(alternatives) == 0 {
 		return
 	}
 	matches := 0
+	unresolved := false
 	var best *DriftResult
 	for _, schemaRef := range alternatives {
 		if schemaRef == nil || schemaRef.Value == nil {
 			continue
 		}
 		candidate := DriftResult{OK: true}
-		compareSchemaToValue(schemaRef.Value, path, value, &candidate)
+		t.compareSchemaToValue(schemaRef.Value, path, value, valueID, depth, &candidate)
+		if candidate.Truncated {
+			unresolved = true
+			if len(candidate.Findings) > 0 &&
+				(best == nil || len(candidate.Findings) < len(best.Findings)) {
+				copy := candidate
+				best = &copy
+			}
+			if t.exhausted {
+				appendDriftFindings(res, best)
+				markDriftTruncated(res)
+				return
+			}
+			continue
+		}
 		if candidate.OK {
 			matches++
+			if kind == "anyOf" {
+				return
+			}
 			continue
 		}
 		if best == nil || len(candidate.Findings) < len(best.Findings) {
@@ -592,7 +715,7 @@ func compareSchemaAlternatives(
 			best = &copy
 		}
 	}
-	if (kind == "anyOf" && matches > 0) || (kind == "oneOf" && matches == 1) {
+	if kind == "anyOf" && matches > 0 {
 		return
 	}
 	if kind == "oneOf" && matches > 1 {
@@ -603,12 +726,16 @@ func compareSchemaAlternatives(
 		})
 		return
 	}
+	if unresolved {
+		appendDriftFindings(res, best)
+		markDriftTruncated(res)
+		return
+	}
+	if kind == "oneOf" && matches == 1 {
+		return
+	}
 	if best != nil {
-		for _, finding := range best.Findings {
-			if !addDriftFinding(res, finding) {
-				break
-			}
-		}
+		appendDriftFindings(res, best)
 		if best.Truncated {
 			res.Truncated = true
 			res.OK = false
@@ -620,6 +747,17 @@ func compareSchemaAlternatives(
 		Schema: "a valid " + kind + " schema",
 		Actual: typeOf(value),
 	})
+}
+
+func appendDriftFindings(res *DriftResult, candidate *DriftResult) {
+	if candidate == nil {
+		return
+	}
+	for _, finding := range candidate.Findings {
+		if !addDriftFinding(res, finding) {
+			return
+		}
+	}
 }
 
 func typeOf(v interface{}) string {
@@ -634,13 +772,25 @@ func typeOf(v interface{}) string {
 
 func stringify(v interface{}) string {
 	if s, ok := v.(string); ok {
-		return s
+		return truncateDriftText(s)
 	}
 	encoded, err := json.Marshal(v)
 	if err != nil {
 		return typeOf(v)
 	}
-	return string(encoded)
+	return truncateDriftText(string(encoded))
+}
+
+func truncateDriftText(value string) string {
+	if len(value) <= maxDriftFindingText {
+		return value
+	}
+	const suffix = "…"
+	limit := maxDriftFindingText - len(suffix)
+	for limit > 0 && !utf8.RuneStart(value[limit]) {
+		limit--
+	}
+	return value[:limit] + suffix
 }
 
 func isNumber(v interface{}) bool {

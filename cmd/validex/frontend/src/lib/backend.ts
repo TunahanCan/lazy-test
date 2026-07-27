@@ -27,6 +27,19 @@ import {
   type WebSocketInput,
   type WebSocketResult,
 } from "./types";
+import {
+  normalizeActuatorInspectResult,
+  normalizeContractCheckResult,
+  normalizeCoverageResult,
+  normalizeEnvironmentCompareResult,
+  normalizeGRPCResult,
+  normalizeImportSpecResult,
+  normalizeLogSearchResult,
+  normalizeMockServerSnapshot,
+  normalizeSSEResult,
+  normalizeThreadDumpResult,
+  normalizeWebSocketResult,
+} from "./bridge-contract";
 
 interface CanbridgeAPI {
   Bootstrap(): Promise<BootstrapData>;
@@ -133,7 +146,9 @@ export const backend = {
 
   async importOpenAPI(): Promise<ImportSpecResult> {
     const native = nativeBridge();
-    if (native) return native.ImportOpenAPI();
+    if (native) {
+      return normalizeImportSpecResult(await native.ImportOpenAPI());
+    }
     return {
       specId: "",
       path: "",
@@ -155,7 +170,11 @@ export const backend = {
     input: ContractCheckInput,
   ): Promise<ContractCheckResult> {
     const native = nativeBridge();
-    if (native) return native.ValidateOpenAPIResponse(input);
+    if (native) {
+      return normalizeContractCheckResult(
+        await native.ValidateOpenAPIResponse(input),
+      );
+    }
     return {
       available: false,
       ok: false,
@@ -173,13 +192,19 @@ export const backend = {
 
   async getMockServer(): Promise<MockServerSnapshot> {
     const native = nativeBridge();
-    if (native) return native.GetMockServer();
+    if (native) {
+      return normalizeMockServerSnapshot(await native.GetMockServer());
+    }
     throw new Error("Mock server yalnızca Validex masaüstü uygulamasında çalışır.");
   },
 
   async updateMockRoutes(routes: MockRoute[]): Promise<MockServerSnapshot> {
     const native = nativeBridge();
-    if (native) return native.UpdateMockRoutes(routes);
+    if (native) {
+      return normalizeMockServerSnapshot(
+        await native.UpdateMockRoutes(routes),
+      );
+    }
     return unavailableMockSnapshot("Mock route’ları native backend olmadan uygulanamaz.");
   },
 
@@ -188,31 +213,39 @@ export const backend = {
     enableCors: boolean;
   }): Promise<MockServerSnapshot> {
     const native = nativeBridge();
-    if (native) return native.StartMockServer(input);
+    if (native) {
+      return normalizeMockServerSnapshot(await native.StartMockServer(input));
+    }
     return unavailableMockSnapshot("Mock server native backend olmadan başlatılamaz.");
   },
 
   async stopMockServer(): Promise<MockServerSnapshot> {
     const native = nativeBridge();
-    if (native) return native.StopMockServer();
+    if (native) {
+      return normalizeMockServerSnapshot(await native.StopMockServer());
+    }
     return unavailableMockSnapshot("Mock server native backend bağlantısı olmadan durdurulamaz.");
   },
 
   async clearMockHits(): Promise<MockServerSnapshot> {
     const native = nativeBridge();
-    if (native) return native.ClearMockHits();
+    if (native) {
+      return normalizeMockServerSnapshot(await native.ClearMockHits());
+    }
     return unavailableMockSnapshot("Mock hit geçmişine native backend olmadan erişilemez.");
   },
 
   async importMockOpenAPI(): Promise<MockServerSnapshot> {
     const native = nativeBridge();
-    if (native) return native.ImportMockOpenAPI();
+    if (native) {
+      return normalizeMockServerSnapshot(await native.ImportMockOpenAPI());
+    }
     return unavailableMockSnapshot("OpenAPI dosya seçici yalnızca masaüstü uygulamasında çalışır.");
   },
 
   async runSSE(input: SSEInput): Promise<SSEResult> {
     const native = nativeBridge();
-    if (native) return native.RunSSE(input);
+    if (native) return normalizeSSEResult(await native.RunSSE(input));
     return {
       statusCode: 0,
       headers: {},
@@ -224,7 +257,9 @@ export const backend = {
 
   async runWebSocket(input: WebSocketInput): Promise<WebSocketResult> {
     const native = nativeBridge();
-    if (native) return native.RunWebSocket(input);
+    if (native) {
+      return normalizeWebSocketResult(await native.RunWebSocket(input));
+    }
     return {
       statusCode: 0,
       headers: {},
@@ -237,7 +272,7 @@ export const backend = {
 
   async inspectGRPC(input: GRPCInput): Promise<GRPCResult> {
     const native = nativeBridge();
-    if (native) return native.InspectGRPC(input);
+    if (native) return normalizeGRPCResult(await native.InspectGRPC(input));
     return {
       services: [],
       reflectionVersion: "",
@@ -258,7 +293,11 @@ export const backend = {
     input: ActuatorInspectInput,
   ): Promise<ActuatorInspectResult> {
     const native = nativeBridge();
-    if (native) return native.InspectActuator(input);
+    if (native) {
+      return normalizeActuatorInspectResult(
+        await native.InspectActuator(input),
+      );
+    }
     return {
       metrics: { capturedAt: "", metrics: {} },
       deltas: [],
@@ -270,7 +309,11 @@ export const backend = {
     input: EnvironmentCompareInput,
   ): Promise<EnvironmentCompareResult> {
     const native = nativeBridge();
-    if (native) return native.CompareEnvironments(input);
+    if (native) {
+      return normalizeEnvironmentCompareResult(
+        await native.CompareEnvironments(input),
+      );
+    }
     return {
       method: input.method,
       path: input.path,
@@ -282,7 +325,9 @@ export const backend = {
 
   async analyzeThreadDump(input: { text: string }): Promise<ThreadDumpResult> {
     const native = nativeBridge();
-    if (native) return native.AnalyzeThreadDump(input);
+    if (native) {
+      return normalizeThreadDumpResult(await native.AnalyzeThreadDump(input));
+    }
     return {
       threadCount: 0,
       stateCounts: {},
@@ -298,7 +343,9 @@ export const backend = {
     caseSensitive: boolean;
   }): Promise<LogSearchResult> {
     const native = nativeBridge();
-    if (native) return native.SearchTraceLog(input);
+    if (native) {
+      return normalizeLogSearchResult(await native.SearchTraceLog(input));
+    }
     return {
       query: input.query,
       matches: [],
@@ -310,7 +357,11 @@ export const backend = {
 
   async analyzeEndpointCoverage(input: CoverageInput): Promise<CoverageResult> {
     const native = nativeBridge();
-    if (native) return native.AnalyzeEndpointCoverage(input);
+    if (native) {
+      return normalizeCoverageResult(
+        await native.AnalyzeEndpointCoverage(input),
+      );
+    }
     return {
       totalKnown: input.known.length,
       covered: 0,

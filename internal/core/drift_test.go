@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/getkin/kin-openapi/openapi3"
@@ -167,6 +168,177 @@ func TestRunDriftSupportsComposedAndImplicitObjectSchemas(t *testing.T) {
 	)
 	if result.OK || len(result.Findings) < 2 {
 		t.Fatalf("invalid allOf result = %#v", result)
+	}
+}
+
+func TestRunDriftBoundsCircularSchemaCompositions(t *testing.T) {
+	selfReferential := openapi3.NewSchema()
+	selfReferential.AllOf = openapi3.SchemaRefs{{Value: selfReferential}}
+
+	first := openapi3.NewSchema()
+	second := openapi3.NewSchema()
+	first.OneOf = openapi3.SchemaRefs{{Value: second}}
+	second.AnyOf = openapi3.SchemaRefs{{Value: first}}
+
+	for name, schema := range map[string]*openapi3.Schema{
+		"direct allOf cycle":       selfReferential,
+		"mutual alternative cycle": first,
+	} {
+		t.Run(name, func(t *testing.T) {
+			result := RunDrift([]byte(`{}`), responseOperation(schema), 200)
+			if !result.Compared || result.OK || !result.Truncated {
+				t.Fatalf("circular schema result = %#v, want a truncated comparison", result)
+			}
+		})
+	}
+}
+
+func TestRunDriftDoesNotResolveOneOfWithACircularCandidate(t *testing.T) {
+	circular := openapi3.NewSchema()
+	circular.AllOf = openapi3.SchemaRefs{{Value: circular}}
+	schema := &openapi3.Schema{
+		OneOf: openapi3.SchemaRefs{
+			{Value: circular},
+			{Value: openapi3.NewStringSchema()},
+		},
+	}
+
+	result := RunDrift([]byte(`"matched"`), responseOperation(schema), 200)
+	if !result.Compared || result.OK || !result.Truncated {
+		t.Fatalf("oneOf with unresolved candidate result = %#v, want a truncated comparison", result)
+	}
+}
+
+func TestRunDriftCanResolveAnyOfWithACircularCandidate(t *testing.T) {
+	circular := openapi3.NewSchema()
+	circular.AllOf = openapi3.SchemaRefs{{Value: circular}}
+	schema := &openapi3.Schema{
+		AnyOf: openapi3.SchemaRefs{
+			{Value: circular},
+			{Value: openapi3.NewStringSchema()},
+		},
+	}
+
+	result := RunDrift([]byte(`"matched"`), responseOperation(schema), 200)
+	if !result.Compared || !result.OK || result.Truncated || len(result.Findings) != 0 {
+		t.Fatalf("anyOf with one proven match result = %#v", result)
+	}
+}
+
+func TestRunDriftAllowsFiniteValuesForRecursivePropertySchemas(t *testing.T) {
+	node := openapi3.NewObjectSchema().
+		WithProperty("value", openapi3.NewIntegerSchema()).
+		WithRequired([]string{"value"})
+	node.Properties["next"] = &openapi3.SchemaRef{Value: node}
+
+	result := RunDrift(
+		[]byte(`{"value":1,"next":{"value":2,"next":{"value":3}}}`),
+		responseOperation(node),
+		200,
+	)
+	if !result.Compared || !result.OK || result.Truncated || len(result.Findings) != 0 {
+		t.Fatalf("finite recursive value result = %#v", result)
+	}
+}
+
+func TestRunDriftBoundsSchemaTraversalDepth(t *testing.T) {
+	root := openapi3.NewSchema()
+	current := root
+	for range maxDriftTraversalDepth {
+		next := openapi3.NewSchema()
+		current.AllOf = openapi3.SchemaRefs{{Value: next}}
+		current = next
+	}
+
+	result := RunDrift([]byte(`null`), responseOperation(root), 200)
+	if !result.Compared || result.OK || !result.Truncated {
+		t.Fatalf("deep schema result = %#v, want a truncated comparison", result)
+	}
+}
+
+func TestRunDriftBoundsSchemaTraversalNodes(t *testing.T) {
+	values := make([]string, maxDriftTraversalNodes)
+	for index := range values {
+		values[index] = "ok"
+	}
+	body, err := json.Marshal(values)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	result := RunDrift(
+		body,
+		responseOperation(openapi3.NewArraySchema().WithItems(openapi3.NewStringSchema())),
+		200,
+	)
+	if !result.Compared || result.OK || !result.Truncated || len(result.Findings) != 0 {
+		t.Fatalf("wide schema result = %#v, want a finding-free truncated comparison", result)
+	}
+}
+
+func TestRunDriftBoundsFindingValueAndEnumPreviews(t *testing.T) {
+	t.Parallel()
+
+	schema := openapi3.NewStringSchema()
+	for range maxDriftEnumValues + 10 {
+		schema.Enum = append(
+			schema.Enum,
+			strings.Repeat("allowed", maxDriftFindingText),
+		)
+	}
+	actual := strings.Repeat("actual", maxDriftFindingText)
+	body, err := json.Marshal(actual)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	result := RunDrift(body, responseOperation(schema), 200)
+	if len(result.Findings) != 1 {
+		t.Fatalf("findings = %#v, want one enum violation", result.Findings)
+	}
+	finding := result.Findings[0]
+	if len(finding.Actual) > maxDriftFindingText ||
+		len(finding.Enum) != maxDriftEnumValues+1 ||
+		finding.Enum[len(finding.Enum)-1] != "…" {
+		t.Fatalf("unbounded finding preview = %#v", finding)
+	}
+	for _, value := range finding.Enum {
+		if len(value) > maxDriftFindingText {
+			t.Fatalf("enum preview length = %d, want <= %d", len(value), maxDriftFindingText)
+		}
+	}
+}
+
+func TestAddDriftFindingBoundsAggregateTextBytes(t *testing.T) {
+	t.Parallel()
+
+	value := strings.Repeat("x", maxDriftFindingText)
+	enum := make([]string, maxDriftEnumValues)
+	for index := range enum {
+		enum[index] = value
+	}
+	result := DriftResult{OK: true}
+	for range maxDriftFindings {
+		if !addDriftFinding(&result, DriftFinding{
+			Path:   value,
+			Type:   DriftEnumViolation,
+			Schema: value,
+			Actual: value,
+			Enum:   append([]string{}, enum...),
+		}) {
+			break
+		}
+	}
+	if !result.Truncated || result.OK {
+		t.Fatalf("aggregate finding budget result = %#v", result)
+	}
+	if result.findingBytes > maxDriftFindingBytes ||
+		len(result.Findings) >= maxDriftFindings {
+		t.Fatalf(
+			"finding budget = %d bytes across %d findings",
+			result.findingBytes,
+			len(result.Findings),
+		)
 	}
 }
 

@@ -24,10 +24,14 @@ var (
 )
 
 type compiledRoute struct {
-	route      Route
-	pathRE     *regexp.Regexp
-	paramNames []string
+	route           Route
+	pathRE          *regexp.Regexp
+	paramNames      []string
+	literalSegments int
+	literalBytes    int
 }
+
+const clientClosedRequestStatus = 499
 
 // Server is a concurrency-safe, loopback-only mock HTTP server.
 type Server struct {
@@ -293,7 +297,7 @@ func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 				Method:     request.Method,
 				Path:       request.URL.Path,
 				RawQuery:   request.URL.RawQuery,
-				Status:     499,
+				Status:     clientClosedRequestStatus,
 				Matched:    true,
 				PathParams: params,
 				Timestamp:  timestamp,
@@ -309,8 +313,7 @@ func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 	}
 	writer.WriteHeader(route.Status)
-	if request.Method != http.MethodHead && route.Status != http.StatusNoContent &&
-		route.Status != http.StatusNotModified {
+	if responseAllowsBody(request.Method, route.Status) {
 		body := route.Body
 		if strings.TrimSpace(body) == "" {
 			body = "{}"
@@ -332,7 +335,7 @@ func (s *Server) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 
 func applyCORS(headers http.Header, request *http.Request) {
 	headers.Set("Access-Control-Allow-Origin", "*")
-	headers.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD")
+	headers.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS, TRACE")
 	requestedHeaders := request.Header.Get("Access-Control-Request-Headers")
 	if requestedHeaders == "" {
 		requestedHeaders = "Content-Type, Authorization"
@@ -353,6 +356,8 @@ func (s *Server) match(method, path string) (*Route, map[string]string, []string
 
 	method = strings.ToUpper(method)
 	allowedSet := make(map[string]struct{})
+	var best *compiledRoute
+	var bestMatches []string
 	for i := range s.routes {
 		compiled := &s.routes[i]
 		if !compiled.route.Enabled {
@@ -366,11 +371,17 @@ func (s *Server) match(method, path string) (*Route, map[string]string, []string
 			allowedSet[compiled.route.Method] = struct{}{}
 			continue
 		}
-		params := make(map[string]string, len(compiled.paramNames))
-		for index, name := range compiled.paramNames {
-			params[name] = matches[index+1]
+		if best == nil || moreSpecific(compiled, best) {
+			best = compiled
+			bestMatches = matches
 		}
-		route := cloneRoute(compiled.route)
+	}
+	if best != nil {
+		params := make(map[string]string, len(best.paramNames))
+		for index, name := range best.paramNames {
+			params[name] = bestMatches[index+1]
+		}
+		route := cloneRoute(best.route)
 		return &route, params, nil
 	}
 
@@ -380,6 +391,23 @@ func (s *Server) match(method, path string) (*Route, map[string]string, []string
 	}
 	sort.Strings(allowed)
 	return nil, nil, allowed
+}
+
+func moreSpecific(candidate, current *compiledRoute) bool {
+	if candidate.literalSegments != current.literalSegments {
+		return candidate.literalSegments > current.literalSegments
+	}
+	if candidate.literalBytes != current.literalBytes {
+		return candidate.literalBytes > current.literalBytes
+	}
+	return len(candidate.paramNames) < len(current.paramNames)
+}
+
+func responseAllowsBody(method string, status int) bool {
+	return method != http.MethodHead &&
+		status != http.StatusNoContent &&
+		status != http.StatusResetContent &&
+		status != http.StatusNotModified
 }
 
 func (s *Server) recordHit(hit Hit, started time.Time) {
@@ -392,6 +420,7 @@ func (s *Server) recordHit(hit Hit, started time.Time) {
 func compileRoutes(routes []Route) ([]compiledRoute, error) {
 	compiled := make([]compiledRoute, 0, len(routes))
 	ids := make(map[string]struct{}, len(routes))
+	signatures := make(map[string]string, len(routes))
 
 	for index, original := range routes {
 		route := cloneRoute(original)
@@ -409,8 +438,8 @@ func compileRoutes(routes []Route) ([]compiledRoute, error) {
 		if !validToken(route.Method) {
 			return nil, fmt.Errorf("route %q: invalid method %q", route.ID, route.Method)
 		}
-		if route.Status < 100 || route.Status > 599 {
-			return nil, fmt.Errorf("route %q: status must be between 100 and 599", route.ID)
+		if route.Status < 200 || route.Status > 599 {
+			return nil, fmt.Errorf("route %q: status must be between 200 and 599", route.ID)
 		}
 		if route.DelayMS < 0 || route.DelayMS > MaxDelayMS {
 			return nil, fmt.Errorf("route %q: delayMs must be between 0 and %d", route.ID, MaxDelayMS)
@@ -431,13 +460,48 @@ func compileRoutes(routes []Route) ([]compiledRoute, error) {
 		if err != nil {
 			return nil, fmt.Errorf("route %q: %w", route.ID, err)
 		}
+		signature := route.Method + " " + routeTemplateKey(route.Path)
+		if conflictingID, exists := signatures[signature]; exists {
+			return nil, fmt.Errorf(
+				"route %q conflicts with route %q: duplicate method and path template",
+				route.ID,
+				conflictingID,
+			)
+		}
+		signatures[signature] = route.ID
+		literalSegments, literalBytes := pathSpecificity(route.Path)
 		compiled = append(compiled, compiledRoute{
-			route:      route,
-			pathRE:     pathRE,
-			paramNames: params,
+			route:           route,
+			pathRE:          pathRE,
+			paramNames:      params,
+			literalSegments: literalSegments,
+			literalBytes:    literalBytes,
 		})
 	}
 	return compiled, nil
+}
+
+func routeTemplateKey(path string) string {
+	segments := strings.Split(path, "/")
+	for index, segment := range segments {
+		if len(segment) >= 2 && segment[0] == '{' && segment[len(segment)-1] == '}' {
+			segments[index] = "{}"
+		}
+	}
+	return strings.Join(segments, "/")
+}
+
+func pathSpecificity(path string) (literalSegments, literalBytes int) {
+	for _, segment := range strings.Split(path, "/") {
+		if len(segment) >= 2 && segment[0] == '{' && segment[len(segment)-1] == '}' {
+			continue
+		}
+		if segment != "" {
+			literalSegments++
+			literalBytes += len(segment)
+		}
+	}
+	return literalSegments, literalBytes
 }
 
 func compilePath(path string) (*regexp.Regexp, []string, error) {

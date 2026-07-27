@@ -16,6 +16,7 @@ import {
   useTranslation,
   type TranslationKey,
 } from "../../i18n";
+import { HTTP_METHODS } from "../../lib/http";
 import type { RequestFormValues } from "../../lib/schemas";
 import { isSecretKey } from "../../lib/secrets";
 import type { HTTPMethod } from "../../lib/types";
@@ -30,16 +31,6 @@ import { Button, IconButton, MethodBadge } from "../../shared/ui";
 const MonacoEditor = lazy(() =>
   import("@monaco-editor/react").then((module) => ({ default: module.default })),
 );
-
-const methods: HTTPMethod[] = [
-  "GET",
-  "POST",
-  "PUT",
-  "PATCH",
-  "DELETE",
-  "OPTIONS",
-  "HEAD",
-];
 
 function sourceLabelKey(
   source: RequestFormValues["headers"][number]["source"],
@@ -70,7 +61,7 @@ export function MethodSelect({
 }) {
   const t = useTranslation();
   const [query, setQuery] = useState("");
-  const filtered = methods.filter((method) =>
+  const filtered = HTTP_METHODS.filter((method) =>
     method.toLowerCase().includes(query.toLowerCase()),
   );
   return (

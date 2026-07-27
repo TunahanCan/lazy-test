@@ -416,6 +416,29 @@ func TestPrettyBodyLeavesInvalidJSONAndPlainTextUntouched(t *testing.T) {
 	}
 }
 
+func TestPrettyBodySkipsUnsafeJSONIndentExpansion(t *testing.T) {
+	t.Parallel()
+
+	tooDeep := strings.Repeat("[", maxPrettyJSONNestingDepth+1) +
+		"0" +
+		strings.Repeat("]", maxPrettyJSONNestingDepth+1)
+	if got := prettyBody([]byte(tooDeep), "application/json"); got != tooDeep {
+		t.Fatal("prettyBody() formatted JSON beyond the nesting budget")
+	}
+
+	const values = 150_000
+	wideAtDepth := strings.Repeat("[", maxPrettyJSONNestingDepth) +
+		strings.Repeat("0,", values) +
+		"0" +
+		strings.Repeat("]", maxPrettyJSONNestingDepth)
+	if prettyJSONWithinBudget([]byte(wideAtDepth)) {
+		t.Fatal("prettyJSONWithinBudget() accepted output above the byte budget")
+	}
+	if got := prettyBody([]byte(wideAtDepth), "application/json"); got != wideAtDepth {
+		t.Fatal("prettyBody() formatted JSON beyond the output byte budget")
+	}
+}
+
 func TestRequestTraceTimelineUsesMeasuredNonOverlappingPhases(t *testing.T) {
 	t.Parallel()
 

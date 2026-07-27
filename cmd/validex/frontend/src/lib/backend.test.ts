@@ -31,4 +31,74 @@ describe("canbridge adapter", () => {
     await expect(backend.bootstrap()).resolves.toEqual(bootstrap);
     expect(Bootstrap).toHaveBeenCalledOnce();
   });
+
+  it("normalizes required native collections at the bridge boundary", async () => {
+    const ImportOpenAPI = vi.fn().mockResolvedValue({
+      specId: "spec-1",
+      path: "/tmp/openapi.yaml",
+      title: "Tagless API",
+      version: "1.0.0",
+      baseUrl: "",
+      endpoints: [
+        {
+          id: "listUsers",
+          method: "GET",
+          path: "/users",
+          summary: "List users",
+          tags: null,
+        },
+      ],
+      canceled: false,
+    });
+    const InspectGRPC = vi.fn().mockResolvedValue({
+      services: null,
+      reflectionVersion: "",
+      connectionState: "",
+      durationMs: 1,
+      error: { code: "grpc_failed", title: "Failed", message: "offline" },
+    });
+    const InspectActuator = vi.fn().mockResolvedValue({
+      metrics: { capturedAt: "", metrics: null },
+      deltas: null,
+      error: {
+        code: "diagnostic_failed",
+        title: "Failed",
+        message: "offline",
+      },
+    });
+    window.canbridge = {
+      Bridge: {
+        ImportOpenAPI,
+        InspectGRPC,
+        InspectActuator,
+      } as unknown as NativeBridge,
+    };
+
+    await expect(backend.importOpenAPI()).resolves.toMatchObject({
+      endpoints: [{ tags: [] }],
+    });
+    await expect(
+      backend.inspectGRPC({
+        operationId: "grpc-1",
+        address: "localhost:50051",
+        metadata: {},
+        timeoutMs: 1_000,
+        useTLS: false,
+        serverName: "",
+        insecureSkipVerify: false,
+      }),
+    ).resolves.toMatchObject({ services: [] });
+    await expect(
+      backend.inspectActuator({
+        baseUrl: "http://localhost:8080/actuator",
+        headers: {},
+        timeoutMs: 1_000,
+        metricNames: [],
+        includeMappings: false,
+      }),
+    ).resolves.toMatchObject({
+      metrics: { metrics: {} },
+      deltas: [],
+    });
+  });
 });

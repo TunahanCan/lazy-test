@@ -3,12 +3,15 @@ package mockserver
 import (
 	"encoding/json"
 	"errors"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/getkin/kin-openapi/openapi3"
+
+	"validex/internal/core"
 )
 
 func TestImportOpenAPIUsesExamplesAndSchemaSamples(t *testing.T) {
@@ -87,6 +90,51 @@ paths:
 	}
 	if user["id"] != "42" || user["name"] != "Ada" {
 		t.Fatalf("explicit example = %#v", user)
+	}
+}
+
+func TestSelectResponseUsesDocumentedDeterministicPriority(t *testing.T) {
+	t.Parallel()
+
+	response := func(description string) *openapi3.ResponseRef {
+		return &openapi3.ResponseRef{
+			Value: openapi3.NewResponse().WithDescription(description),
+		}
+	}
+	responses := openapi3.NewResponsesWithCapacity(4)
+	responses.Set("100", response("informational"))
+	responses.Set("404", response("exact error"))
+	responses.Set("2XX", response("patterned success"))
+	responses.Set("DEFAULT", response("default"))
+
+	status, selected := selectResponse(responses)
+	if status != http.StatusOK ||
+		selected == nil ||
+		selected.Description == nil ||
+		*selected.Description != "patterned success" {
+		t.Fatalf("selectResponse() = (%d, %#v), want patterned 2xx", status, selected)
+	}
+}
+
+func TestResponseBodyIsEmptyForBodylessFinalStatuses(t *testing.T) {
+	t.Parallel()
+
+	response := openapi3.NewResponse().WithDescription("bodyless")
+	response.Content = openapi3.NewContentWithJSONSchema(
+		openapi3.NewObjectSchema(),
+	)
+	for _, status := range []int{
+		http.StatusNoContent,
+		http.StatusResetContent,
+		http.StatusNotModified,
+	} {
+		body, err := responseBody(response, status)
+		if err != nil {
+			t.Fatalf("responseBody(status=%d) error = %v", status, err)
+		}
+		if body != "" {
+			t.Fatalf("responseBody(status=%d) = %q, want empty", status, body)
+		}
 	}
 }
 
@@ -191,6 +239,100 @@ paths:
 	}
 }
 
+func TestImportOpenAPIRejectsDocumentWideRouteCountWithStructuredError(t *testing.T) {
+	endpoints := make([]core.Endpoint, int(MaxOpenAPIImportRoutes+1))
+
+	_, err := importOpenAPIEndpoints(endpoints, defaultOpenAPIImportLimits())
+	var limitErr *OpenAPIImportLimitError
+	if !errors.As(err, &limitErr) {
+		t.Fatalf("importOpenAPIEndpoints() error = %v, want *OpenAPIImportLimitError", err)
+	}
+	if limitErr.Code != CodeOpenAPIImportLimitExceeded ||
+		limitErr.Budget != OpenAPIImportBudgetRoutes ||
+		limitErr.Limit != MaxOpenAPIImportRoutes ||
+		limitErr.Attempted != MaxOpenAPIImportRoutes+1 {
+		t.Fatalf("route-count budget error = %#v", limitErr)
+	}
+	if !strings.Contains(err.Error(), "Split the document") {
+		t.Fatalf("route-count budget error is not user actionable: %v", err)
+	}
+	if _, err := json.Marshal(limitErr); err != nil {
+		t.Fatalf("json.Marshal(limit error) = %v", err)
+	}
+}
+
+func TestImportOpenAPIAggregatesExplicitAndGeneratedBodyBytes(t *testing.T) {
+	spec := `openapi: 3.0.3
+info:
+  title: Aggregate body budget
+  version: 1.0.0
+paths:
+  /a-explicit:
+    get:
+      responses:
+        "200":
+          description: Explicit example
+          content:
+            application/json:
+              example: abc
+  /b-generated:
+    get:
+      responses:
+        "200":
+          description: Generated example
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  value:
+                    type: string
+`
+	path := filepath.Join(t.TempDir(), "aggregate-body.yaml")
+	if err := os.WriteFile(path, []byte(spec), 0o600); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+	endpoints, _, err := core.LoadOpenAPI(path)
+	if err != nil {
+		t.Fatalf("LoadOpenAPI() error = %v", err)
+	}
+
+	const explicitBody = `"abc"`
+	const generatedBody = `{"value":"string"}`
+	totalBodyBytes := int64(len(explicitBody) + len(generatedBody))
+	limits := openAPIImportLimits{
+		routeCount: int64(len(endpoints)),
+		bodyBytes:  totalBodyBytes - 1,
+	}
+
+	_, err = importOpenAPIEndpoints(endpoints, limits)
+	var limitErr *OpenAPIImportLimitError
+	if !errors.As(err, &limitErr) {
+		t.Fatalf("importOpenAPIEndpoints() error = %v, want *OpenAPIImportLimitError", err)
+	}
+	if limitErr.Code != CodeOpenAPIImportLimitExceeded ||
+		limitErr.Budget != OpenAPIImportBudgetBodyBytes ||
+		limitErr.Limit != totalBodyBytes-1 ||
+		limitErr.Attempted != totalBodyBytes {
+		t.Fatalf("body-byte budget error = %#v", limitErr)
+	}
+	if !strings.Contains(err.Error(), "GET /b-generated response body") ||
+		!strings.Contains(err.Error(), "Reduce response examples") {
+		t.Fatalf("body-byte budget error lacks route context or guidance: %v", err)
+	}
+
+	limits.bodyBytes = totalBodyBytes
+	routes, err := importOpenAPIEndpoints(endpoints, limits)
+	if err != nil {
+		t.Fatalf("importOpenAPIEndpoints() at exact budget error = %v", err)
+	}
+	if len(routes) != 2 ||
+		routes[0].Body != explicitBody ||
+		routes[1].Body != generatedBody {
+		t.Fatalf("routes at exact body budget = %#v", routes)
+	}
+}
+
 func TestImportOpenAPIUsesOneNodeBudgetAcrossRepeatedReferences(t *testing.T) {
 	spec := `openapi: 3.0.3
 info:
@@ -234,6 +376,10 @@ paths:
 	var limitErr *SampleGenerationLimitError
 	if !errors.As(err, &limitErr) {
 		t.Fatalf("ImportOpenAPI() error = %v, want *SampleGenerationLimitError", err)
+	}
+	var importLimitErr *OpenAPIImportLimitError
+	if errors.As(err, &importLimitErr) {
+		t.Fatalf("per-sample limit was replaced by import-wide error %#v", importLimitErr)
 	}
 	if limitErr.Code != CodeSampleGenerationLimitExceeded ||
 		limitErr.Budget != sampleBudgetNodes ||

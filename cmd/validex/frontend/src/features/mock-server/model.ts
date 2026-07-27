@@ -3,6 +3,7 @@ import type {
   MockServerSnapshot,
   UserError,
 } from "../../lib/types";
+import { HTTP_METHODS } from "../../lib/http";
 import { translate, type Locale } from "../../i18n";
 import type { Translate } from "../../i18n/LocaleProvider";
 
@@ -30,15 +31,7 @@ export interface ToolNotice {
   issue?: ToolIssue;
 }
 
-export const mockHTTPMethods = [
-  "GET",
-  "POST",
-  "PUT",
-  "PATCH",
-  "DELETE",
-  "HEAD",
-  "OPTIONS",
-] as const;
+export const mockHTTPMethods = HTTP_METHODS;
 
 const defaultTranslate: Translate = (key, values) =>
   translate("tr", key, values);
@@ -205,7 +198,7 @@ export function parseRoutes(
     signatures.add(signature);
     if (
       !Number.isInteger(route.status) ||
-      route.status < 100 ||
+      route.status < 200 ||
       route.status > 599
     ) {
       throw new Error(t("mock.validation.status", { label }));
