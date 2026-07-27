@@ -66,8 +66,8 @@ Temel gereksinimler:
 Repoyu alın:
 
 ```bash
-git clone https://github.com/TunahanCan/lazy-test.git
-cd lazy-test
+git clone https://github.com/TunahanCan/validex.git
+cd validex
 ```
 
 Ubuntu veya Debian’da native bağımlılıkları bir kez kurun:
