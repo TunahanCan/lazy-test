@@ -23,6 +23,8 @@ import { useCancelRequest } from "../lib/queries";
 import type { BootstrapData, WorkspaceView } from "../lib/types";
 import { cn } from "../lib/utils";
 import { IconButton } from "../shared/ui";
+import { useCollectionLibraryStore } from "../stores/collectionLibrary";
+import { useCollectionLibraryPersistence } from "../stores/collectionLibraryStorage";
 import { useWorkspaceStore } from "../stores/workspace";
 import { ActivityBar } from "./ActivityBar";
 import { CommandPalette } from "./CommandPalette";
@@ -157,6 +159,12 @@ export function AppShell({ bootstrap }: { bootstrap: BootstrapData }) {
   const setActiveView = useWorkspaceStore((state) => state.setActiveView);
   const reopenClosedTab = useWorkspaceStore((state) => state.reopenClosedTab);
   const updateTab = useWorkspaceStore((state) => state.updateTab);
+  const reconcileSavedRequestLinks = useWorkspaceStore(
+    (state) => state.reconcileSavedRequestLinks,
+  );
+  const savedRequests = useCollectionLibraryStore((state) => state.requests);
+  const collectionLibraryPersistence =
+    useCollectionLibraryPersistence();
   const setPaletteOpen = useWorkspaceStore(
     (state) => state.setCommandPaletteOpen,
   );
@@ -182,6 +190,25 @@ export function AppShell({ bootstrap }: { bootstrap: BootstrapData }) {
   const [compactPanel, setCompactPanel] = useState<"left" | "right" | null>(
     null,
   );
+
+  useEffect(() => {
+    if (!collectionLibraryPersistence.hydrated) return;
+    reconcileSavedRequestLinks(
+      savedRequests.map(({ id, collectionId, name, method, url, headers, body }) => ({
+        id,
+        collectionId,
+        name,
+        method,
+        url,
+        headers,
+        body,
+      })),
+    );
+  }, [
+    collectionLibraryPersistence.hydrated,
+    reconcileSavedRequestLinks,
+    savedRequests,
+  ]);
   const requestedCenterMinWidth =
     responsePlacement === "horizontal"
       ? horizontalCenterMinWidth

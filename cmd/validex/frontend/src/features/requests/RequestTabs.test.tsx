@@ -9,6 +9,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { LocaleProvider, localeStorageKey } from "../../i18n";
+import { useCollectionLibraryStore } from "../../stores/collectionLibrary";
 import {
   createRequestTab,
   useWorkspaceStore,
@@ -34,6 +35,11 @@ describe("RequestTabs close behavior", () => {
       tabs: [],
       activeTabID: "",
       recentlyClosed: [],
+    });
+    useCollectionLibraryStore.setState({
+      collections: [],
+      requests: [],
+      expandedCollectionIds: [],
     });
   });
 
@@ -201,6 +207,60 @@ describe("RequestTabs close behavior", () => {
     );
     expect(useWorkspaceStore.getState().tabs[0]).toMatchObject({
       name: "Renamed request",
+      dirty: true,
+    });
+  });
+
+  it("renames the linked saved request without clearing draft changes", async () => {
+    const collectionId = useCollectionLibraryStore
+      .getState()
+      .createCollection("Core API")!;
+    const savedRequestId = useCollectionLibraryStore
+      .getState()
+      .saveRequest(collectionId, {
+        name: "Original request",
+        method: "GET",
+        url: "https://api.example.test/users",
+        headers: [],
+        body: "",
+      })!;
+    const tab = createRequestTab({
+      id: "linked-dirty-request",
+      collectionId,
+      savedRequestId,
+      name: "Original request",
+      url: "https://api.example.test/users?draft=true",
+      dirty: true,
+    });
+    useWorkspaceStore.setState({ tabs: [tab], activeTabID: tab.id });
+    renderTabs();
+
+    fireEvent.doubleClick(
+      screen.getByRole("tab", { name: /Original request/i }),
+    );
+    const dialog = await screen.findByRole("dialog", {
+      name: "İsteği yeniden adlandır",
+    });
+    fireEvent.change(within(dialog).getByLabelText("Yeni istek adı"), {
+      target: { value: "Renamed saved request" },
+    });
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Adı güncelle" }),
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "İsteği yeniden adlandır" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(
+      useCollectionLibraryStore
+        .getState()
+        .requests.find((request) => request.id === savedRequestId),
+    ).toMatchObject({ name: "Renamed saved request" });
+    expect(useWorkspaceStore.getState().tabs[0]).toMatchObject({
+      name: "Renamed saved request",
+      url: "https://api.example.test/users?draft=true",
       dirty: true,
     });
   });

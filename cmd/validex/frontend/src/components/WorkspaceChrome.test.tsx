@@ -12,6 +12,7 @@ import { App } from "../App";
 import { LocaleProvider, localeStorageKey } from "../i18n";
 import { backend } from "../lib/backend";
 import type { BootstrapData, ImportedEndpoint } from "../lib/types";
+import { useCollectionLibraryStore } from "../stores/collectionLibrary";
 import {
   createRequestTab,
   useWorkspaceStore,
@@ -61,6 +62,11 @@ function importedEndpoints(count: number): ImportedEndpoint[] {
 describe("workspace chrome simplification", () => {
   beforeEach(() => {
     localStorage.clear();
+    useCollectionLibraryStore.setState({
+      collections: [],
+      requests: [],
+      expandedCollectionIds: [],
+    });
     const tab = createRequestTab({ id: "workspace-chrome-test" });
     useWorkspaceStore.setState({
       activeEnvironmentID: "none",
@@ -80,22 +86,33 @@ describe("workspace chrome simplification", () => {
     vi.restoreAllMocks();
   });
 
-  it("offers a new request without advertising collections or history", () => {
+  it("offers a persistent collection library without synthetic history", () => {
     useWorkspaceStore.setState({ tabs: [], activeTabID: "" });
     renderWithProviders(<Sidebar bootstrap={emptyBootstrap} />);
 
-    expect(screen.getByRole("button", { name: "Requests" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Collections" })).toBeVisible();
     expect(screen.getByRole("button", { name: "APIs" })).toBeVisible();
-    expect(
-      screen.queryByRole("button", { name: "Collections" }),
-    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "History" }),
     ).not.toBeInTheDocument();
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("textbox", {
+        name: "Search collections and requests",
+      }),
+    ).toBeVisible();
 
-    fireEvent.click(screen.getByRole("button", { name: "New request" }));
-    expect(useWorkspaceStore.getState().tabs).toHaveLength(1);
+    fireEvent.click(
+      screen.getAllByRole("button", { name: "New collection" })[0],
+    );
+    fireEvent.change(screen.getByLabelText("Collection name"), {
+      target: { value: "Payments API" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Create collection" }),
+    );
+    expect(useCollectionLibraryStore.getState().collections[0].name).toBe(
+      "Payments API",
+    );
   });
 
   it("makes every imported OpenAPI endpoint searchable and openable", () => {
@@ -127,6 +144,88 @@ describe("workspace chrome simplification", () => {
       headers: [],
       openApi: { specId: "commerce-spec", path: "/resources/9" },
     });
+  });
+
+  it("opens a saved request from its collection without copying runtime state", () => {
+    const collectionId =
+      useCollectionLibraryStore.getState().createCollection("Payments API")!;
+    const requestId = useCollectionLibraryStore.getState().saveRequest(
+      collectionId,
+      {
+        name: "List payments",
+        method: "GET",
+        url: "https://api.example.test/payments",
+        headers: [],
+        body: "",
+      },
+    )!;
+    renderWithProviders(<Sidebar bootstrap={emptyBootstrap} />);
+
+    fireEvent.click(screen.getByText("List payments"));
+
+    const opened = useWorkspaceStore
+      .getState()
+      .tabs.find((tab) => tab.savedRequestId === requestId);
+    expect(opened).toMatchObject({
+      collectionId,
+      name: "List payments",
+      url: "https://api.example.test/payments",
+      dirty: false,
+      running: false,
+    });
+    expect(opened?.response).toBeUndefined();
+  });
+
+  it("opens the original request after a saved tab is relinked by Save As", () => {
+    const collectionId =
+      useCollectionLibraryStore.getState().createCollection("Orders API")!;
+    const oldRequestId = useCollectionLibraryStore.getState().saveRequest(
+      collectionId,
+      {
+        name: "Original order request",
+        method: "GET",
+        url: "https://api.example.test/orders",
+        headers: [],
+        body: "",
+      },
+    )!;
+    const newRequestId = useCollectionLibraryStore.getState().saveRequest(
+      collectionId,
+      {
+        name: "Copied order request",
+        method: "POST",
+        url: "https://api.example.test/orders",
+        headers: [],
+        body: "{}",
+      },
+    )!;
+    const relinkedTab = createRequestTab({
+      id: `saved-request:${oldRequestId}`,
+      savedRequestId: newRequestId,
+      collectionId,
+      name: "Copied order request",
+      method: "POST",
+      dirty: false,
+    });
+    useWorkspaceStore.setState({
+      tabs: [relinkedTab],
+      activeTabID: relinkedTab.id,
+    });
+    renderWithProviders(<Sidebar bootstrap={emptyBootstrap} />);
+
+    fireEvent.click(screen.getByText("Original order request"));
+
+    const state = useWorkspaceStore.getState();
+    expect(state.tabs).toHaveLength(2);
+    expect(
+      state.tabs.find((tab) => tab.savedRequestId === oldRequestId),
+    ).toMatchObject({
+      name: "Original order request",
+      method: "GET",
+    });
+    expect(
+      state.tabs.find((tab) => tab.savedRequestId === newRequestId),
+    ).toBe(relinkedTab);
   });
 
   it("keeps Auth explicit, disabled by default, and secret-safe", async () => {
@@ -217,7 +316,7 @@ describe("workspace chrome simplification", () => {
     expect(screen.getByText("3 open requests")).toBeVisible();
     expect(screen.getByText("1 running")).toBeVisible();
     expect(screen.getByText("1 failed")).toBeVisible();
-    expect(screen.getByText("Draft saved locally")).toBeVisible();
+    expect(screen.getByText("Unsaved changes")).toBeVisible();
     expect(screen.queryByText("Connected")).not.toBeInTheDocument();
     expect(screen.queryByText("Workspace saved")).not.toBeInTheDocument();
     expect(screen.queryByText("main")).not.toBeInTheDocument();

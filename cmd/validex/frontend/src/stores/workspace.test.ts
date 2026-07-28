@@ -95,6 +95,173 @@ describe("workspace persistence", () => {
     });
   });
 
+  it("reconciles open and recently closed tabs with saved request records", () => {
+    const clean = createRequestTab({
+      id: "clean-linked",
+      savedRequestId: "saved-clean",
+      collectionId: "old-collection",
+      name: "Old name",
+      method: "GET",
+      url: "https://old.example.test",
+      dirty: false,
+      response: {
+        requestId: "clean-linked",
+        statusCode: 200,
+        status: "200 OK",
+        durationMs: 1,
+        sizeBytes: 0,
+        contentType: "",
+        protocol: "HTTP/1.1",
+        remoteAddr: "",
+        tls: "",
+        traceId: "",
+        headers: {},
+        cookies: [],
+        body: "",
+        rawBody: "",
+        timeline: [],
+        resolvedUrl: "https://old.example.test",
+      },
+    });
+    const dirty = createRequestTab({
+      id: "dirty-linked",
+      savedRequestId: "saved-dirty",
+      collectionId: "old-collection",
+      name: "Old saved name",
+      method: "PATCH",
+      url: "https://draft.example.test",
+      body: '{"draft":true}',
+      dirty: true,
+    });
+    const deleted = createRequestTab({
+      id: "deleted-linked",
+      savedRequestId: "missing",
+      collectionId: "deleted-collection",
+      dirty: false,
+    });
+    useWorkspaceStore.setState({
+      tabs: [clean, dirty],
+      activeTabID: clean.id,
+      recentlyClosed: [deleted],
+    });
+
+    useWorkspaceStore.getState().reconcileSavedRequestLinks([
+      {
+        id: "saved-clean",
+        collectionId: "current-collection",
+        name: "Current name",
+        method: "POST",
+        url: "https://api.example.test/current",
+        headers: [],
+        body: '{"saved":true}',
+      },
+      {
+        id: "saved-dirty",
+        collectionId: "current-collection",
+        name: "Renamed while dirty",
+        method: "GET",
+        url: "https://api.example.test/saved",
+        headers: [],
+        body: "",
+      },
+    ]);
+
+    expect(useWorkspaceStore.getState().tabs[0]).toMatchObject({
+      collectionId: "current-collection",
+      name: "Current name",
+      method: "POST",
+      url: "https://api.example.test/current",
+      body: '{"saved":true}',
+      response: undefined,
+      dirty: false,
+    });
+    expect(useWorkspaceStore.getState().tabs[1]).toMatchObject({
+      collectionId: "current-collection",
+      name: "Renamed while dirty",
+      method: "PATCH",
+      url: "https://draft.example.test",
+      body: '{"draft":true}',
+      dirty: true,
+    });
+    expect(useWorkspaceStore.getState().recentlyClosed[0]).toMatchObject({
+      savedRequestId: undefined,
+      collectionId: undefined,
+      dirty: true,
+    });
+  });
+
+  it("preserves the last response when only saved-request metadata changes", () => {
+    const response = {
+      requestId: "metadata-linked",
+      statusCode: 200,
+      status: "200 OK",
+      durationMs: 1,
+      sizeBytes: 2,
+      contentType: "application/json",
+      protocol: "HTTP/1.1",
+      remoteAddr: "127.0.0.1",
+      tls: "",
+      traceId: "",
+      headers: {},
+      cookies: [],
+      body: "{}",
+      rawBody: "{}",
+      timeline: [],
+      resolvedUrl: "https://api.example.test/users",
+    };
+    const tab = createRequestTab({
+      id: "metadata-linked",
+      savedRequestId: "saved-request",
+      collectionId: "old-collection",
+      name: "Old name",
+      url: "https://api.example.test/users",
+      response,
+    });
+    useWorkspaceStore.setState({
+      tabs: [tab],
+      activeTabID: tab.id,
+    });
+
+    useWorkspaceStore.getState().reconcileSavedRequestLinks([
+      {
+        id: "saved-request",
+        collectionId: "new-collection",
+        name: "New name",
+        method: tab.method,
+        url: tab.url,
+        headers: tab.headers,
+        body: tab.body,
+      },
+    ]);
+
+    expect(useWorkspaceStore.getState().tabs[0]).toMatchObject({
+      name: "New name",
+      collectionId: "new-collection",
+      response,
+    });
+  });
+
+  it("deduplicates tabs by saved request identity", () => {
+    const linked = createRequestTab({
+      id: "draft-tab",
+      savedRequestId: "saved-request",
+      collectionId: "collection",
+    });
+    useWorkspaceStore.setState({
+      tabs: [linked],
+      activeTabID: linked.id,
+    });
+
+    useWorkspaceStore.getState().openTab({
+      savedRequestId: "saved-request",
+      collectionId: "collection",
+      name: "Duplicate",
+    });
+
+    expect(useWorkspaceStore.getState().tabs).toHaveLength(1);
+    expect(useWorkspaceStore.getState().activeTabID).toBe(linked.id);
+  });
+
   it("clears transient state while migrating an older workspace", async () => {
     const staleTab = createRequestTab({
       id: "stale-tab",
@@ -318,6 +485,33 @@ describe("workspace persistence", () => {
     expect(state.tabs).toHaveLength(1);
     expect(state.tabs[0].url).toBe("https://example.test/current");
     expect(state.activeTabID).toBe(existing.id);
+    expect(state.recentlyClosed).toEqual([]);
+  });
+
+  it("does not reopen a second tab for the same saved request", () => {
+    const open = createRequestTab({
+      id: "new-open-tab",
+      savedRequestId: "saved-request",
+      collectionId: "collection",
+      name: "Current saved request",
+    });
+    const closed = createRequestTab({
+      id: "old-closed-tab",
+      savedRequestId: "saved-request",
+      collectionId: "collection",
+      name: "Earlier saved request",
+    });
+    useWorkspaceStore.setState({
+      tabs: [open],
+      activeTabID: "",
+      recentlyClosed: [closed],
+    });
+
+    useWorkspaceStore.getState().reopenClosedTab();
+
+    const state = useWorkspaceStore.getState();
+    expect(state.tabs).toEqual([open]);
+    expect(state.activeTabID).toBe(open.id);
     expect(state.recentlyClosed).toEqual([]);
   });
 

@@ -23,10 +23,11 @@ import (
 )
 
 const (
-	nativeDispatchName     = "__canbridgeNativeDispatch"
-	nativeLogName          = "__canbridgeNativeLog"
-	developmentPortMinimum = 34116
-	developmentPortMaximum = 34215
+	nativeDispatchName               = "__canbridgeNativeDispatch"
+	nativeLogName                    = "__canbridgeNativeLog"
+	developmentPortMinimum           = 34116
+	developmentPortMaximum           = 34215
+	defaultConcurrentCallDrainPeriod = 3 * time.Second
 )
 
 type AppOptions struct {
@@ -49,9 +50,14 @@ type ipcRuntime struct {
 	bridge     *Bridge
 	capability string
 
-	mu      sync.Mutex
-	closed  bool
-	pending sync.WaitGroup
+	mu                           sync.Mutex
+	closed                       bool
+	concurrentCalls              sync.WaitGroup
+	collectionLibraryQueue       *ipcSerialInvocationQueue
+	collectionLibraryDrainPeriod time.Duration
+	concurrentDrainPeriod        time.Duration
+	viewDispatchMu               sync.Mutex
+	viewEvalMu                   sync.Mutex
 }
 
 type ipcResponse struct {
@@ -146,10 +152,8 @@ func Run(options AppOptions) error {
 
 	defer nativeView.Destroy()
 	defer func() {
-		runtime.close()
-		cancelApp()
+		runtime.closeWithConcurrentCancel(cancelApp)
 		Shutdown(options.Bridge)(context.Background())
-		runtime.pending.Wait()
 	}()
 
 	if err := nativeView.Bind(nativeDispatchName, runtime.dispatch); err != nil {
@@ -224,20 +228,56 @@ func (runtime *ipcRuntime) dispatch(
 		runtime.mu.Unlock()
 		return errors.New("canbridge is shutting down")
 	}
-	runtime.pending.Add(1)
+	invocation := ipcInvocation{
+		callbackID:       callbackID,
+		method:           method,
+		encodedArguments: encodedArguments,
+	}
+	if executionPolicyForBridgeMethod(method) ==
+		bridgeExecutionCollectionLibrarySerial {
+		queue := runtime.collectionLibraryQueueLocked()
+		runtime.mu.Unlock()
+		switch queue.enqueue(invocation) {
+		case ipcSerialQueueAccepted:
+			return nil
+		case ipcSerialQueueClosed:
+			return errors.New("canbridge is shutting down")
+		default:
+			busyResult, ok := busyResultForBridgeMethod(method)
+			if !ok {
+				return fmt.Errorf(
+					"canbridge serial method %s has no busy result",
+					method,
+				)
+			}
+			runtime.deliver(ipcResponse{
+				CallbackID: callbackID,
+				Result:     busyResult,
+			})
+			return nil
+		}
+	}
+	runtime.concurrentCalls.Add(1)
 	runtime.mu.Unlock()
 
 	go func() {
-		defer runtime.pending.Done()
-		result, err := runtime.bridge.Invoke(method, encodedArguments)
-		response := ipcResponse{CallbackID: callbackID, Result: result}
-		if err != nil {
-			response.Result = nil
-			response.Error = err.Error()
-		}
-		runtime.deliver(response)
+		defer runtime.concurrentCalls.Done()
+		runtime.execute(invocation)
 	}()
 	return nil
+}
+
+func (runtime *ipcRuntime) execute(invocation ipcInvocation) {
+	result, err := runtime.bridge.Invoke(
+		invocation.method,
+		invocation.encodedArguments,
+	)
+	response := ipcResponse{CallbackID: invocation.callbackID, Result: result}
+	if err != nil {
+		response.Result = nil
+		response.Error = err.Error()
+	}
+	runtime.deliver(response)
 }
 
 func (runtime *ipcRuntime) deliver(response ipcResponse) {
@@ -249,21 +289,100 @@ func (runtime *ipcRuntime) deliver(response ipcResponse) {
 		})
 	}
 
+	// Coordinate both scheduling and execution with close. Dispatch may invoke
+	// its callback synchronously in tests or asynchronously in a native WebView,
+	// so separate gates avoid re-entrant mutex deadlocks while ensuring Destroy
+	// cannot race with Dispatch/Eval.
+	runtime.viewDispatchMu.Lock()
+	defer runtime.viewDispatchMu.Unlock()
 	runtime.mu.Lock()
 	closed := runtime.closed
+	view := runtime.webview
 	runtime.mu.Unlock()
 	if closed {
 		return
 	}
-	runtime.webview.Dispatch(func() {
-		runtime.webview.Eval("window.__canbridgeReceive(" + string(payload) + ");")
+	view.Dispatch(func() {
+		runtime.viewEvalMu.Lock()
+		defer runtime.viewEvalMu.Unlock()
+		runtime.mu.Lock()
+		closed := runtime.closed
+		runtime.mu.Unlock()
+		if closed {
+			return
+		}
+		view.Eval("window.__canbridgeReceive(" + string(payload) + ");")
 	})
 }
 
 func (runtime *ipcRuntime) close() {
+	runtime.closeWithConcurrentCancel(nil)
+}
+
+func (runtime *ipcRuntime) closeWithConcurrentCancel(
+	cancelConcurrent context.CancelFunc,
+) {
+	runtime.viewDispatchMu.Lock()
 	runtime.mu.Lock()
+	if runtime.closed {
+		runtime.mu.Unlock()
+		runtime.viewDispatchMu.Unlock()
+		if cancelConcurrent != nil {
+			cancelConcurrent()
+		}
+		return
+	}
 	runtime.closed = true
+	collectionLibraryQueue := runtime.collectionLibraryQueue
 	runtime.mu.Unlock()
+	// Wait only for a callback already inside Eval. A callback scheduled but
+	// not yet executed will observe closed and discard its response.
+	runtime.viewEvalMu.Lock()
+	runtime.viewEvalMu.Unlock()
+	runtime.viewDispatchMu.Unlock()
+
+	// General IPC work uses the application context, while collection
+	// persistence has its own explicitly stopped lifecycle so accepted writes
+	// may drain. Admission is sealed before Wait begins, making WaitGroup use
+	// safe with concurrent Add.
+	if cancelConcurrent != nil {
+		cancelConcurrent()
+	}
+	concurrentDone := make(chan struct{})
+	go func() {
+		runtime.concurrentCalls.Wait()
+		close(concurrentDone)
+	}()
+	concurrentDrainPeriod := runtime.concurrentDrainPeriod
+	if concurrentDrainPeriod <= 0 {
+		concurrentDrainPeriod = defaultConcurrentCallDrainPeriod
+	}
+	concurrentTimer := time.NewTimer(concurrentDrainPeriod)
+	defer concurrentTimer.Stop()
+
+	if collectionLibraryQueue != nil {
+		drained := collectionLibraryQueue.closeAndDrain(
+			runtime.collectionLibraryDrainPeriod,
+			func() {
+				if runtime.bridge != nil {
+					runtime.bridge.cancelCollectionPersistence()
+				}
+			},
+		)
+		if !drained {
+			log.Print("[canbridge:warning] collection persistence drain timed out")
+		}
+	}
+	select {
+	case <-concurrentDone:
+		return
+	default:
+	}
+	select {
+	case <-concurrentDone:
+	case <-concurrentTimer.C:
+		log.Print("[canbridge:warning] concurrent IPC drain timed out")
+	}
 }
 
 func randomCapability() (string, error) {

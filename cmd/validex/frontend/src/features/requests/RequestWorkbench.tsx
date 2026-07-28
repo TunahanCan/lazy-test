@@ -1,6 +1,8 @@
 import {
   useEffect,
   useMemo,
+  useRef,
+  useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
@@ -12,6 +14,8 @@ import {
   ChevronDown,
   Clipboard,
   FileText,
+  ListFilter,
+  Save as SaveIcon,
   Send,
   Variable,
   X,
@@ -47,6 +51,12 @@ import type {
 import { cn } from "../../lib/utils";
 import { useWorkspaceStore } from "../../stores/workspace";
 import { Button, CountBadge } from "../../shared/ui";
+import { SaveRequestDialog } from "../collections/SaveRequestDialog";
+import { useCollectionLibraryStore } from "../../stores/collectionLibrary";
+import {
+  useCollectionLibraryPersistence,
+  waitForCollectionLibraryPersistence,
+} from "../../stores/collectionLibraryStorage";
 import {
   BodyEditor,
   HeadersEditor,
@@ -61,7 +71,7 @@ const requestSections = [
   {
     id: "params",
     labelKey: "requests.workbench.section.params",
-    icon: Variable,
+    icon: ListFilter,
   },
   {
     id: "headers",
@@ -72,6 +82,11 @@ const requestSections = [
     id: "body",
     labelKey: "requests.workbench.section.body",
     icon: Braces,
+  },
+  {
+    id: "variables",
+    labelKey: "requests.workbench.section.variables",
+    icon: Variable,
   },
 ] as const;
 
@@ -117,7 +132,35 @@ export function RequestWorkbench({
   const t = useTranslation();
   const sendMutation = useSendRequest();
   const cancelMutation = useCancelRequest();
+  const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [savePending, setSavePending] = useState(false);
+  const [saveNotice, setSaveNotice] = useState<
+    "secret-headers" | "write-error" | null
+  >(null);
+  const saveDialogReturnFocusRef = useRef<HTMLElement | null>(null);
   const updateTab = useWorkspaceStore((state) => state.updateTab);
+  const collections = useCollectionLibraryStore(
+    (state) => state.collections,
+  );
+  const savedRequests = useCollectionLibraryStore((state) => state.requests);
+  const createCollection = useCollectionLibraryStore(
+    (state) => state.createCollection,
+  );
+  const saveRequest = useCollectionLibraryStore(
+    (state) => state.saveRequest,
+  );
+  const upsertRequest = useCollectionLibraryStore(
+    (state) => state.upsertRequest,
+  );
+  const renameSavedRequest = useCollectionLibraryStore(
+    (state) => state.renameRequest,
+  );
+  const collectionLibraryPersistence =
+    useCollectionLibraryPersistence();
+  const collectionLibraryWritable =
+    collectionLibraryPersistence.hydrated &&
+    collectionLibraryPersistence.error?.code !==
+      "collection_library_conflict";
   const responsePlacement = useWorkspaceStore(
     (state) => state.responsePlacement,
   );
@@ -155,6 +198,9 @@ export function RequestWorkbench({
       ),
     [environment, environmentVariables],
   );
+  const linkedSavedRequest = tab.savedRequestId
+    ? savedRequests.find((request) => request.id === tab.savedRequestId)
+    : undefined;
 
   const form = useForm<RequestFormValues>({
     resolver: requestFormResolver,
@@ -168,16 +214,30 @@ export function RequestWorkbench({
     },
   });
   const headers = useFieldArray({ control: form.control, name: "headers" });
+  const formTabIDRef = useRef(tab.id);
 
   useEffect(() => {
-    form.reset({
+    const current = form.getValues();
+    const next = {
       method: tab.method,
       url: tab.url,
       body: tab.body,
       headers: tab.headers,
-      timeoutMs: 30_000,
-    });
-  }, [tab.headers, tab.id]);
+      timeoutMs: current.timeoutMs,
+    };
+    const tabChanged = formTabIDRef.current !== tab.id;
+    formTabIDRef.current = tab.id;
+    if (
+      !tabChanged &&
+      current.method === next.method &&
+      current.url === next.url &&
+      current.body === next.body &&
+      JSON.stringify(current.headers) === JSON.stringify(next.headers)
+    ) {
+      return;
+    }
+    form.reset(next);
+  }, [form, tab.body, tab.headers, tab.id, tab.method, tab.url]);
 
   const watchedURL = form.watch("url");
   const watchedBody = form.watch("body");
@@ -426,9 +486,150 @@ export function RequestWorkbench({
     void navigator.clipboard?.writeText(command);
   };
 
+  const savedSnapshot = (name: string) => {
+    const values = form.getValues();
+    return {
+      name,
+      method: values.method,
+      url: values.url,
+      body: values.body,
+      headers: values.headers,
+    };
+  };
+
+  const finishSavedRequest = async (
+    requestId: string,
+    collectionId: string,
+    name: string,
+    snapshot: ReturnType<typeof savedSnapshot>,
+  ) => {
+    updateTab(tab.id, {
+      savedRequestId: requestId,
+      collectionId,
+      name,
+      method: snapshot.method,
+      url: snapshot.url,
+      body: snapshot.body,
+      headers: snapshot.headers,
+      dirty: true,
+    });
+    setSavePending(true);
+    setSaveNotice(null);
+
+    const durable = await waitForCollectionLibraryPersistence();
+    const persistedRequest = useCollectionLibraryStore
+      .getState()
+      .requests.find((request) => request.id === requestId);
+    const secretsWereRemoved =
+      Boolean(persistedRequest) &&
+      JSON.stringify(persistedRequest?.headers) !==
+        JSON.stringify(snapshot.headers);
+    const currentValues = form.getValues();
+    const currentTab = useWorkspaceStore
+      .getState()
+      .tabs.find((candidate) => candidate.id === tab.id);
+    const unchangedSinceSave =
+      currentTab?.savedRequestId === requestId &&
+      currentTab.collectionId === collectionId &&
+      currentTab.name === name &&
+      currentValues.method === snapshot.method &&
+      currentValues.url === snapshot.url &&
+      currentValues.body === snapshot.body &&
+      JSON.stringify(currentValues.headers) ===
+        JSON.stringify(snapshot.headers);
+
+    if (currentTab) {
+      updateTab(tab.id, {
+        dirty:
+          !durable || secretsWereRemoved || !unchangedSinceSave,
+      });
+    }
+    setSaveNotice(
+      !durable
+        ? "write-error"
+        : secretsWereRemoved
+          ? "secret-headers"
+          : null,
+    );
+    setSavePending(false);
+  };
+
+  const openSaveDialog = () => {
+    if (!collectionLibraryWritable) return;
+    saveDialogReturnFocusRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    setSaveDialogOpen(true);
+  };
+
+  const saveCurrentRequest = () => {
+    if (
+      !collectionLibraryWritable ||
+      tab.running ||
+      savePending
+    ) {
+      return;
+    }
+    if (!linkedSavedRequest) {
+      openSaveDialog();
+      return;
+    }
+    const snapshot = savedSnapshot(tab.name);
+    const requestId = upsertRequest(
+      linkedSavedRequest.collectionId,
+      snapshot,
+      tab.savedRequestId,
+    );
+    if (requestId) {
+      void finishSavedRequest(
+        requestId,
+        linkedSavedRequest.collectionId,
+        tab.name,
+        snapshot,
+      );
+    }
+  };
+
+  useEffect(() => {
+    const handleSaveShortcut = (event: KeyboardEvent) => {
+      const workspace = useWorkspaceStore.getState();
+      if (
+        event.key.toLowerCase() !== "s" ||
+        (!event.ctrlKey && !event.metaKey) ||
+        event.defaultPrevented ||
+        workspace.activeView !== "requests" ||
+        workspace.activeTabID !== tab.id ||
+        tab.running ||
+        savePending ||
+        !collectionLibraryWritable ||
+        saveDialogOpen ||
+        document.querySelector('[role="dialog"]')
+      ) {
+        return;
+      }
+      event.preventDefault();
+      saveCurrentRequest();
+    };
+    window.addEventListener("keydown", handleSaveShortcut);
+    return () => window.removeEventListener("keydown", handleSaveShortcut);
+  }, [
+    collectionLibraryWritable,
+    savePending,
+    saveDialogOpen,
+    tab.collectionId,
+    tab.name,
+    tab.running,
+    tab.savedRequestId,
+    linkedSavedRequest,
+    updateTab,
+    upsertRequest,
+  ]);
+
   const requestCounts = {
     params: queryRows.length,
     headers: countEnabledHeaders(tab),
+    variables: Object.keys(variables).length,
   };
   const rawErrorMessage =
     validationMessage(form.formState.errors) ?? resolvedURLMessage;
@@ -526,8 +727,18 @@ export function RequestWorkbench({
               onChange={(event) => setRequestURL(event.target.value)}
               onBlur={() => {
                 if (!untitledRequestNames.has(tab.name)) return;
+                if (
+                  tab.savedRequestId &&
+                  !collectionLibraryWritable
+                ) {
+                  return;
+                }
                 const nextName = requestNameFromURL(watchedURL);
-                if (nextName) updateTab(tab.id, { name: nextName });
+                if (!nextName) return;
+                if (tab.savedRequestId) {
+                  renameSavedRequest(tab.savedRequestId, nextName);
+                }
+                updateTab(tab.id, { name: nextName });
               }}
             />
             <datalist id="recent-url-list">
@@ -545,6 +756,29 @@ export function RequestWorkbench({
               </span>
             )}
           </div>
+          <Button
+            type="button"
+            className={cn(
+              "request-save-button",
+              linkedSavedRequest && !tab.dirty && "is-saved",
+            )}
+            disabled={
+              tab.running ||
+              savePending ||
+              !collectionLibraryWritable
+            }
+            title={t("requests.workbench.saveShortcut")}
+            onClick={saveCurrentRequest}
+          >
+            <SaveIcon size={14} />
+            <span>
+              {savePending
+                ? t("requests.workbench.saving")
+                : linkedSavedRequest && !tab.dirty
+                ? t("requests.workbench.saved")
+                : t("requests.workbench.save")}
+            </span>
+          </Button>
           {tab.running ? (
             <Button
               type="button"
@@ -585,6 +819,17 @@ export function RequestWorkbench({
                 </DropdownMenu.Trigger>
                 <DropdownMenu.Portal>
                   <DropdownMenu.Content className="menu" align="end" sideOffset={5}>
+                    <DropdownMenu.Item
+                      className="menu-item"
+                      disabled={
+                        !collectionLibraryWritable ||
+                        savePending
+                      }
+                      onSelect={openSaveDialog}
+                    >
+                      <SaveIcon size={15} />{" "}
+                      {t("requests.workbench.saveAs")}
+                    </DropdownMenu.Item>
                     <DropdownMenu.Item className="menu-item" onSelect={copyAsCurl}>
                       <Clipboard size={15} />{" "}
                       {t("requests.workbench.copyAsCurl")}
@@ -596,15 +841,27 @@ export function RequestWorkbench({
           )}
         </div>
 
-        {(errorMessage || unresolved.length > 0) && (
-          <div className="request-validation" role="alert">
-            <AlertCircle size={13} />
-            {errorMessage ??
-              t("requests.workbench.missingVariables", {
-                variables: unresolved
-                  .map((item) => `{{${item}}}`)
-                  .join(", "),
-              })}
+        {(errorMessage || unresolved.length > 0 || saveNotice) && (
+          <div className="request-notices">
+            {(errorMessage || unresolved.length > 0) && (
+              <div className="request-validation" role="alert">
+                <AlertCircle size={13} />
+                {errorMessage ??
+                  t("requests.workbench.missingVariables", {
+                    variables: unresolved
+                      .map((item) => `{{${item}}}`)
+                      .join(", "),
+                  })}
+              </div>
+            )}
+            {saveNotice && (
+              <div className="request-save-notice" role="alert">
+                <AlertCircle size={13} aria-hidden="true" />
+                {saveNotice === "secret-headers"
+                  ? t("requests.workbench.secretHeadersNotSaved")
+                  : t("requests.workbench.saveWriteFailed")}
+              </div>
+            )}
           </div>
         )}
 
@@ -642,43 +899,20 @@ export function RequestWorkbench({
                 {id === "headers" && requestCounts.headers > 0 && (
                   <CountBadge>{requestCounts.headers}</CountBadge>
                 )}
+                {id === "variables" && requestCounts.variables > 0 && (
+                  <CountBadge>{requestCounts.variables}</CountBadge>
+                )}
               </Tabs.Trigger>
             ))}
           </Tabs.List>
           <div className="request-editor-content">
             <Tabs.Content value="params">
-              <div className="params-editor-stack">
-                <QueryParamsEditor
-                  rawURL={watchedURL}
-                  rows={queryRows}
-                  onURLChange={setRequestURL}
-                  disabled={tab.running}
-                />
-                <section
-                  className="params-secondary-section"
-                  aria-label={t("requests.workbench.templateVariables")}
-                >
-                  <ParamsEditor
-                    variables={variables}
-                    overriddenKeys={overriddenVariableKeys}
-                    scopeName={
-                      environment?.id === "none"
-                        ? t("requests.workbench.workspace")
-                        : (environment?.name ??
-                          t("requests.workbench.workspace"))
-                    }
-                    disabled={tab.running}
-                    onChange={(key, value) => {
-                      if (!environment) return;
-                      setEnvironmentVariable(environment.id, key, value);
-                    }}
-                    onRemove={(key) => {
-                      if (!environment) return;
-                      removeEnvironmentVariable(environment.id, key);
-                    }}
-                  />
-                </section>
-              </div>
+              <QueryParamsEditor
+                rawURL={watchedURL}
+                rows={queryRows}
+                onURLChange={setRequestURL}
+                disabled={tab.running}
+              />
             </Tabs.Content>
             <Tabs.Content value="headers">
               <HeadersEditor
@@ -712,6 +946,26 @@ export function RequestWorkbench({
                 }}
               />
             </Tabs.Content>
+            <Tabs.Content value="variables">
+              <ParamsEditor
+                variables={variables}
+                overriddenKeys={overriddenVariableKeys}
+                scopeName={
+                  environment?.id === "none"
+                    ? t("requests.workbench.workspace")
+                    : (environment?.name ?? t("requests.workbench.workspace"))
+                }
+                disabled={tab.running}
+                onChange={(key, value) => {
+                  if (!environment) return;
+                  setEnvironmentVariable(environment.id, key, value);
+                }}
+                onRemove={(key) => {
+                  if (!environment) return;
+                  removeEnvironmentVariable(environment.id, key);
+                }}
+              />
+            </Tabs.Content>
           </div>
         </Tabs.Root>
       </form>
@@ -735,6 +989,42 @@ export function RequestWorkbench({
         <span />
       </div>
       <ResponsePanel tab={tab} />
+      <SaveRequestDialog
+        open={saveDialogOpen}
+        collections={collections}
+        initialCollectionId={tab.collectionId}
+        initialName={
+          untitledRequestNames.has(tab.name)
+            ? requestNameFromURL(watchedURL) || tab.name
+            : tab.name
+        }
+        returnFocus={saveDialogReturnFocusRef.current}
+        onOpenChange={setSaveDialogOpen}
+        onSave={(target) => {
+          if (
+            !collectionLibraryWritable ||
+            savePending
+          ) {
+            return;
+          }
+          const collectionId =
+            target.collectionId ??
+            (target.newCollectionName
+              ? createCollection(target.newCollectionName)
+              : undefined);
+          if (!collectionId) return;
+          const snapshot = savedSnapshot(target.name);
+          const requestId = saveRequest(collectionId, snapshot);
+          if (!requestId) return;
+          setSaveDialogOpen(false);
+          void finishSavedRequest(
+            requestId,
+            collectionId,
+            target.name,
+            snapshot,
+          );
+        }}
+      />
     </section>
   );
 }

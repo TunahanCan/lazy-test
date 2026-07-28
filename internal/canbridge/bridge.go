@@ -43,34 +43,46 @@ type requestOperation struct {
 }
 
 type Bridge struct {
-	mu              sync.Mutex
-	ctx             context.Context
-	lifecycleCtx    context.Context
-	lifecycleCancel context.CancelFunc
-	cancels         map[string]*requestOperation
-	toolCancels     map[string]*toolOperation
-	specs           map[string][]core.Endpoint
-	specOrder       []string
-	mock            *mockserver.Server
-	observed        map[string]int
-	observedOrder   []string
-	observedNext    int
-	filePicker      filePicker
+	mu                sync.Mutex
+	ctx               context.Context
+	lifecycleCtx      context.Context
+	lifecycleCancel   context.CancelFunc
+	collectionLibrary *collectionLibraryService
+	cancels           map[string]*requestOperation
+	toolCancels       map[string]*toolOperation
+	specs             map[string][]core.Endpoint
+	specOrder         []string
+	mock              *mockserver.Server
+	observed          map[string]int
+	observedOrder     []string
+	observedNext      int
+	filePicker        filePicker
 }
 
 func NewBridge() *Bridge {
+	return newBridge(newDefaultCollectionLibraryRepository())
+}
+
+// newBridgeWithCollectionLibraryDir keeps collection persistence deterministic
+// in tests. Production composition must use NewBridge and the user config dir.
+func newBridgeWithCollectionLibraryDir(dataDir string) *Bridge {
+	return newBridge(newCollectionLibraryRepository(dataDir))
+}
+
+func newBridge(collectionRepository collectionLibraryRepository) *Bridge {
 	lifecycleCtx, lifecycleCancel := context.WithCancel(context.Background())
 	return &Bridge{
-		lifecycleCtx:    lifecycleCtx,
-		lifecycleCancel: lifecycleCancel,
-		cancels:         map[string]*requestOperation{},
-		toolCancels:     map[string]*toolOperation{},
-		specs:           map[string][]core.Endpoint{},
-		specOrder:       make([]string, 0, maxCachedOpenAPISpecs),
-		mock:            mockserver.New(mockserver.Options{}),
-		observed:        map[string]int{},
-		observedOrder:   make([]string, 0, maxObservedCoverageEntries),
-		filePicker:      systemFilePicker{},
+		lifecycleCtx:      lifecycleCtx,
+		lifecycleCancel:   lifecycleCancel,
+		collectionLibrary: newCollectionLibraryService(collectionRepository),
+		cancels:           map[string]*requestOperation{},
+		toolCancels:       map[string]*toolOperation{},
+		specs:             map[string][]core.Endpoint{},
+		specOrder:         make([]string, 0, maxCachedOpenAPISpecs),
+		mock:              mockserver.New(mockserver.Options{}),
+		observed:          map[string]int{},
+		observedOrder:     make([]string, 0, maxObservedCoverageEntries),
+		filePicker:        systemFilePicker{},
 	}
 }
 
@@ -84,6 +96,12 @@ func Startup(b *Bridge) func(context.Context) {
 		b.ctx = ctx
 		b.lifecycleCtx, b.lifecycleCancel = context.WithCancel(ctx)
 		b.mu.Unlock()
+		if b.collectionLibrary != nil {
+			// Runtime shutdown cancels concurrent bridge work before it drains
+			// accepted collection writes. Collection cancellation is therefore
+			// owned explicitly by its service/queue, not the shared app context.
+			b.collectionLibrary.Start(context.WithoutCancel(ctx))
+		}
 		if previousCancel != nil {
 			previousCancel()
 		}
@@ -111,6 +129,7 @@ func Shutdown(b *Bridge) func(context.Context) {
 		if lifecycleCancel != nil {
 			lifecycleCancel()
 		}
+		b.cancelCollectionPersistence()
 		for _, cancel := range requestCancels {
 			cancel()
 		}

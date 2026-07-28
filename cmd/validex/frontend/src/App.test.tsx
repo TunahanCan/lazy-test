@@ -274,6 +274,15 @@ describe("Validex workspace", () => {
     const sendSpy = vi.spyOn(backend, "sendRequest");
     renderApp();
 
+    const requestSettings = await screen.findByRole("tablist", {
+      name: "Request settings",
+    });
+    fireEvent.mouseDown(
+      within(requestSettings).getByRole("tab", {
+        name: /^Variables/,
+      }),
+      { button: 0, ctrlKey: false },
+    );
     const baseURL = await screen.findByLabelText("baseUrl variable value");
     fireEvent.change(baseURL, {
       target: { value: "http://127.0.0.1:18081" },

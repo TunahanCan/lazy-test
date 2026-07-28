@@ -2,6 +2,8 @@ import {
   type ActuatorInspectInput,
   type ActuatorInspectResult,
   type BootstrapData,
+  type CollectionLibraryLoadResult,
+  type CollectionLibrarySaveResult,
   type CollectionRunInput,
   type CollectionRunResult,
   type ContractCheckInput,
@@ -43,6 +45,8 @@ import {
 
 interface CanbridgeAPI {
   Bootstrap(): Promise<BootstrapData>;
+  LoadCollectionLibrary(): Promise<CollectionLibraryLoadResult>;
+  SaveCollectionLibrary(data: string): Promise<CollectionLibrarySaveResult>;
   SendRequest(input: RequestInput): Promise<SendResult>;
   CancelRequest(requestID: string): Promise<boolean>;
   ImportOpenAPI(): Promise<ImportSpecResult>;
@@ -117,11 +121,40 @@ function nativeBridge(): CanbridgeAPI | undefined {
 }
 
 export const backend = {
+  hasNativeCollectionLibrary(): boolean {
+    const native = nativeBridge();
+    return Boolean(
+      native?.LoadCollectionLibrary && native.SaveCollectionLibrary,
+    );
+  },
+
   async bootstrap(): Promise<BootstrapData> {
     const native = nativeBridge();
     if (native) return native.Bootstrap();
     if (import.meta.env.DEV) return developmentBootstrap;
     throw new Error("canbridge backend binding is unavailable.");
+  },
+
+  async loadCollectionLibrary(): Promise<CollectionLibraryLoadResult> {
+    const native = nativeBridge();
+    if (native) return native.LoadCollectionLibrary();
+    return {
+      data: "",
+      found: false,
+      error: backendUnavailable("Koleksiyon depolaması"),
+    };
+  },
+
+  async saveCollectionLibrary(
+    data: string,
+  ): Promise<CollectionLibrarySaveResult> {
+    const native = nativeBridge();
+    if (native) return native.SaveCollectionLibrary(data);
+    void data;
+    return {
+      saved: false,
+      error: backendUnavailable("Koleksiyon depolaması"),
+    };
   },
 
   async sendRequest(input: RequestInput): Promise<SendResult> {

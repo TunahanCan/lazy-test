@@ -79,6 +79,17 @@ export interface UserError {
   technical?: string;
 }
 
+export interface CollectionLibraryLoadResult {
+  data: string;
+  found: boolean;
+  error?: UserError;
+}
+
+export interface CollectionLibrarySaveResult {
+  saved: boolean;
+  error?: UserError;
+}
+
 export interface SendResult {
   response?: ResponseEnvelope;
   error?: UserError;
@@ -564,6 +575,8 @@ export interface OpenAPILintResult {
 
 export interface RequestTab {
   id: string;
+  savedRequestId?: string;
+  collectionId?: string;
   name: string;
   method: HTTPMethod;
   url: string;
@@ -573,7 +586,7 @@ export interface RequestTab {
   running: boolean;
   error: boolean;
   pinned: boolean;
-  requestSection: "params" | "headers" | "body";
+  requestSection: "params" | "headers" | "body" | "variables";
   responseSection:
     | "body"
     | "headers"

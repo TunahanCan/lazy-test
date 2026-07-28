@@ -19,9 +19,10 @@
 
 Validex, bir API üzerinde çalışırken farklı araçlar arasında kaybolmanızı
 engelleyen yerel bir masaüstü uygulamasıdır. İsteklerinizi oluşturun, gerçek
-yanıtları OpenAPI sözleşmenizle karşılaştırın, mock servisler ayağa kaldırın,
-protokol oturumlarını inceleyin ve aynı çekirdeği CI süreçlerinde headless
-olarak çalıştırın.
+isteklerinizi kalıcı koleksiyonlarda düzenleyin, yanıtları OpenAPI
+sözleşmenizle karşılaştırın, mock servisler ayağa kaldırın, protokol
+oturumlarını inceleyin ve aynı çekirdeği CI süreçlerinde headless olarak
+çalıştırın.
 
 Türkçe ve İngilizce arayüz, açık/koyu tema, klavye odaklı çalışma alanı ve
 Linux, macOS, Windows için native uygulama çıktılarıyla Validex; günlük backend
@@ -32,6 +33,7 @@ geliştirme akışını tek, hızlı ve yerel bir araçta toplar.
 | Öne çıkan | Sağladığı değer |
 | --- | --- |
 | **Tek çalışma alanı** | Requests, OpenAPI, Diagnostics, Mock Server, JSON araçları, protokoller ve otomasyon aynı uygulamada. |
+| **Kalıcı request koleksiyonları** | İstekleri gruplayın, arayın, taşıyın ve Save As ile cihazınızda yeniden kullanılabilir bir API kütüphanesi oluşturun. |
 | **Sözleşmeye güven** | Gerçek HTTP yanıtını OpenAPI operasyonu ve şemasıyla karşılaştıran contract drift görünümü. |
 | **Backend odaklı tanılama** | Spring/Actuator, environment farkı, thread dump, log, JWT ve endpoint coverage araçları. |
 | **Gerçek protokol desteği** | SSE, WebSocket ve gRPC reflection oturumlarını native Go çekirdeğiyle çalıştırma. |

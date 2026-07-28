@@ -14,6 +14,9 @@ import {
 } from "lucide-react";
 import { useTranslation } from "../../i18n";
 import { cn } from "../../lib/utils";
+import { SAVED_REQUEST_NAME_LENGTH_LIMITS } from "../collections/model";
+import { useCollectionLibraryStore } from "../../stores/collectionLibrary";
+import { useCollectionLibraryPersistence } from "../../stores/collectionLibraryStorage";
 import { useWorkspaceStore } from "../../stores/workspace";
 import { Button, IconButton, MethodBadge } from "../../shared/ui";
 
@@ -32,6 +35,15 @@ export function RequestTabs() {
   const reopenClosedTab = useWorkspaceStore((state) => state.reopenClosedTab);
   const reorderTab = useWorkspaceStore((state) => state.reorderTab);
   const updateTab = useWorkspaceStore((state) => state.updateTab);
+  const renameSavedRequest = useCollectionLibraryStore(
+    (state) => state.renameRequest,
+  );
+  const collectionLibraryPersistence =
+    useCollectionLibraryPersistence();
+  const collectionLibraryWritable =
+    collectionLibraryPersistence.hydrated &&
+    collectionLibraryPersistence.error?.code !==
+      "collection_library_conflict";
   const togglePin = useWorkspaceStore((state) => state.togglePin);
   const recentlyClosed = useWorkspaceStore((state) => state.recentlyClosed);
   const [pendingCloseID, setPendingCloseID] = useState<string | null>(null);
@@ -48,7 +60,12 @@ export function RequestTabs() {
 
   const startRename = (id: string) => {
     const tab = tabs.find((candidate) => candidate.id === id);
-    if (!tab) return;
+    if (
+      !tab ||
+      (tab.savedRequestId && !collectionLibraryWritable)
+    ) {
+      return;
+    }
     setRenamingID(id);
     setRenameValue(tab.name);
   };
@@ -56,7 +73,24 @@ export function RequestTabs() {
   const commitRename = () => {
     const name = renameValue.trim();
     if (!renamingID || !name) return;
-    updateTab(renamingID, { name, dirty: true });
+    const tab = tabs.find((candidate) => candidate.id === renamingID);
+    if (
+      tab?.savedRequestId &&
+      !collectionLibraryWritable
+    ) {
+      return;
+    }
+    if (tab?.savedRequestId && renameSavedRequest(tab.savedRequestId, name)) {
+      const savedName = useCollectionLibraryStore
+        .getState()
+        .requests.find((request) => request.id === tab.savedRequestId)?.name;
+      updateTab(renamingID, {
+        name: savedName ?? name,
+        dirty: tab.dirty,
+      });
+    } else {
+      updateTab(renamingID, { name, dirty: true });
+    }
     setRenamingID(null);
     setRenameValue("");
   };
@@ -95,6 +129,9 @@ export function RequestTabs() {
                 !candidate.running,
             );
             const canCloseFromTab = !tab.pinned && !tab.running;
+            const canRename =
+              !tab.savedRequestId ||
+              collectionLibraryWritable;
             const accessibleName = [
               tab.method,
               tab.name,
@@ -245,6 +282,7 @@ export function RequestTabs() {
                   <ContextMenu.Content className="menu context-menu">
                     <ContextMenu.Item
                       className="menu-item"
+                      disabled={!canRename}
                       onSelect={() => startRename(tab.id)}
                     >
                       <Pencil size={15} /> {t("requests.tabs.rename")}
@@ -395,7 +433,7 @@ export function RequestTabs() {
                   placeholder={
                     renamingTab?.name ?? t("requests.tabs.requestName")
                   }
-                  maxLength={80}
+                  maxLength={SAVED_REQUEST_NAME_LENGTH_LIMITS[1]}
                   aria-label={t("requests.tabs.newName")}
                 />
               </label>

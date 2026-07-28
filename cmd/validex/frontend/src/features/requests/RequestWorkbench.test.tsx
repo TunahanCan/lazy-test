@@ -15,6 +15,10 @@ import {
   createRequestTab,
   useWorkspaceStore,
 } from "../../stores/workspace";
+import {
+  collectionLibraryStorageKey,
+  useCollectionLibraryStore,
+} from "../../stores/collectionLibrary";
 import { RequestWorkbench } from "./RequestWorkbench";
 
 vi.mock("@monaco-editor/react", () => ({
@@ -40,6 +44,7 @@ function renderWorkbench(tab: RequestTab) {
     environmentVariables: {},
     tabs: [tab],
     activeTabID: tab.id,
+    activeView: "requests",
   });
   return render(
     <LocaleProvider>
@@ -54,6 +59,11 @@ describe("RequestWorkbench", () => {
   beforeEach(() => {
     localStorage.clear();
     localStorage.setItem(localeStorageKey, "tr");
+    useCollectionLibraryStore.setState({
+      collections: [],
+      requests: [],
+      expandedCollectionIds: [],
+    });
   });
 
   afterEach(() => {
@@ -67,6 +77,7 @@ describe("RequestWorkbench", () => {
       method: "POST",
       url: "https://example.test/{{path}}",
       body: '{"id":"{{id}}"}',
+      requestSection: "variables",
       headers: [
         {
           id: "token-header",
@@ -116,7 +127,7 @@ describe("RequestWorkbench", () => {
     };
     const tab = createRequestTab({
       id: "environment-override-request",
-      requestSection: "params",
+      requestSection: "variables",
     });
     useWorkspaceStore.setState({
       activeEnvironmentID: "local",
@@ -349,6 +360,91 @@ describe("RequestWorkbench", () => {
     ).toBe("Customers");
   });
 
+  it("keeps an auto-named saved request and its dirty tab in sync", () => {
+    const collectionId = useCollectionLibraryStore
+      .getState()
+      .createCollection("Core API")!;
+    const savedRequestId = useCollectionLibraryStore
+      .getState()
+      .saveRequest(collectionId, {
+        name: "Untitled request",
+        method: "GET",
+        url: "",
+        headers: [],
+        body: "",
+      })!;
+    const tab = createRequestTab({
+      id: "linked-auto-name",
+      savedRequestId,
+      collectionId,
+      name: "Untitled request",
+      url: "",
+      dirty: true,
+    });
+    renderWorkbench(tab);
+
+    const url = screen.getByLabelText("İstek URL’si");
+    fireEvent.change(url, {
+      target: { value: "https://api.example.test/v1/orders" },
+    });
+    fireEvent.blur(url);
+
+    expect(
+      useCollectionLibraryStore
+        .getState()
+        .requests.find((request) => request.id === savedRequestId)?.name,
+    ).toBe("Orders");
+    expect(useWorkspaceStore.getState().tabs[0]).toMatchObject({
+      name: "Orders",
+      dirty: true,
+    });
+  });
+
+  it("refreshes a clean form when its saved request is reconciled", async () => {
+    const tab = createRequestTab({
+      id: "reconciled-form",
+      savedRequestId: "saved-request",
+      collectionId: "collection",
+      method: "GET",
+      url: "https://api.example.test/old",
+      body: "",
+      headers: [],
+      requestSection: "body",
+      dirty: false,
+    });
+    const rendered = renderWorkbench(tab);
+
+    useWorkspaceStore.getState().reconcileSavedRequestLinks([
+      {
+        id: "saved-request",
+        collectionId: "collection",
+        name: "Updated request",
+        method: "POST",
+        url: "https://api.example.test/new",
+        headers: [],
+        body: '{"updated":true}',
+      },
+    ]);
+    const reconciled = useWorkspaceStore.getState().tabs[0];
+    rendered.rerender(
+      <LocaleProvider>
+        <Tooltip.Provider>
+          <RequestWorkbench tab={reconciled} bootstrap={bootstrap} />
+        </Tooltip.Provider>
+      </LocaleProvider>,
+    );
+
+    expect(screen.getByLabelText("İstek URL’si")).toHaveValue(
+      "https://api.example.test/new",
+    );
+    expect(
+      screen.getByRole("button", { name: "HTTP metodu seç" }),
+    ).toHaveTextContent("POST");
+    expect(await screen.findByLabelText("Editor")).toHaveValue(
+      '{"updated":true}',
+    );
+  });
+
   it("keeps an invalid schemeless URL unchanged and blocks sending it", () => {
     const send = vi.spyOn(backend, "sendRequest");
     const tab = createRequestTab({
@@ -430,6 +526,181 @@ describe("RequestWorkbench", () => {
 
     expect(useWorkspaceStore.getState().tabs[0].method).toBe("POST");
     expect(useWorkspaceStore.getState().tabs[0].openApi).toBeUndefined();
+  });
+
+  it("saves the current form into a new persistent collection", async () => {
+    const tab = createRequestTab({
+      id: "save-request",
+      name: "Create payment",
+      method: "POST",
+      url: "https://api.example.test/payments",
+      body: '{"amount":42}',
+      dirty: true,
+    });
+    renderWorkbench(tab);
+
+    const saveButton = screen.getByRole("button", { name: "Kaydet" });
+    saveButton.focus();
+    fireEvent.click(saveButton);
+    const dialog = await screen.findByRole("dialog", {
+      name: "Koleksiyona kaydet",
+    });
+    fireEvent.change(within(dialog).getByLabelText("İstek adı"), {
+      target: { value: "Create payment" },
+    });
+    fireEvent.change(
+      within(dialog).getByLabelText("Yeni koleksiyon adı"),
+      {
+        target: { value: "Payments API" },
+      },
+    );
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "İsteği kaydet" }),
+    );
+
+    await waitFor(() => {
+      const library = useCollectionLibraryStore.getState();
+      expect(library.collections).toHaveLength(1);
+      expect(library.collections[0].name).toBe("Payments API");
+      expect(library.requests[0]).toMatchObject({
+        name: "Create payment",
+        method: "POST",
+        url: "https://api.example.test/payments",
+        body: '{"amount":42}',
+      });
+    });
+    expect(useWorkspaceStore.getState().tabs[0]).toMatchObject({
+      savedRequestId: useCollectionLibraryStore.getState().requests[0].id,
+      collectionId: useCollectionLibraryStore.getState().collections[0].id,
+      dirty: false,
+    });
+    await waitFor(() => expect(saveButton).toHaveFocus());
+  });
+
+  it("keeps literal secret headers as an explicit unsaved draft", async () => {
+    const tab = createRequestTab({
+      id: "secret-save-request",
+      name: "Protected request",
+      url: "https://api.example.test/protected",
+      headers: [
+        {
+          id: "authorization",
+          enabled: true,
+          key: "Authorization",
+          value: "Bearer literal-secret",
+        },
+      ],
+      dirty: true,
+    });
+    renderWorkbench(tab);
+
+    fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Koleksiyona kaydet",
+    });
+    fireEvent.change(
+      within(dialog).getByLabelText("Yeni koleksiyon adı"),
+      { target: { value: "Protected API" } },
+    );
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "İsteği kaydet" }),
+    );
+
+    expect(
+      await screen.findByText(/gizli header değerleri kaydedilmedi/i),
+    ).toBeVisible();
+    expect(useCollectionLibraryStore.getState().requests[0].headers[0]).toMatchObject({
+      enabled: false,
+      value: "",
+    });
+    expect(useWorkspaceStore.getState().tabs[0]).toMatchObject({
+      savedRequestId: useCollectionLibraryStore.getState().requests[0].id,
+      dirty: true,
+      headers: [
+        expect.objectContaining({
+          enabled: true,
+          value: "Bearer literal-secret",
+        }),
+      ],
+    });
+  });
+
+  it("does not report a request as saved when the durable write fails", async () => {
+    const tab = createRequestTab({
+      id: "failed-save-request",
+      name: "Failed save",
+      url: "https://api.example.test/failure",
+      dirty: true,
+    });
+    renderWorkbench(tab);
+    fireEvent.click(screen.getByRole("button", { name: "Kaydet" }));
+    const dialog = await screen.findByRole("dialog", {
+      name: "Koleksiyona kaydet",
+    });
+    fireEvent.change(
+      within(dialog).getByLabelText("Yeni koleksiyon adı"),
+      { target: { value: "Failure API" } },
+    );
+    const originalSetItem = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
+      this: Storage,
+      key: string,
+      value: string,
+    ) {
+      if (key === collectionLibraryStorageKey) {
+        throw new DOMException("Quota exceeded", "QuotaExceededError");
+      }
+      return originalSetItem.call(this, key, value);
+    });
+
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "İsteği kaydet" }),
+    );
+
+    expect(
+      await screen.findByText(/hâlâ kaydedilmemiş bir taslak/i),
+    ).toBeVisible();
+    expect(useWorkspaceStore.getState().tabs[0]).toMatchObject({
+      dirty: true,
+      savedRequestId: useCollectionLibraryStore.getState().requests[0].id,
+    });
+    expect(
+      screen.queryByRole("button", { name: "Kaydedildi" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not handle the save shortcut outside the active request workspace", () => {
+    const tab = createRequestTab({
+      id: "hidden-save-shortcut",
+      name: "Hidden request",
+      url: "https://api.example.test",
+      dirty: true,
+    });
+    renderWorkbench(tab);
+    useWorkspaceStore.setState({ activeView: "json" });
+
+    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
+
+    expect(
+      screen.queryByRole("dialog", { name: "Koleksiyona kaydet" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not handle the save shortcut while a request is running", () => {
+    const tab = createRequestTab({
+      id: "running-save-shortcut",
+      name: "Running request",
+      url: "https://api.example.test",
+      dirty: true,
+      running: true,
+    });
+    renderWorkbench(tab);
+
+    fireEvent.keyDown(window, { key: "s", metaKey: true });
+
+    expect(
+      screen.queryByRole("dialog", { name: "Koleksiyona kaydet" }),
+    ).not.toBeInTheDocument();
   });
 
   it("renders English validation and controls while preserving the URL", () => {

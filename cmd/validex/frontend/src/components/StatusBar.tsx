@@ -1,28 +1,46 @@
 import { AlertCircle, CircleDot, Files, LoaderCircle } from "lucide-react";
 import { useTranslation } from "../i18n";
 import type { BootstrapData } from "../lib/types";
+import {
+  COLLECTION_LIBRARY_PERSISTENCE_PHASE,
+  useCollectionLibraryPersistence,
+} from "../stores/collectionLibraryStorage";
 import { useWorkspaceStore } from "../stores/workspace";
 
 export function StatusBar({ bootstrap }: { bootstrap: BootstrapData }) {
   const t = useTranslation();
   const tabs = useWorkspaceStore((state) => state.tabs);
   const activeTabID = useWorkspaceStore((state) => state.activeTabID);
+  const collectionPersistence =
+    useCollectionLibraryPersistence();
   const active = tabs.find((tab) => tab.id === activeTabID);
   const runningCount = tabs.filter((tab) => tab.running).length;
   const failedCount = tabs.filter((tab) => tab.error && !tab.running).length;
   const activeStatus = active?.running
     ? t("status.requestRunning")
-    : active?.error
-      ? t("status.requestFailed")
-      : active?.response
-        ? t("status.responseReceived", {
-            status: active.response.statusCode,
-          })
-        : active?.dirty
-          ? t("status.draftSaved")
-          : active
-            ? t("status.requestReady")
-            : t("status.noActiveRequest");
+    : collectionPersistence.phase ===
+        COLLECTION_LIBRARY_PERSISTENCE_PHASE.SAVING
+      ? t("status.collectionSaving")
+      : collectionPersistence.phase ===
+          COLLECTION_LIBRARY_PERSISTENCE_PHASE.ERROR
+        ? t(
+            collectionPersistence.operation === "read"
+              ? "status.collectionLoadFailed"
+              : "status.collectionSaveFailed",
+          )
+        : active?.error
+          ? t("status.requestFailed")
+          : active?.dirty
+            ? t("status.draftSaved")
+            : active?.response
+              ? t("status.responseReceived", {
+                  status: active.response.statusCode,
+                })
+              : active?.savedRequestId
+                ? t("status.savedRequest")
+                : active
+                  ? t("status.requestReady")
+                  : t("status.noActiveRequest");
 
   return (
     <footer className="statusbar">

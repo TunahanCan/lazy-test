@@ -1,0 +1,666 @@
+import { create } from "zustand";
+import { createJSONStorage, persist } from "zustand/middleware";
+import {
+  COLLECTION_NAME_LENGTH_LIMITS,
+  SAVED_REQUEST_NAME_LENGTH_LIMITS,
+  bySortOrder,
+  createOpenRequestSnapshot,
+  normalizedLibraryName,
+  type OpenRequestSnapshot,
+  type RequestCollection,
+  type SavedRequest,
+  type SavedRequestSnapshot,
+} from "../features/collections/model";
+import { HTTP_METHODS } from "../lib/http";
+import { isSafeSecretReference, isSecretKey } from "../lib/secrets";
+import type { HTTPMethod, KeyValue } from "../lib/types";
+import {
+  beginCollectionLibraryHydration,
+  createCollectionLibraryStorage,
+  finishCollectionLibraryHydration,
+  UnsupportedCollectionLibraryVersionError,
+} from "./collectionLibraryStorage";
+
+export const collectionLibraryStorageKey = "validex:collection-library";
+export const collectionLibraryStorageVersion = 1;
+export const collectionLibraryViewStorageKey =
+  "validex:collection-library:view";
+
+const emptyCollectionLibraryDocument = JSON.stringify({
+  state: {
+    collections: [],
+    requests: [],
+    expandedCollectionIds: [],
+  },
+  version: collectionLibraryStorageVersion,
+});
+
+const collectionLibraryPersistStorage = createJSONStorage(() =>
+  createCollectionLibraryStorage(emptyCollectionLibraryDocument),
+);
+
+function loadExpandedCollectionIds(): string[] {
+  if (typeof localStorage === "undefined") return [];
+  try {
+    const value = JSON.parse(
+      localStorage.getItem(collectionLibraryViewStorageKey) ?? "[]",
+    );
+    return Array.isArray(value)
+      ? [
+          ...new Set(
+            value.filter(
+              (id): id is string =>
+                typeof id === "string" && id.trim().length > 0,
+            ),
+          ),
+        ]
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistExpandedCollectionIds(ids: readonly string[]) {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(
+      collectionLibraryViewStorageKey,
+      JSON.stringify(ids),
+    );
+  } catch {
+    // Expansion is a disposable UI preference; domain data stays native.
+  }
+}
+
+interface CollectionLibraryData {
+  collections: RequestCollection[];
+  requests: SavedRequest[];
+  expandedCollectionIds: string[];
+}
+
+export interface CollectionLibraryState extends CollectionLibraryData {
+  createCollection: (name: string) => string | undefined;
+  renameCollection: (collectionId: string, name: string) => boolean;
+  deleteCollection: (collectionId: string) => boolean;
+  toggleCollection: (collectionId: string) => void;
+  saveRequest: (
+    collectionId: string,
+    snapshot: SavedRequestSnapshot,
+  ) => string | undefined;
+  upsertRequest: (
+    collectionId: string,
+    snapshot: SavedRequestSnapshot,
+    requestId?: string,
+  ) => string | undefined;
+  renameRequest: (requestId: string, name: string) => boolean;
+  moveRequest: (requestId: string, collectionId: string) => boolean;
+  deleteRequest: (requestId: string) => boolean;
+  openRequestSnapshot: (
+    requestId: string,
+  ) => OpenRequestSnapshot | undefined;
+}
+
+const httpMethods = new Set<string>(HTTP_METHODS);
+
+function now(): string {
+  return new Date().toISOString();
+}
+
+function nextSortOrder(items: readonly { sortOrder: number }[]): number {
+  return (
+    items.reduce(
+      (maximum, item) => Math.max(maximum, item.sortOrder),
+      -1,
+    ) + 1
+  );
+}
+
+function touchCollections(
+  collections: readonly RequestCollection[],
+  collectionIds: ReadonlySet<string>,
+  updatedAt: string,
+): RequestCollection[] {
+  return collections.map((collection) =>
+    collectionIds.has(collection.id)
+      ? { ...collection, updatedAt }
+      : collection,
+  );
+}
+
+function createSavedRequest(
+  id: string,
+  collectionId: string,
+  snapshot: SavedRequestSnapshot,
+  createdAt: string,
+  sortOrder: number,
+): SavedRequest {
+  return {
+    id,
+    collectionId,
+    name: snapshot.name,
+    method: snapshot.method,
+    url: snapshot.url,
+    headers: snapshot.headers.map(persistedHeader),
+    body: snapshot.body,
+    createdAt,
+    updatedAt: createdAt,
+    sortOrder,
+  };
+}
+
+function persistedHeader(header: KeyValue): KeyValue {
+  if (!isSecretKey(header.key) || isSafeSecretReference(header.value)) {
+    return { ...header };
+  }
+  return {
+    ...header,
+    enabled: false,
+    value: "",
+  };
+}
+
+function persistedRequest(request: SavedRequest): SavedRequest {
+  return {
+    id: request.id,
+    collectionId: request.collectionId,
+    name: request.name,
+    method: request.method,
+    url: request.url,
+    headers: request.headers.map(persistedHeader),
+    body: request.body,
+    createdAt: request.createdAt,
+    updatedAt: request.updatedAt,
+    sortOrder: request.sortOrder,
+  };
+}
+
+function persistedCollection(
+  collection: RequestCollection,
+): RequestCollection {
+  return {
+    id: collection.id,
+    name: collection.name,
+    createdAt: collection.createdAt,
+    updatedAt: collection.updatedAt,
+    sortOrder: collection.sortOrder,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function uniqueByID<T extends { id: string }>(items: readonly T[]): T[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
+}
+
+function hydratedCollection(value: unknown): RequestCollection | undefined {
+  if (!isRecord(value)) return undefined;
+  const name =
+    typeof value.name === "string"
+      ? normalizedLibraryName(value.name, COLLECTION_NAME_LENGTH_LIMITS)
+      : undefined;
+  if (
+    typeof value.id !== "string" ||
+    value.id.trim().length === 0 ||
+    !name ||
+    typeof value.createdAt !== "string" ||
+    typeof value.updatedAt !== "string" ||
+    typeof value.sortOrder !== "number" ||
+    !Number.isFinite(value.sortOrder)
+  ) {
+    return undefined;
+  }
+  return {
+    id: value.id,
+    name,
+    createdAt: value.createdAt,
+    updatedAt: value.updatedAt,
+    sortOrder: value.sortOrder,
+  };
+}
+
+function hydratedHeader(value: unknown): KeyValue | undefined {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== "string" ||
+    value.id.trim().length === 0 ||
+    typeof value.enabled !== "boolean" ||
+    typeof value.key !== "string" ||
+    typeof value.value !== "string"
+  ) {
+    return undefined;
+  }
+  const header: KeyValue = {
+    id: value.id,
+    enabled: value.enabled,
+    key: value.key,
+    value: value.value,
+  };
+  if (typeof value.description === "string") {
+    header.description = value.description;
+  }
+  if (
+    value.source === "Manual" ||
+    value.source === "OpenAPI" ||
+    value.source === "Environment" ||
+    value.source === "Extracted" ||
+    value.source === "Generated"
+  ) {
+    header.source = value.source;
+  }
+  return persistedHeader(header);
+}
+
+function hydratedRequest(
+  value: unknown,
+  collectionIds: ReadonlySet<string>,
+): SavedRequest | undefined {
+  if (!isRecord(value)) return undefined;
+  const name =
+    typeof value.name === "string"
+      ? normalizedLibraryName(value.name, SAVED_REQUEST_NAME_LENGTH_LIMITS)
+      : undefined;
+  if (
+    typeof value.id !== "string" ||
+    value.id.trim().length === 0 ||
+    typeof value.collectionId !== "string" ||
+    !collectionIds.has(value.collectionId) ||
+    !name ||
+    typeof value.method !== "string" ||
+    !httpMethods.has(value.method) ||
+    typeof value.url !== "string" ||
+    !Array.isArray(value.headers) ||
+    typeof value.body !== "string" ||
+    typeof value.createdAt !== "string" ||
+    typeof value.updatedAt !== "string" ||
+    typeof value.sortOrder !== "number" ||
+    !Number.isFinite(value.sortOrder)
+  ) {
+    return undefined;
+  }
+  const headers = uniqueByID(
+    value.headers
+      .map(hydratedHeader)
+      .filter((header): header is KeyValue => header !== undefined),
+  );
+  return {
+    id: value.id,
+    collectionId: value.collectionId,
+    name,
+    method: value.method as HTTPMethod,
+    url: value.url,
+    headers,
+    body: value.body,
+    createdAt: value.createdAt,
+    updatedAt: value.updatedAt,
+    sortOrder: value.sortOrder,
+  };
+}
+
+function hydrateLibraryData(value: unknown): CollectionLibraryData {
+  const persisted = isRecord(value) ? value : {};
+  const collections = Array.isArray(persisted.collections)
+    ? uniqueByID(
+        persisted.collections
+          .map(hydratedCollection)
+          .filter(
+            (collection): collection is RequestCollection =>
+              collection !== undefined,
+          ),
+      )
+    : [];
+  const collectionIds = new Set(
+    collections.map((collection) => collection.id),
+  );
+  const requests = Array.isArray(persisted.requests)
+    ? uniqueByID(
+        persisted.requests
+          .map((request) => hydratedRequest(request, collectionIds))
+          .filter(
+            (request): request is SavedRequest => request !== undefined,
+          ),
+      )
+    : [];
+  const expandedCollectionIds = Array.isArray(
+    persisted.expandedCollectionIds,
+  )
+    ? [
+        ...new Set(
+          persisted.expandedCollectionIds.filter(
+            (id): id is string =>
+              typeof id === "string" && collectionIds.has(id),
+          ),
+        ),
+      ]
+    : [];
+  return { collections, requests, expandedCollectionIds };
+}
+
+export function selectOrderedCollections(
+  state: Pick<CollectionLibraryState, "collections">,
+): RequestCollection[] {
+  return [...state.collections].sort(bySortOrder);
+}
+
+export function selectOrderedRequests(
+  state: Pick<CollectionLibraryState, "requests">,
+  collectionId: string,
+): SavedRequest[] {
+  return state.requests
+    .filter((request) => request.collectionId === collectionId)
+    .sort(bySortOrder);
+}
+
+export const useCollectionLibraryStore = create<CollectionLibraryState>()(
+  persist(
+    (set, get) => ({
+      collections: [],
+      requests: [],
+      expandedCollectionIds: loadExpandedCollectionIds(),
+      createCollection: (rawName) => {
+        const name = normalizedLibraryName(
+          rawName,
+          COLLECTION_NAME_LENGTH_LIMITS,
+        );
+        if (!name) return undefined;
+        const id = crypto.randomUUID();
+        const createdAt = now();
+        const sortOrder = nextSortOrder(get().collections);
+        const expandedCollectionIds = [
+          ...new Set([...get().expandedCollectionIds, id]),
+        ];
+        persistExpandedCollectionIds(expandedCollectionIds);
+        set((state) => ({
+          collections: [
+            ...state.collections,
+            { id, name, createdAt, updatedAt: createdAt, sortOrder },
+          ],
+          expandedCollectionIds,
+        }));
+        return id;
+      },
+      renameCollection: (collectionId, rawName) => {
+        const name = normalizedLibraryName(
+          rawName,
+          COLLECTION_NAME_LENGTH_LIMITS,
+        );
+        if (!name) return false;
+        const collection = get().collections.find(
+          (candidate) => candidate.id === collectionId,
+        );
+        if (!collection) return false;
+        const updatedAt = now();
+        set((state) => ({
+          collections: state.collections.map((candidate) =>
+            candidate.id === collectionId
+              ? { ...candidate, name, updatedAt }
+              : candidate,
+          ),
+        }));
+        return true;
+      },
+      deleteCollection: (collectionId) => {
+        if (
+          !get().collections.some(
+            (collection) => collection.id === collectionId,
+          )
+        ) {
+          return false;
+        }
+        const expandedCollectionIds =
+          get().expandedCollectionIds.filter((id) => id !== collectionId);
+        persistExpandedCollectionIds(expandedCollectionIds);
+        set((state) => ({
+          collections: state.collections.filter(
+            (collection) => collection.id !== collectionId,
+          ),
+          requests: state.requests.filter(
+            (request) => request.collectionId !== collectionId,
+          ),
+          expandedCollectionIds,
+        }));
+        return true;
+      },
+      toggleCollection: (collectionId) => {
+        if (
+          !get().collections.some(
+            (collection) => collection.id === collectionId,
+          )
+        ) {
+          return;
+        }
+        const expandedCollectionIds =
+          get().expandedCollectionIds.includes(collectionId)
+            ? get().expandedCollectionIds.filter(
+                (id) => id !== collectionId,
+              )
+            : [...get().expandedCollectionIds, collectionId];
+        persistExpandedCollectionIds(expandedCollectionIds);
+        set({ expandedCollectionIds });
+      },
+      saveRequest: (collectionId, snapshot) => {
+        const state = get();
+        if (
+          !state.collections.some(
+            (collection) => collection.id === collectionId,
+          )
+        ) {
+          return undefined;
+        }
+        const name = normalizedLibraryName(
+          snapshot.name,
+          SAVED_REQUEST_NAME_LENGTH_LIMITS,
+        );
+        if (!name) return undefined;
+        const id = crypto.randomUUID();
+        const createdAt = now();
+        const request = createSavedRequest(
+          id,
+          collectionId,
+          { ...snapshot, name },
+          createdAt,
+          nextSortOrder(
+            state.requests.filter(
+              (candidate) => candidate.collectionId === collectionId,
+            ),
+          ),
+        );
+        set((current) => ({
+          requests: [...current.requests, request],
+          collections: touchCollections(
+            current.collections,
+            new Set([collectionId]),
+            createdAt,
+          ),
+        }));
+        return id;
+      },
+      upsertRequest: (collectionId, snapshot, requestId) => {
+        const state = get();
+        const targetCollection = state.collections.find(
+          (collection) => collection.id === collectionId,
+        );
+        if (!targetCollection) return undefined;
+        const name = normalizedLibraryName(
+          snapshot.name,
+          SAVED_REQUEST_NAME_LENGTH_LIMITS,
+        );
+        if (!name) return undefined;
+        const existing = requestId
+          ? state.requests.find((request) => request.id === requestId)
+          : undefined;
+        if (!existing) {
+          return get().saveRequest(collectionId, { ...snapshot, name });
+        }
+        const updatedAt = now();
+        const moved = existing.collectionId !== collectionId;
+        const sortOrder = moved
+          ? nextSortOrder(
+              state.requests.filter(
+                (request) => request.collectionId === collectionId,
+              ),
+            )
+          : existing.sortOrder;
+        const updated: SavedRequest = {
+          ...existing,
+          collectionId,
+          name,
+          method: snapshot.method,
+          url: snapshot.url,
+          headers: snapshot.headers.map(persistedHeader),
+          body: snapshot.body,
+          updatedAt,
+          sortOrder,
+        };
+        set((current) => ({
+          requests: current.requests.map((request) =>
+            request.id === existing.id ? updated : request,
+          ),
+          collections: touchCollections(
+            current.collections,
+            new Set([existing.collectionId, collectionId]),
+            updatedAt,
+          ),
+        }));
+        return existing.id;
+      },
+      renameRequest: (requestId, rawName) => {
+        const name = normalizedLibraryName(
+          rawName,
+          SAVED_REQUEST_NAME_LENGTH_LIMITS,
+        );
+        if (!name) return false;
+        const request = get().requests.find(
+          (candidate) => candidate.id === requestId,
+        );
+        if (!request) return false;
+        const updatedAt = now();
+        set((state) => ({
+          requests: state.requests.map((candidate) =>
+            candidate.id === requestId
+              ? { ...candidate, name, updatedAt }
+              : candidate,
+          ),
+          collections: touchCollections(
+            state.collections,
+            new Set([request.collectionId]),
+            updatedAt,
+          ),
+        }));
+        return true;
+      },
+      moveRequest: (requestId, collectionId) => {
+        const state = get();
+        const request = state.requests.find(
+          (candidate) => candidate.id === requestId,
+        );
+        if (
+          !request ||
+          !state.collections.some(
+            (collection) => collection.id === collectionId,
+          )
+        ) {
+          return false;
+        }
+        if (request.collectionId === collectionId) return true;
+        const updatedAt = now();
+        const sortOrder = nextSortOrder(
+          state.requests.filter(
+            (candidate) => candidate.collectionId === collectionId,
+          ),
+        );
+        set((current) => ({
+          requests: current.requests.map((candidate) =>
+            candidate.id === requestId
+              ? {
+                  ...candidate,
+                  collectionId,
+                  updatedAt,
+                  sortOrder,
+                }
+              : candidate,
+          ),
+          collections: touchCollections(
+            current.collections,
+            new Set([request.collectionId, collectionId]),
+            updatedAt,
+          ),
+        }));
+        return true;
+      },
+      deleteRequest: (requestId) => {
+        const request = get().requests.find(
+          (candidate) => candidate.id === requestId,
+        );
+        if (!request) return false;
+        const updatedAt = now();
+        set((state) => ({
+          requests: state.requests.filter(
+            (candidate) => candidate.id !== requestId,
+          ),
+          collections: touchCollections(
+            state.collections,
+            new Set([request.collectionId]),
+            updatedAt,
+          ),
+        }));
+        return true;
+      },
+      openRequestSnapshot: (requestId) => {
+        const request = get().requests.find(
+          (candidate) => candidate.id === requestId,
+        );
+        return request ? createOpenRequestSnapshot(request) : undefined;
+      },
+    }),
+    {
+      name: collectionLibraryStorageKey,
+      version: collectionLibraryStorageVersion,
+      storage: collectionLibraryPersistStorage,
+      onRehydrateStorage: () => {
+        beginCollectionLibraryHydration();
+        return (_state, error) =>
+          finishCollectionLibraryHydration(error);
+      },
+      migrate: (persistedState, persistedVersion) => {
+        if (persistedVersion > collectionLibraryStorageVersion) {
+          throw new UnsupportedCollectionLibraryVersionError(
+            persistedVersion,
+          );
+        }
+        return hydrateLibraryData(persistedState);
+      },
+      merge: (persistedState, currentState) => {
+        const hydrated = hydrateLibraryData(persistedState);
+        const collectionIds = new Set(
+          hydrated.collections.map((collection) => collection.id),
+        );
+        const expandedCollectionIds = [
+          ...new Set(
+            (
+              currentState.expandedCollectionIds.length > 0
+                ? currentState.expandedCollectionIds
+                : hydrated.expandedCollectionIds
+            ).filter((id) => collectionIds.has(id)),
+          ),
+        ];
+        persistExpandedCollectionIds(expandedCollectionIds);
+        return {
+          ...currentState,
+          ...hydrated,
+          expandedCollectionIds,
+        };
+      },
+      partialize: (state) => ({
+        collections: state.collections.map(persistedCollection),
+        requests: state.requests.map(persistedRequest),
+      }),
+    },
+  ),
+);

@@ -125,6 +125,7 @@ function persistedTab(tab: RequestTab): RequestTab {
     "params",
     "headers",
     "body",
+    "variables",
   ].includes(tab.requestSection)
     ? tab.requestSection
     : "params";
@@ -185,6 +186,16 @@ export interface ImportedSpecWorkspace {
   endpoints: ImportedEndpoint[];
 }
 
+export interface SavedRequestLink {
+  id: string;
+  collectionId: string;
+  name: string;
+  method: HTTPMethod;
+  url: string;
+  headers: RequestTab["headers"];
+  body: string;
+}
+
 interface WorkspaceState {
   workspaceID: string;
   activeEnvironmentID: string;
@@ -233,6 +244,63 @@ interface WorkspaceState {
   setCommandPaletteOpen: (open: boolean) => void;
   setSidebarSection: (section: WorkspaceState["sidebarSection"]) => void;
   setImportedSpec: (result: ImportSpecResult) => void;
+  reconcileSavedRequestLinks: (links: SavedRequestLink[]) => void;
+}
+
+function reconcileTabWithSavedRequests(
+  tab: RequestTab,
+  links: ReadonlyMap<string, SavedRequestLink>,
+): RequestTab {
+  if (!tab.savedRequestId) return tab;
+  const link = links.get(tab.savedRequestId);
+  if (!link) {
+    return {
+      ...tab,
+      savedRequestId: undefined,
+      collectionId: undefined,
+      dirty: true,
+    };
+  }
+  const linkedFields = tab.dirty
+    ? { name: link.name, method: tab.method, url: tab.url, body: tab.body }
+    : {
+        name: link.name,
+        method: link.method,
+        url: link.url,
+        body: link.body,
+      };
+  const headersChanged =
+    !tab.dirty &&
+    JSON.stringify(tab.headers) !== JSON.stringify(link.headers);
+  const requestDefinitionChanged =
+    !tab.dirty &&
+    (tab.method !== link.method ||
+      tab.url !== link.url ||
+      tab.body !== link.body ||
+      headersChanged);
+  if (
+    tab.collectionId === link.collectionId &&
+    tab.name === linkedFields.name &&
+    tab.method === linkedFields.method &&
+    tab.url === linkedFields.url &&
+    tab.body === linkedFields.body &&
+    !headersChanged
+  ) {
+    return tab;
+  }
+  return {
+    ...tab,
+    collectionId: link.collectionId,
+    ...linkedFields,
+    headers: headersChanged
+      ? link.headers.map((header) => ({ ...header }))
+      : tab.headers,
+    response: requestDefinitionChanged ? undefined : tab.response,
+    error: requestDefinitionChanged ? false : tab.error,
+    userError: requestDefinitionChanged
+      ? undefined
+      : tab.userError,
+  };
 }
 
 function isUntouchedLegacyDemoRequest(tabs: RequestTab[] | undefined): boolean {
@@ -320,6 +388,18 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       setActiveTab: (id) => set({ activeTabID: id, activeView: "requests" }),
       openTab: (tab = {}) =>
         set((state) => {
+          if (tab.savedRequestId) {
+            const existingSavedRequest = state.tabs.find(
+              (candidate) =>
+                candidate.savedRequestId === tab.savedRequestId,
+            );
+            if (existingSavedRequest) {
+              return {
+                activeTabID: existingSavedRequest.id,
+                activeView: "requests",
+              };
+            }
+          }
           if (tab.id) {
             const existing = state.tabs.find((candidate) => candidate.id === tab.id);
             if (existing) {
@@ -400,7 +480,10 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           const [tab, ...rest] = state.recentlyClosed;
           if (!tab) return state;
           const existing = state.tabs.find(
-            (candidate) => candidate.id === tab.id,
+            (candidate) =>
+              candidate.id === tab.id ||
+              (tab.savedRequestId &&
+                candidate.savedRequestId === tab.savedRequestId),
           );
           if (existing) {
             return {
@@ -422,6 +505,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           get().openTab({
             ...tab,
             id: crypto.randomUUID(),
+            savedRequestId: undefined,
+            collectionId: undefined,
             name,
             running: false,
             error: false,
@@ -485,6 +570,19 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           sidebarSection: "apis",
           leftVisible: true,
           activeView: "requests",
+        }),
+      reconcileSavedRequestLinks: (links) =>
+        set((state) => {
+          const byID = new Map(links.map((link) => [link.id, link]));
+          let changed = false;
+          const reconcile = (tab: RequestTab) => {
+            const next = reconcileTabWithSavedRequests(tab, byID);
+            if (next !== tab) changed = true;
+            return next;
+          };
+          const tabs = state.tabs.map(reconcile);
+          const recentlyClosed = state.recentlyClosed.map(reconcile);
+          return changed ? { tabs, recentlyClosed } : state;
         }),
     }),
     {

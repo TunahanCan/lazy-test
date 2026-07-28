@@ -5,32 +5,120 @@ import (
 	"fmt"
 )
 
-const maxBridgeArgumentsBytes = 32 << 20
+const (
+	maxBridgeArgumentsBytes = 32 << 20
 
-var bridgeMethodNames = []string{
-	"Bootstrap",
-	"SendRequest",
-	"CancelRequest",
-	"ImportOpenAPI",
-	"ValidateOpenAPIResponse",
-	"GetMockServer",
-	"UpdateMockRoutes",
-	"StartMockServer",
-	"StopMockServer",
-	"ClearMockHits",
-	"ImportMockOpenAPI",
-	"RunSSE",
-	"RunWebSocket",
-	"InspectGRPC",
-	"CancelToolOperation",
-	"InspectActuator",
-	"CompareEnvironments",
-	"AnalyzeThreadDump",
-	"SearchTraceLog",
-	"AnalyzeEndpointCoverage",
-	"RunCollection",
-	"AnalyzeNetwork",
-	"LintOpenAPI",
+	bridgeMethodBootstrap               = "Bootstrap"
+	bridgeMethodLoadCollectionLibrary   = "LoadCollectionLibrary"
+	bridgeMethodSaveCollectionLibrary   = "SaveCollectionLibrary"
+	bridgeMethodSendRequest             = "SendRequest"
+	bridgeMethodCancelRequest           = "CancelRequest"
+	bridgeMethodImportOpenAPI           = "ImportOpenAPI"
+	bridgeMethodValidateOpenAPIResponse = "ValidateOpenAPIResponse"
+	bridgeMethodGetMockServer           = "GetMockServer"
+	bridgeMethodUpdateMockRoutes        = "UpdateMockRoutes"
+	bridgeMethodStartMockServer         = "StartMockServer"
+	bridgeMethodStopMockServer          = "StopMockServer"
+	bridgeMethodClearMockHits           = "ClearMockHits"
+	bridgeMethodImportMockOpenAPI       = "ImportMockOpenAPI"
+	bridgeMethodRunSSE                  = "RunSSE"
+	bridgeMethodRunWebSocket            = "RunWebSocket"
+	bridgeMethodInspectGRPC             = "InspectGRPC"
+	bridgeMethodCancelToolOperation     = "CancelToolOperation"
+	bridgeMethodInspectActuator         = "InspectActuator"
+	bridgeMethodCompareEnvironments     = "CompareEnvironments"
+	bridgeMethodAnalyzeThreadDump       = "AnalyzeThreadDump"
+	bridgeMethodSearchTraceLog          = "SearchTraceLog"
+	bridgeMethodAnalyzeEndpointCoverage = "AnalyzeEndpointCoverage"
+	bridgeMethodRunCollection           = "RunCollection"
+	bridgeMethodAnalyzeNetwork          = "AnalyzeNetwork"
+	bridgeMethodLintOpenAPI             = "LintOpenAPI"
+)
+
+type bridgeExecutionPolicy uint8
+
+const (
+	bridgeExecutionConcurrent bridgeExecutionPolicy = iota
+	bridgeExecutionCollectionLibrarySerial
+)
+
+type bridgeMethodDescriptor struct {
+	Name       string
+	Policy     bridgeExecutionPolicy
+	BusyResult func() any
+}
+
+// bridgeMethodRegistry is the single source of truth for methods advertised to
+// the browser and transport-level scheduling policy. Invoke remains an explicit
+// switch so each method keeps compile-time argument decoding.
+var bridgeMethodRegistry = []bridgeMethodDescriptor{
+	{Name: bridgeMethodBootstrap},
+	{
+		Name:   bridgeMethodLoadCollectionLibrary,
+		Policy: bridgeExecutionCollectionLibrarySerial,
+		BusyResult: func() any {
+			return CollectionLibraryLoadResult{
+				Error: collectionLibraryBusyError(),
+			}
+		},
+	},
+	{
+		Name:   bridgeMethodSaveCollectionLibrary,
+		Policy: bridgeExecutionCollectionLibrarySerial,
+		BusyResult: func() any {
+			return CollectionLibrarySaveResult{
+				Error: collectionLibraryBusyError(),
+			}
+		},
+	},
+	{Name: bridgeMethodSendRequest},
+	{Name: bridgeMethodCancelRequest},
+	{Name: bridgeMethodImportOpenAPI},
+	{Name: bridgeMethodValidateOpenAPIResponse},
+	{Name: bridgeMethodGetMockServer},
+	{Name: bridgeMethodUpdateMockRoutes},
+	{Name: bridgeMethodStartMockServer},
+	{Name: bridgeMethodStopMockServer},
+	{Name: bridgeMethodClearMockHits},
+	{Name: bridgeMethodImportMockOpenAPI},
+	{Name: bridgeMethodRunSSE},
+	{Name: bridgeMethodRunWebSocket},
+	{Name: bridgeMethodInspectGRPC},
+	{Name: bridgeMethodCancelToolOperation},
+	{Name: bridgeMethodInspectActuator},
+	{Name: bridgeMethodCompareEnvironments},
+	{Name: bridgeMethodAnalyzeThreadDump},
+	{Name: bridgeMethodSearchTraceLog},
+	{Name: bridgeMethodAnalyzeEndpointCoverage},
+	{Name: bridgeMethodRunCollection},
+	{Name: bridgeMethodAnalyzeNetwork},
+	{Name: bridgeMethodLintOpenAPI},
+}
+
+var bridgeMethodNames = func() []string {
+	names := make([]string, len(bridgeMethodRegistry))
+	for index, method := range bridgeMethodRegistry {
+		names[index] = method.Name
+	}
+	return names
+}()
+
+func executionPolicyForBridgeMethod(methodName string) bridgeExecutionPolicy {
+	for _, method := range bridgeMethodRegistry {
+		if method.Name == methodName {
+			return method.Policy
+		}
+	}
+	return bridgeExecutionConcurrent
+}
+
+func busyResultForBridgeMethod(methodName string) (any, bool) {
+	for _, method := range bridgeMethodRegistry {
+		if method.Name == methodName && method.BusyResult != nil {
+			return method.BusyResult(), true
+		}
+	}
+	return nil, false
 }
 
 // Invoke dispatches the small, explicit API exposed to the frontend. Keeping an
@@ -49,133 +137,144 @@ func (b *Bridge) Invoke(method string, encodedArguments string) (result any, err
 	}
 
 	switch method {
-	case "Bootstrap":
+	case bridgeMethodBootstrap:
 		if err := requireNoArguments(encodedArguments); err != nil {
 			return nil, err
 		}
 		return b.Bootstrap(), nil
-	case "SendRequest":
+	case bridgeMethodLoadCollectionLibrary:
+		if err := requireNoArguments(encodedArguments); err != nil {
+			return nil, err
+		}
+		return b.LoadCollectionLibrary(), nil
+	case bridgeMethodSaveCollectionLibrary:
+		var data string
+		if err := decodeArguments(encodedArguments, &data); err != nil {
+			return nil, err
+		}
+		return b.SaveCollectionLibrary(data), nil
+	case bridgeMethodSendRequest:
 		var input RequestInput
 		if err := decodeArguments(encodedArguments, &input); err != nil {
 			return nil, err
 		}
 		return b.SendRequest(input), nil
-	case "CancelRequest":
+	case bridgeMethodCancelRequest:
 		var requestID string
 		if err := decodeArguments(encodedArguments, &requestID); err != nil {
 			return nil, err
 		}
 		return b.CancelRequest(requestID), nil
-	case "ImportOpenAPI":
+	case bridgeMethodImportOpenAPI:
 		if err := requireNoArguments(encodedArguments); err != nil {
 			return nil, err
 		}
 		return b.ImportOpenAPI(), nil
-	case "ValidateOpenAPIResponse":
+	case bridgeMethodValidateOpenAPIResponse:
 		var input ContractCheckInput
 		if err := decodeArguments(encodedArguments, &input); err != nil {
 			return nil, err
 		}
 		return b.ValidateOpenAPIResponse(input), nil
-	case "GetMockServer":
+	case bridgeMethodGetMockServer:
 		if err := requireNoArguments(encodedArguments); err != nil {
 			return nil, err
 		}
 		return b.GetMockServer(), nil
-	case "UpdateMockRoutes":
+	case bridgeMethodUpdateMockRoutes:
 		var routes []MockRoute
 		if err := decodeArguments(encodedArguments, &routes); err != nil {
 			return nil, err
 		}
 		return b.UpdateMockRoutes(routes), nil
-	case "StartMockServer":
+	case bridgeMethodStartMockServer:
 		var input MockStartInput
 		if err := decodeArguments(encodedArguments, &input); err != nil {
 			return nil, err
 		}
 		return b.StartMockServer(input), nil
-	case "StopMockServer":
+	case bridgeMethodStopMockServer:
 		if err := requireNoArguments(encodedArguments); err != nil {
 			return nil, err
 		}
 		return b.StopMockServer(), nil
-	case "ClearMockHits":
+	case bridgeMethodClearMockHits:
 		if err := requireNoArguments(encodedArguments); err != nil {
 			return nil, err
 		}
 		return b.ClearMockHits(), nil
-	case "ImportMockOpenAPI":
+	case bridgeMethodImportMockOpenAPI:
 		if err := requireNoArguments(encodedArguments); err != nil {
 			return nil, err
 		}
 		return b.ImportMockOpenAPI(), nil
-	case "RunSSE":
+	case bridgeMethodRunSSE:
 		var input SSEInput
 		if err := decodeArguments(encodedArguments, &input); err != nil {
 			return nil, err
 		}
 		return b.RunSSE(input), nil
-	case "RunWebSocket":
+	case bridgeMethodRunWebSocket:
 		var input WebSocketInput
 		if err := decodeArguments(encodedArguments, &input); err != nil {
 			return nil, err
 		}
 		return b.RunWebSocket(input), nil
-	case "InspectGRPC":
+	case bridgeMethodInspectGRPC:
 		var input GRPCInput
 		if err := decodeArguments(encodedArguments, &input); err != nil {
 			return nil, err
 		}
 		return b.InspectGRPC(input), nil
-	case "CancelToolOperation":
+	case bridgeMethodCancelToolOperation:
 		var operationID string
 		if err := decodeArguments(encodedArguments, &operationID); err != nil {
 			return nil, err
 		}
 		return b.CancelToolOperation(operationID), nil
-	case "InspectActuator":
+	case bridgeMethodInspectActuator:
 		var input ActuatorInspectInput
 		if err := decodeArguments(encodedArguments, &input); err != nil {
 			return nil, err
 		}
 		return b.InspectActuator(input), nil
-	case "CompareEnvironments":
+	case bridgeMethodCompareEnvironments:
 		var input EnvironmentCompareInput
 		if err := decodeArguments(encodedArguments, &input); err != nil {
 			return nil, err
 		}
 		return b.CompareEnvironments(input), nil
-	case "AnalyzeThreadDump":
+	case bridgeMethodAnalyzeThreadDump:
 		var input ThreadDumpInput
 		if err := decodeArguments(encodedArguments, &input); err != nil {
 			return nil, err
 		}
 		return b.AnalyzeThreadDump(input), nil
-	case "SearchTraceLog":
+	case bridgeMethodSearchTraceLog:
 		var input LogSearchInput
 		if err := decodeArguments(encodedArguments, &input); err != nil {
 			return nil, err
 		}
 		return b.SearchTraceLog(input), nil
-	case "AnalyzeEndpointCoverage":
+	case bridgeMethodAnalyzeEndpointCoverage:
 		var input CoverageInput
 		if err := decodeArguments(encodedArguments, &input); err != nil {
 			return nil, err
 		}
 		return b.AnalyzeEndpointCoverage(input), nil
-	case "RunCollection":
+	case bridgeMethodRunCollection:
 		var input CollectionRunInput
 		if err := decodeArguments(encodedArguments, &input); err != nil {
 			return nil, err
 		}
 		return b.RunCollection(input), nil
-	case "AnalyzeNetwork":
+	case bridgeMethodAnalyzeNetwork:
 		var input NetworkInspectInput
 		if err := decodeArguments(encodedArguments, &input); err != nil {
 			return nil, err
 		}
 		return b.AnalyzeNetwork(input), nil
-	case "LintOpenAPI":
+	case bridgeMethodLintOpenAPI:
 		if err := requireNoArguments(encodedArguments); err != nil {
 			return nil, err
 		}
