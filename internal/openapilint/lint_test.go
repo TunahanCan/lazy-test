@@ -1,6 +1,7 @@
 package openapilint
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -207,6 +208,73 @@ func TestLintBytesEnforcesDocumentAndIssueLimits(t *testing.T) {
 	}
 }
 
+func TestLintBytesContextAndAggregateIssueByteBudget(t *testing.T) {
+	t.Parallel()
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := LintBytesContext(
+		canceled,
+		[]byte(`{"openapi":"3.0.3"}`),
+		Options{},
+	); err != context.Canceled {
+		t.Fatalf("LintBytesContext() error = %v, want context canceled", err)
+	}
+
+	report := LintBytes([]byte(`
+openapi: 3.0.3
+info:
+  title: Budget
+  version: "1"
+paths:
+  /budget:
+    get:
+      responses: {}
+`), Options{MaxIssueBytes: 1})
+	if report.Summary.Total == 0 || len(report.Issues) != 0 ||
+		!report.Truncated {
+		t.Fatalf("byte-budget report = %#v", report)
+	}
+}
+
+func TestOperationRuleCatalogValidatesDescriptors(t *testing.T) {
+	t.Parallel()
+	valid := operationRuleDefinition{
+		id:   "valid",
+		lint: func(operationRuleContext, *issueCollector) {},
+	}
+	tests := []struct {
+		name  string
+		rules []operationRuleDefinition
+		want  string
+	}{
+		{
+			name:  "missing id",
+			rules: []operationRuleDefinition{{lint: valid.lint}},
+			want:  "has no id",
+		},
+		{
+			name:  "missing strategy",
+			rules: []operationRuleDefinition{{id: "missing"}},
+			want:  "has no strategy",
+		},
+		{
+			name:  "duplicate",
+			rules: []operationRuleDefinition{valid, valid},
+			want:  "duplicate operation rule",
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := newOperationRuleCatalog(test.rules...)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("rule catalog error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
 func TestLintFileReadsYAMLAndReservesErrorsForIO(t *testing.T) {
 	t.Parallel()
 	directory := t.TempDir()
@@ -237,7 +305,7 @@ paths: {}
 func assertIssue(
 	t *testing.T,
 	report Report,
-	code string,
+	code Code,
 	severity Severity,
 	path string,
 ) Issue {

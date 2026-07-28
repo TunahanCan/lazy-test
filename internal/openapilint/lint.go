@@ -3,15 +3,18 @@
 package openapilint
 
 import (
+	"context"
 	"fmt"
 	"io"
-	"mime"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/getkin/kin-openapi/openapi3"
+
+	"validex/internal/httpmedia"
 )
 
 const (
@@ -22,20 +25,33 @@ const (
 	DefaultMaxIssues = 200
 	// MaxIssueLimit bounds retained issues even when a caller asks for more.
 	MaxIssueLimit = 1_000
+	// DefaultMaxIssueBytes bounds aggregate retained issue text.
+	DefaultMaxIssueBytes = 4 << 20
+	// MaxIssueBytes is the hard aggregate text budget accepted from callers.
+	MaxIssueBytes = 16 << 20
+
+	maxIssuePathBytes    = 8 << 10
+	maxIssueMessageBytes = 16 << 10
+	maxIssueHintBytes    = 16 << 10
+	maxIssueDisplayBytes = 4 << 10
 )
 
+// Code is the stable machine-readable identity of a lint rule or document
+// failure. JSON representation remains a string.
+type Code string
+
 const (
-	CodeDocumentTooLarge           = "document.too_large"
-	CodeDocumentParse              = "document.parse"
-	CodeDocumentInvalid            = "document.invalid"
-	CodeOperationIDMissing         = "operation.operation_id.missing"
-	CodeOperationIDDuplicate       = "operation.operation_id.duplicate"
-	CodeOperationSummaryMissing    = "operation.summary.missing"
-	CodeOperationTagsMissing       = "operation.tags.missing"
-	CodeOperationResponsesMissing  = "operation.responses.missing"
-	CodeOperationSuccessMissing    = "operation.responses.2xx_missing"
-	CodeJSONResponseSchemaMissing  = "response.json.schema_missing"
-	CodeJSONResponseExampleMissing = "response.json.example_missing"
+	CodeDocumentTooLarge           Code = "document.too_large"
+	CodeDocumentParse              Code = "document.parse"
+	CodeDocumentInvalid            Code = "document.invalid"
+	CodeOperationIDMissing         Code = "operation.operation_id.missing"
+	CodeOperationIDDuplicate       Code = "operation.operation_id.duplicate"
+	CodeOperationSummaryMissing    Code = "operation.summary.missing"
+	CodeOperationTagsMissing       Code = "operation.tags.missing"
+	CodeOperationResponsesMissing  Code = "operation.responses.missing"
+	CodeOperationSuccessMissing    Code = "operation.responses.2xx_missing"
+	CodeJSONResponseSchemaMissing  Code = "response.json.schema_missing"
+	CodeJSONResponseExampleMissing Code = "response.json.example_missing"
 )
 
 // Severity describes the impact of a lint issue.
@@ -52,12 +68,15 @@ type Options struct {
 	// MaxIssues limits retained issues. Values above MaxIssueLimit are clamped;
 	// zero and negative values use DefaultMaxIssues.
 	MaxIssues int `json:"maxIssues,omitempty"`
+	// MaxIssueBytes limits aggregate retained issue text. Values above
+	// MaxIssueBytes are clamped; zero and negative values use the default.
+	MaxIssueBytes int `json:"maxIssueBytes,omitempty"`
 }
 
 // Issue is one deterministic lint finding. Path uses JSON Pointer fragment
 // notation, with "#" representing the document root.
 type Issue struct {
-	Code     string   `json:"code"`
+	Code     Code     `json:"code"`
 	Severity Severity `json:"severity"`
 	Path     string   `json:"path"`
 	Message  string   `json:"message"`
@@ -86,6 +105,22 @@ type Report struct {
 // validation, and size failures are returned as structured issues. The error
 // result is reserved for file-system read failures.
 func LintFile(path string, options Options) (Report, error) {
+	return LintFileContext(context.Background(), path, options)
+}
+
+// LintFileContext is LintFile with cooperative cancellation between bounded
+// read, parse, validation, traversal, and rule phases.
+func LintFileContext(
+	ctx context.Context,
+	path string,
+	options Options,
+) (Report, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return Report{}, err
+	}
 	file, err := os.Open(path)
 	if err != nil {
 		return Report{}, fmt.Errorf("open OpenAPI document: %w", err)
@@ -96,12 +131,33 @@ func LintFile(path string, options Options) (Report, error) {
 	if err != nil {
 		return Report{}, fmt.Errorf("read OpenAPI document: %w", err)
 	}
-	return LintBytes(data, options), nil
+	if err := ctx.Err(); err != nil {
+		return Report{}, err
+	}
+	return LintBytesContext(ctx, data, options)
 }
 
 // LintBytes lints one YAML or JSON OpenAPI document. All document failures are
 // represented in the returned report.
 func LintBytes(data []byte, options Options) Report {
+	report, _ := LintBytesContext(context.Background(), data, options)
+	return report
+}
+
+// LintBytesContext executes the deterministic lint engine in the caller's
+// goroutine. Cancellation is returned as an operational error; syntax and
+// OpenAPI validation failures remain structured issues.
+func LintBytesContext(
+	ctx context.Context,
+	data []byte,
+	options Options,
+) (Report, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return Report{}, err
+	}
 	collector := newIssueCollector(options)
 	if len(data) > MaxDocumentBytes {
 		collector.add(Issue{
@@ -114,7 +170,7 @@ func LintBytes(data []byte, options Options) Report {
 			),
 			Hint: "Dosyayı küçültün veya yalnız gerekli path ve component tanımlarını bırakın.",
 		})
-		return collector.report
+		return collector.report, nil
 	}
 
 	loader := openapi3.NewLoader()
@@ -127,7 +183,10 @@ func LintBytes(data []byte, options Options) Report {
 			Message:  "OpenAPI YAML/JSON belgesi ayrıştırılamadı: " + compactError(err),
 			Hint:     "YAML/JSON sözdizimini ve $ref hedeflerini kontrol edin.",
 		})
-		return collector.report
+		return collector.report, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return Report{}, err
 	}
 	if err := document.Validate(loader.Context); err != nil {
 		collector.add(Issue{
@@ -138,14 +197,21 @@ func LintBytes(data []byte, options Options) Report {
 			Hint:     "OpenAPI sürümünün zorunlu alanlarını ve referanslarını kontrol edin.",
 		})
 	}
+	if err := ctx.Err(); err != nil {
+		return Report{}, err
+	}
 
-	lintDocument(document, collector)
-	return collector.report
+	if err := lintDocument(ctx, document, collector); err != nil {
+		return Report{}, err
+	}
+	return collector.report, nil
 }
 
 type issueCollector struct {
-	limit  int
-	report Report
+	limit         int
+	byteLimit     int
+	retainedBytes int
+	report        Report
 }
 
 func newIssueCollector(options Options) *issueCollector {
@@ -156,8 +222,16 @@ func newIssueCollector(options Options) *issueCollector {
 	if limit > MaxIssueLimit {
 		limit = MaxIssueLimit
 	}
+	byteLimit := options.MaxIssueBytes
+	if byteLimit <= 0 {
+		byteLimit = DefaultMaxIssueBytes
+	}
+	if byteLimit > MaxIssueBytes {
+		byteLimit = MaxIssueBytes
+	}
 	return &issueCollector{
-		limit: limit,
+		limit:     limit,
+		byteLimit: byteLimit,
 		report: Report{
 			Issues: make([]Issue, 0, min(limit, 32)),
 		},
@@ -174,16 +248,27 @@ func (collector *issueCollector) add(issue Issue) {
 	case SeverityInfo:
 		collector.report.Summary.Infos++
 	}
-	if len(collector.report.Issues) < collector.limit {
+	issue.Path = truncateIssueText(issue.Path, maxIssuePathBytes)
+	issue.Message = truncateIssueText(issue.Message, maxIssueMessageBytes)
+	issue.Hint = truncateIssueText(issue.Hint, maxIssueHintBytes)
+	retainedBytes := len(issue.Code) + len(issue.Severity) +
+		len(issue.Path) + len(issue.Message) + len(issue.Hint)
+	if len(collector.report.Issues) < collector.limit &&
+		retainedBytes <= collector.byteLimit-collector.retainedBytes {
 		collector.report.Issues = append(collector.report.Issues, issue)
+		collector.retainedBytes += retainedBytes
 		return
 	}
 	collector.report.Truncated = true
 }
 
-func lintDocument(document *openapi3.T, collector *issueCollector) {
+func lintDocument(
+	ctx context.Context,
+	document *openapi3.T,
+	collector *issueCollector,
+) error {
 	if document == nil || document.Paths == nil {
-		return
+		return nil
 	}
 	paths := document.Paths.Map()
 	pathNames := sortedKeys(paths)
@@ -191,6 +276,9 @@ func lintDocument(document *openapi3.T, collector *issueCollector) {
 	operationIDs := make(map[string]string)
 
 	for _, pathName := range pathNames {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		pathItem := paths[pathName]
 		if pathItem == nil {
 			continue
@@ -198,6 +286,9 @@ func lintDocument(document *openapi3.T, collector *issueCollector) {
 		operations := pathItem.Operations()
 		methods := sortedKeys(operations)
 		for _, method := range methods {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			operation := operations[method]
 			if operation == nil {
 				continue
@@ -212,6 +303,7 @@ func lintDocument(document *openapi3.T, collector *issueCollector) {
 			)
 		}
 	}
+	return nil
 }
 
 func lintOperation(
@@ -222,71 +314,19 @@ func lintOperation(
 	collector *issueCollector,
 ) {
 	operationPath := jsonPointer("paths", pathName, method)
-	displayName := strings.ToUpper(method) + " " + pathName
-	operationID := strings.TrimSpace(operation.OperationID)
-	if operationID == "" {
-		collector.add(Issue{
-			Code:     CodeOperationIDMissing,
-			Severity: SeverityWarning,
-			Path:     operationPath + "/operationId",
-			Message:  displayName + " işlemi operationId tanımlamıyor.",
-			Hint:     "SDK ve istemci üretimi için benzersiz, kararlı bir operationId ekleyin.",
-		})
-	} else if firstPath, exists := operationIDs[operationID]; exists {
-		collector.add(Issue{
-			Code:     CodeOperationIDDuplicate,
-			Severity: SeverityError,
-			Path:     operationPath + "/operationId",
-			Message: fmt.Sprintf(
-				"operationId %q birden fazla işlemde kullanılıyor.",
-				operationID,
-			),
-			Hint: "Benzersiz bir operationId kullanın. İlk kullanım: " + firstPath + ".",
-		})
-	} else {
-		operationIDs[operationID] = operationPath + "/operationId"
+	displayName := truncateIssueText(
+		strings.ToUpper(method)+" "+pathName,
+		maxIssueDisplayBytes,
+	)
+	context := operationRuleContext{
+		operationPath: operationPath,
+		displayName:   displayName,
+		operation:     operation,
+		operationIDs:  operationIDs,
 	}
-
-	if strings.TrimSpace(operation.Summary) == "" {
-		collector.add(Issue{
-			Code:     CodeOperationSummaryMissing,
-			Severity: SeverityWarning,
-			Path:     operationPath + "/summary",
-			Message:  displayName + " işlemi kısa bir summary tanımlamıyor.",
-			Hint:     "İşlemin amacını tek cümlede anlatan kısa bir summary ekleyin.",
-		})
+	for _, rule := range defaultOperationRules.ordered {
+		rule.lint(context, collector)
 	}
-	if !hasNonBlankTag(operation.Tags) {
-		collector.add(Issue{
-			Code:     CodeOperationTagsMissing,
-			Severity: SeverityWarning,
-			Path:     operationPath + "/tags",
-			Message:  displayName + " işlemi bir tag ile gruplandırılmamış.",
-			Hint:     "API tarayıcılarında tutarlı gruplama için en az bir tag ekleyin.",
-		})
-	}
-
-	responses := operation.Responses
-	if responses == nil || responses.Len() == 0 {
-		collector.add(Issue{
-			Code:     CodeOperationResponsesMissing,
-			Severity: SeverityError,
-			Path:     operationPath + "/responses",
-			Message:  displayName + " işlemi response tanımlamıyor.",
-			Hint:     "En az bir HTTP response kodu ve açıklaması ekleyin.",
-		})
-		return
-	}
-	if !hasSuccessResponse(responses) {
-		collector.add(Issue{
-			Code:     CodeOperationSuccessMissing,
-			Severity: SeverityWarning,
-			Path:     operationPath + "/responses",
-			Message:  displayName + " yanıtlarında 2xx başarı response’u yok.",
-			Hint:     "Başarılı akışı belgeleyen açık bir 2xx veya 2XX response ekleyin.",
-		})
-	}
-	lintJSONResponses(operationPath, displayName, responses, collector)
 }
 
 func lintJSONResponses(
@@ -373,12 +413,7 @@ func hasSuccessResponse(responses *openapi3.Responses) bool {
 }
 
 func isJSONContentType(value string) bool {
-	contentType, _, err := mime.ParseMediaType(strings.TrimSpace(value))
-	if err != nil {
-		contentType = strings.TrimSpace(strings.SplitN(value, ";", 2)[0])
-	}
-	contentType = strings.ToLower(contentType)
-	return contentType == "application/json" || strings.HasSuffix(contentType, "+json")
+	return httpmedia.IsJSON(value)
 }
 
 func hasSchema(schema *openapi3.SchemaRef) bool {
@@ -423,5 +458,25 @@ func jsonPointerTail(parts ...string) string {
 }
 
 func compactError(err error) string {
-	return strings.Join(strings.Fields(err.Error()), " ")
+	return strings.Join(
+		strings.Fields(
+			truncateIssueText(err.Error(), maxIssueMessageBytes),
+		),
+		" ",
+	)
+}
+
+func truncateIssueText(value string, maximumBytes int) string {
+	if maximumBytes < 1 {
+		return ""
+	}
+	if len(value) <= maximumBytes {
+		return value
+	}
+	const suffix = "…"
+	limit := maximumBytes - len(suffix)
+	for limit > 0 && !utf8.RuneStart(value[limit]) {
+		limit--
+	}
+	return value[:limit] + suffix
 }

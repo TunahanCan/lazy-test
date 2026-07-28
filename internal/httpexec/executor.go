@@ -5,16 +5,14 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 )
 
 // Executor owns any transport clones it creates and is safe for sequential or
-// concurrent Execute calls. CloseIdleConnections is idempotent.
+// concurrent Execute calls. CloseIdleConnections may be called repeatedly.
 type Executor struct {
 	client      *http.Client
 	http1Client *http.Client
-	closeOnce   sync.Once
 	closeIdle   []func()
 }
 
@@ -72,11 +70,9 @@ func (executor *Executor) CloseIdleConnections() {
 	if executor == nil {
 		return
 	}
-	executor.closeOnce.Do(func() {
-		for _, closeIdle := range executor.closeIdle {
-			closeIdle()
-		}
-	})
+	for _, closeIdle := range executor.closeIdle {
+		closeIdle()
+	}
 }
 
 // Execute builds and sends one bounded HTTP request.
@@ -222,7 +218,7 @@ func cloneDefaultTransport() *http.Transport {
 	if transport, ok := http.DefaultTransport.(*http.Transport); ok {
 		return transport.Clone()
 	}
-	return &http.Transport{}
+	return &http.Transport{Proxy: http.ProxyFromEnvironment}
 }
 
 func effectiveTransport(client *http.Client) http.RoundTripper {

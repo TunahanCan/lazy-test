@@ -67,6 +67,7 @@ export interface ResponseEnvelope {
   cookies: ResponseCookie[];
   body: string;
   rawBody: string;
+  bodyEncoding?: "utf8" | "base64";
   timeline: TimelinePhase[];
   resolvedUrl: string;
   contract?: ContractCheckResult;
@@ -190,6 +191,7 @@ export interface ContractCheckInput {
   statusCode: number;
   contentType: string;
   body: string;
+  bodyEncoding?: "utf8" | "base64";
 }
 
 export interface MockRoute {
@@ -392,6 +394,7 @@ export interface CoverageResult {
     path: string;
     hitCount: number;
     observedPaths?: string[];
+    observedPathsTruncated: boolean;
   }>;
   unknownObserved?: Array<{ method: string; path: string; count: number }>;
   error?: UserError;
@@ -423,6 +426,7 @@ export interface CollectionAssertion {
 export interface CollectionAssertionResult {
   assertion: CollectionAssertion;
   passed: boolean;
+  exists: boolean;
   actual?: unknown;
   message?: string;
   error?: string;

@@ -3,10 +3,8 @@
 package canbridge
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -63,6 +61,7 @@ type Bridge struct {
 	lifecycleCtx      context.Context
 	lifecycleCancel   context.CancelFunc
 	collectionLibrary *collectionLibraryService
+	httpExecutor      *httpexec.Executor
 	cancels           map[string]*requestOperation
 	toolCancels       map[string]*toolOperation
 	specs             map[string][]core.Endpoint
@@ -90,14 +89,17 @@ func newBridge(collectionRepository collectionLibraryRepository) *Bridge {
 		lifecycleCtx:      lifecycleCtx,
 		lifecycleCancel:   lifecycleCancel,
 		collectionLibrary: newCollectionLibraryService(collectionRepository),
-		cancels:           map[string]*requestOperation{},
-		toolCancels:       map[string]*toolOperation{},
-		specs:             map[string][]core.Endpoint{},
-		specOrder:         make([]string, 0, maxCachedOpenAPISpecs),
-		mock:              mockserver.New(mockserver.Options{}),
-		observed:          map[string]int{},
-		observedOrder:     make([]string, 0, maxObservedCoverageEntries),
-		filePicker:        systemFilePicker{},
+		httpExecutor: httpexec.NewExecutor(httpexec.ExecutorConfig{
+			MaxResponseHeaderBytes: maxHTTPResponseHeaderBytes,
+		}),
+		cancels:       map[string]*requestOperation{},
+		toolCancels:   map[string]*toolOperation{},
+		specs:         map[string][]core.Endpoint{},
+		specOrder:     make([]string, 0, maxCachedOpenAPISpecs),
+		mock:          mockserver.New(mockserver.Options{}),
+		observed:      map[string]int{},
+		observedOrder: make([]string, 0, maxObservedCoverageEntries),
+		filePicker:    systemFilePicker{},
 	}
 }
 
@@ -160,6 +162,9 @@ func Shutdown(b *Bridge) func(context.Context) {
 		for _, cancel := range toolCancels {
 			cancel()
 		}
+		if b.httpExecutor != nil {
+			b.httpExecutor.CloseIdleConnections()
+		}
 		b.mockMu.Lock()
 		b.mu.Lock()
 		mock := b.mock
@@ -201,7 +206,7 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 	requestTimeout, timeoutValid := requestTimeoutDuration(input.TimeoutMS)
 	if !timeoutValid {
 		return failed(
-			"invalid_request",
+			UserErrorInvalidRequest,
 			"Timeout geçerli değil",
 			"Request gönderilmedi çünkü timeout desteklenen aralığın dışında.",
 			fmt.Sprintf("Timeout değerini %d ile %d ms arasında girin.", minHTTPRequestTimeoutMS, maxHTTPRequestTimeoutMS),
@@ -218,7 +223,7 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 		var missing []string
 		resolvedURL, missing = resolveVariables(input.URL, input.Variables)
 		if len(missing) > 0 {
-			return failed("missing_variables", "Eksik değişken var", "Request gönderilmedi çünkü URL içindeki bazı değişkenlerin değeri yok.", "Environment veya context panelinden şu değerleri tanımlayın: "+strings.Join(missing, ", "), "")
+			return failed(UserErrorMissingVariables, "Eksik değişken var", "Request gönderilmedi çünkü URL içindeki bazı değişkenlerin değeri yok.", "Environment veya context panelinden şu değerleri tanımlayın: "+strings.Join(missing, ", "), "")
 		}
 	}
 	parsedURL, err := neturl.Parse(resolvedURL)
@@ -227,23 +232,24 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 		if err != nil {
 			technical = err.Error()
 		}
-		return failed("invalid_request", "URL geçerli değil", "Request gönderilmedi çünkü URL eksiksiz bir HTTP adresi değil.", "URL’yi http:// veya https:// ile başlayacak şekilde açıkça yazın.", technical)
+		return failed(UserErrorInvalidRequest, "URL geçerli değil", "Request gönderilmedi çünkü URL eksiksiz bir HTTP adresi değil.", "URL’yi http:// veya https:// ile başlayacak şekilde açıkça yazın.", technical)
 	}
 	if parsedURL.User != nil {
-		return failed("invalid_request", "URL içinde kullanıcı bilgisi desteklenmiyor", "URL’deki kullanıcı adı veya parola gizli bir Authorization header’ına dönüşebilir.", "Kimlik bilgisini URL’den kaldırın; gerekiyorsa Authorization header’ını açıkça ekleyip etkinleştirin.", "")
+		return failed(UserErrorInvalidRequest, "URL içinde kullanıcı bilgisi desteklenmiyor", "URL’deki kullanıcı adı veya parola gizli bir Authorization header’ına dönüşebilir.", "Kimlik bilgisini URL’den kaldırın; gerekiyorsa Authorization header’ını açıkça ekleyip etkinleştirin.", "")
 	}
 	if parsedURL.Fragment != "" || strings.Contains(resolvedURL, "#") {
-		return failed("invalid_request", "URL fragment içeriyor", "URL’nin # işaretinden sonraki bölümü HTTP request’ine gönderilmez.", "Fragment bölümünü URL’den kaldırın.", "")
+		return failed(UserErrorInvalidRequest, "URL fragment içeriyor", "URL’nin # işaretinden sonraki bölümü HTTP request’ine gönderilmez.", "Fragment bölümünü URL’den kaldırın.", "")
 	}
 
-	ctx, cancel := context.WithTimeout(b.operationContext(), requestTimeout)
+	sessionContext := b.operationContext()
+	ctx, cancel := context.WithTimeout(sessionContext, requestTimeout)
 	operation := &requestOperation{cancel: cancel}
 	b.mu.Lock()
 	if _, exists := b.cancels[input.ID]; exists {
 		b.mu.Unlock()
 		cancel()
 		return failed(
-			"request_already_running",
+			UserErrorRequestAlreadyRunning,
 			"Request zaten çalışıyor",
 			"Aynı request ID ile başka bir istek halen devam ediyor.",
 			"Çalışan isteği iptal edin veya tamamlanmasını bekleyin.",
@@ -271,7 +277,7 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 			var bodyMissing []string
 			resolvedBody, bodyMissing = resolveVariables(input.Body, input.Variables)
 			if len(bodyMissing) > 0 {
-				return failed("missing_variables", "Body içinde eksik değişken var", "Request body çözümlenemedi.", "Şu değişkenleri tanımlayın: "+strings.Join(bodyMissing, ", "), "")
+				return failed(UserErrorMissingVariables, "Body içinde eksik değişken var", "Request body çözümlenemedi.", "Şu değişkenleri tanımlayın: "+strings.Join(bodyMissing, ", "), "")
 			}
 		}
 	}
@@ -286,7 +292,7 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 			var headerMissing []string
 			value, headerMissing = resolveVariables(header.Value, input.Variables)
 			if len(headerMissing) > 0 {
-				return failed("missing_variables", "Header içinde eksik değişken var", header.Key+" header değeri çözümlenemedi.", "Şu değişkenleri tanımlayın: "+strings.Join(headerMissing, ", "), "")
+				return failed(UserErrorMissingVariables, "Header içinde eksik değişken var", header.Key+" header değeri çözümlenemedi.", "Şu değişkenleri tanımlayın: "+strings.Join(headerMissing, ", "), "")
 			}
 		}
 		headers = append(headers, httpexec.HeaderField{
@@ -295,10 +301,15 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 		})
 	}
 
-	executor := httpexec.NewExecutor(httpexec.ExecutorConfig{
-		MaxResponseHeaderBytes: maxHTTPResponseHeaderBytes,
-	})
-	defer executor.CloseIdleConnections()
+	executor := b.httpExecutor
+	if executor == nil {
+		// Directly constructed Bridge values are supported in focused tests.
+		// Production composition always installs a session-owned executor.
+		executor = httpexec.NewExecutor(httpexec.ExecutorConfig{
+			MaxResponseHeaderBytes: maxHTTPResponseHeaderBytes,
+		})
+		defer executor.CloseIdleConnections()
+	}
 	trace.mark(&trace.requestReady)
 	response, err := executor.Execute(ctx, httpexec.Request{
 		Method:  strings.TrimSpace(input.Method),
@@ -324,10 +335,10 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 			return responseTooLarge()
 		}
 		if errors.Is(err, context.Canceled) {
-			return failed("request_canceled", "Request iptal edildi", "İstek kullanıcı tarafından durduruldu.", "URL ve form değerleri sekmede korunuyor.", "")
+			return failed(UserErrorRequestCanceled, "Request iptal edildi", "İstek kullanıcı tarafından durduruldu.", "URL ve form değerleri sekmede korunuyor.", "")
 		}
 		if errors.Is(err, context.DeadlineExceeded) {
-			return failed("request_timeout", "Request zaman aşımına uğradı", fmt.Sprintf("%d ms içinde yanıt alınamadı.", input.TimeoutMS), "Timeout değerini artırın veya hedef servisin erişilebilirliğini kontrol edin.", err.Error())
+			return failed(UserErrorRequestTimeout, "Request zaman aşımına uğradı", fmt.Sprintf("%d ms içinde yanıt alınamadı.", input.TimeoutMS), "Timeout değerini artırın veya hedef servisin erişilebilirliğini kontrol edin.", err.Error())
 		}
 		if errors.Is(err, httpexec.ErrUnsupportedContentEncoding) {
 			var encodingError *httpexec.ContentEncodingError
@@ -352,7 +363,7 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 		}
 		if errors.Is(err, httpexec.ErrInvalidRequest) {
 			return failed(
-				"invalid_request",
+				UserErrorInvalidRequest,
 				"Request oluşturulamadı",
 				"Method, URL veya header tanımı geçerli görünmüyor.",
 				"URL’yi, method seçimini ve etkin header’ları kontrol edin.",
@@ -361,14 +372,17 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 		}
 		var netErr net.Error
 		if errors.As(err, &netErr) {
-			return failed("network_error", "Sunucuya ulaşılamadı", "Ağ bağlantısı kurulamadı.", "Base URL, VPN, proxy ve sunucu durumunu kontrol edin.", err.Error())
+			return failed(UserErrorNetwork, "Sunucuya ulaşılamadı", "Ağ bağlantısı kurulamadı.", "Base URL, VPN, proxy ve sunucu durumunu kontrol edin.", err.Error())
 		}
-		return failed("request_failed", "Request tamamlanamadı", "Beklenmeyen bir bağlantı hatası oluştu.", "Teknik ayrıntıyı kopyalayıp servis loglarıyla karşılaştırın.", err.Error())
+		return failed(UserErrorRequestFailed, "Request tamamlanamadı", "Beklenmeyen bir bağlantı hatası oluştu.", "Teknik ayrıntıyı kopyalayıp servis loglarıyla karşılaştırın.", err.Error())
 	}
 	raw := response.Body
 	end := time.Now()
 	duration := end.Sub(started)
-	pretty := prettyBody(raw, response.Headers.Get("Content-Type"))
+	presentedBody := presentResponseBody(
+		raw,
+		response.Headers.Get("Content-Type"),
+	)
 	traceSnapshot := trace.snapshot()
 	timeline := traceSnapshot.timeline(end)
 
@@ -397,15 +411,21 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 			response.Headers.Get("X-Request-ID"),
 		)
 	}
-	b.recordObservedCall(input.Method, parsedURL.Path)
+	b.recordObservedCallForContext(
+		sessionContext,
+		input.Method,
+		parsedURL.Path,
+	)
 
 	return SendResult{Response: &ResponseEnvelope{
 		RequestID: input.ID, StatusCode: response.StatusCode, Status: response.Status,
 		DurationMS: duration.Milliseconds(), SizeBytes: int64(len(raw)),
 		ContentType: response.Headers.Get("Content-Type"), Protocol: response.Protocol,
 		RemoteAddr: traceSnapshot.remoteAddr, TLS: tlsSummary, TraceID: traceID,
-		Headers: response.Headers.Clone(), Cookies: cookies, Body: pretty, RawBody: string(raw),
-		Timeline: timeline, ResolvedURL: resolvedURL,
+		Headers: response.Headers.Clone(), Cookies: cookies,
+		Body: presentedBody.Body, RawBody: presentedBody.Raw,
+		BodyEncoding: presentedBody.Encoding,
+		Timeline:     timeline, ResolvedURL: resolvedURL,
 	}}
 }
 
@@ -437,11 +457,9 @@ func (b *Bridge) CancelToolOperation(operationID string) bool {
 
 func (b *Bridge) ImportOpenAPI() ImportSpecResult {
 	result := ImportSpecResult{Endpoints: []ImportedEndpoint{}}
-	b.mu.Lock()
-	ctx := b.ctx
-	b.mu.Unlock()
+	ctx := b.runtimeContext()
 	if ctx == nil {
-		result.Error = &UserError{Code: "runtime_unavailable", Title: "Dosya seçici açılamadı", Message: "Desktop runtime henüz hazır değil."}
+		result.Error = &UserError{Code: UserErrorRuntimeUnavailable, Title: "Dosya seçici açılamadı", Message: "Desktop runtime henüz hazır değil."}
 		return result
 	}
 	path, err := b.filePicker.Open(ctx, fileDialogOptions{
@@ -449,7 +467,7 @@ func (b *Bridge) ImportOpenAPI() ImportSpecResult {
 		Extensions: []string{"yaml", "yml", "json"},
 	})
 	if err != nil {
-		result.Error = &UserError{Code: "file_dialog_failed", Title: "Dosya seçilemedi", Message: "Sistem dosya seçicisi tamamlanamadı.", Technical: err.Error()}
+		result.Error = &UserError{Code: UserErrorFileDialogFailed, Title: "Dosya seçilemedi", Message: "Sistem dosya seçicisi tamamlanamadı.", Technical: err.Error()}
 		return result
 	}
 	if path == "" {
@@ -457,11 +475,11 @@ func (b *Bridge) ImportOpenAPI() ImportSpecResult {
 		return result
 	}
 
-	endpoints, doc, err := core.LoadOpenAPI(path)
+	endpoints, doc, err := core.LoadOpenAPIContext(ctx, path)
 	if err != nil {
 		result.Path = path
 		result.Error = &UserError{
-			Code: "invalid_openapi", Title: "OpenAPI içe aktarılamadı",
+			Code: UserErrorInvalidOpenAPI, Title: "OpenAPI içe aktarılamadı",
 			Message: "Dosya geçerli bir OpenAPI dokümanı değil.",
 			Hint:    "YAML/JSON sözdizimini ve schema referanslarını kontrol edin.", Technical: err.Error(),
 		}
@@ -469,7 +487,16 @@ func (b *Bridge) ImportOpenAPI() ImportSpecResult {
 	}
 
 	specID := fmt.Sprintf("spec-%d", time.Now().UnixNano())
-	b.cacheOpenAPISpec(specID, endpoints)
+	if !b.cacheOpenAPISpecForContext(ctx, specID, endpoints) {
+		result.Path = path
+		result.Error = &UserError{
+			Code:    UserErrorOperationCanceled,
+			Title:   "OpenAPI içe aktarma iptal edildi",
+			Message: "Önceki uygulama oturumunda başlayan işlem artık geçerli değil.",
+			Hint:    "Dosyayı açık oturumda yeniden seçin.",
+		}
+		return result
+	}
 	out := ImportSpecResult{SpecID: specID, Path: path, Endpoints: make([]ImportedEndpoint, 0, len(endpoints))}
 	if doc != nil && doc.Info != nil {
 		out.Title = doc.Info.Title
@@ -505,10 +532,22 @@ func (b *Bridge) ValidateOpenAPIResponse(input ContractCheckInput) ContractCheck
 		return ContractCheckResult{
 			Findings: []ContractFinding{},
 			Error: &UserError{
-				Code:    "spec_unavailable",
+				Code:    UserErrorSpecUnavailable,
 				Title:   "OpenAPI contract bulunamadı",
 				Message: "Bu request’in OpenAPI dokümanı artık bellekte değil.",
 				Hint:    "OpenAPI dosyasını yeniden içe aktarın.",
+			},
+		}
+	}
+	body, err := decodePresentedResponseBody(input.Body, input.BodyEncoding)
+	if err != nil {
+		return ContractCheckResult{
+			Findings: []ContractFinding{},
+			Error: &UserError{
+				Code:    UserErrorBodyEncodingInvalid,
+				Title:   "Response body çözülemedi",
+				Message: "Contract kontrolüne verilen response body encoding değeri geçerli değil.",
+				Hint:    "Request’i yeniden gönderip contract kontrolünü tekrar çalıştırın.",
 			},
 		}
 	}
@@ -516,9 +555,9 @@ func (b *Bridge) ValidateOpenAPIResponse(input ContractCheckInput) ContractCheck
 		if !strings.EqualFold(endpoint.Method, input.Method) || endpoint.Path != input.Path {
 			continue
 		}
-		drift := core.RunDriftWithContentType(
-			[]byte(input.Body),
-			endpoint.Schema,
+		drift := core.RunEndpointDriftWithContentType(
+			body,
+			endpoint,
 			input.StatusCode,
 			input.ContentType,
 		)
@@ -533,7 +572,7 @@ func (b *Bridge) ValidateOpenAPIResponse(input ContractCheckInput) ContractCheck
 				Path:      endpoint.Path,
 				Findings:  []ContractFinding{},
 				Error: &UserError{
-					Code:  "response_schema_unavailable",
+					Code:  UserErrorResponseSchemaUnavailable,
 					Title: "Karşılaştırılacak JSON schema yok",
 					Message: fmt.Sprintf(
 						"%d response’u için %q ile eşleşen JSON media schema bulunamadı.",
@@ -566,7 +605,7 @@ func (b *Bridge) ValidateOpenAPIResponse(input ContractCheckInput) ContractCheck
 	return ContractCheckResult{
 		Findings: []ContractFinding{},
 		Error: &UserError{
-			Code:    "operation_unavailable",
+			Code:    UserErrorOperationUnavailable,
 			Title:   "OpenAPI operation bulunamadı",
 			Message: strings.ToUpper(input.Method) + " " + input.Path + " bu dokümanda bulunamadı.",
 		},
@@ -576,6 +615,27 @@ func (b *Bridge) ValidateOpenAPIResponse(input ContractCheckInput) ContractCheck
 func (b *Bridge) cacheOpenAPISpec(specID string, endpoints []core.Endpoint) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	b.cacheOpenAPISpecLocked(specID, endpoints)
+}
+
+func (b *Bridge) cacheOpenAPISpecForContext(
+	ctx context.Context,
+	specID string,
+	endpoints []core.Endpoint,
+) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.ctx == nil || b.lifecycleCtx != ctx || ctx.Err() != nil {
+		return false
+	}
+	b.cacheOpenAPISpecLocked(specID, endpoints)
+	return true
+}
+
+func (b *Bridge) cacheOpenAPISpecLocked(
+	specID string,
+	endpoints []core.Endpoint,
+) {
 	if b.specs == nil {
 		b.specs = make(map[string][]core.Endpoint)
 	}
@@ -596,10 +656,22 @@ func (b *Bridge) cacheOpenAPISpec(specID string, endpoints []core.Endpoint) {
 	}
 }
 
+func (b *Bridge) runtimeContextIsCurrent(ctx context.Context) bool {
+	if ctx == nil || ctx.Err() != nil {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.ctx != nil && b.lifecycleCtx == ctx
+}
+
 func (b *Bridge) runtimeContext() context.Context {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.ctx
+	if b.ctx == nil {
+		return nil
+	}
+	return b.lifecycleCtx
 }
 
 func (b *Bridge) operationContext() context.Context {
@@ -654,7 +726,7 @@ func (b *Bridge) beginToolOperation(operationID string) (context.Context, func()
 
 func responseTooLarge() SendResult {
 	return failed(
-		"response_too_large",
+		UserErrorResponseTooLarge,
 		"Response sınırı aştı",
 		fmt.Sprintf(
 			"Sunucunun bildirdiği veya alınan response body %d MiB güvenlik sınırını aştığı için indirme durduruldu.",
@@ -667,7 +739,7 @@ func responseTooLarge() SendResult {
 
 func requestTooLarge() SendResult {
 	return failed(
-		"invalid_request",
+		UserErrorInvalidRequest,
 		"Request body sınırı aştı",
 		fmt.Sprintf(
 			"Request body %d MiB güvenlik sınırını aştığı için gönderilmedi.",
@@ -680,7 +752,7 @@ func requestTooLarge() SendResult {
 
 func responseHeadersTooLarge(err error) SendResult {
 	return failed(
-		"response_headers_too_large",
+		UserErrorResponseHeadersTooLarge,
 		"Response header’ları sınırı aştı",
 		fmt.Sprintf(
 			"Sunucunun response header’ları %d MiB güvenlik sınırını aştığı için request durduruldu.",
@@ -740,7 +812,7 @@ func interactiveHeaderError(headerError *httpexec.HeaderError) SendResult {
 
 func unsupportedContentEncoding(encoding string) SendResult {
 	return failed(
-		"unsupported_content_encoding",
+		UserErrorUnsupportedEncoding,
 		"Response sıkıştırması desteklenmiyor",
 		fmt.Sprintf(
 			"Sunucu yanıtı %q Content-Encoding ile gönderdi; Validex yalnız gzip ve deflate yanıtlarını açabilir.",
@@ -753,7 +825,7 @@ func unsupportedContentEncoding(encoding string) SendResult {
 
 func tooManyContentEncodings() SendResult {
 	return failed(
-		"too_many_content_encodings",
+		UserErrorTooManyEncodings,
 		"Response sıkıştırması çok karmaşık",
 		fmt.Sprintf(
 			"Sunucu %d katmandan fazla Content-Encoding bildirdi.",
@@ -766,7 +838,7 @@ func tooManyContentEncodings() SendResult {
 
 func responseDecodeFailed(encoding string, err error) SendResult {
 	return failed(
-		"response_decode_failed",
+		UserErrorResponseDecodeFailed,
 		"Response açılamadı",
 		fmt.Sprintf(
 			"Sunucu %q ile sıkıştırılmış bir yanıt verdi ancak body çözülemedi.",
@@ -779,7 +851,7 @@ func responseDecodeFailed(encoding string, err error) SendResult {
 
 func invalidRequestHeader(name, message string) SendResult {
 	return failed(
-		"invalid_request",
+		UserErrorInvalidRequest,
 		name+" header geçerli değil",
 		message,
 		"Header değerini düzeltin veya header’ı kaldırıp Validex’in güvenli varsayılanını kullanın.",
@@ -787,7 +859,13 @@ func invalidRequestHeader(name, message string) SendResult {
 	)
 }
 
-func failed(code, title, message, hint, technical string) SendResult {
+func failed(
+	code UserErrorCode,
+	title string,
+	message string,
+	hint string,
+	technical string,
+) SendResult {
 	return SendResult{Error: &UserError{Code: code, Title: title, Message: message, Hint: hint, Technical: technical}}
 }
 
@@ -827,73 +905,6 @@ func isMaskedSecretValue(value string) bool {
 	}
 	for _, character := range trimmed {
 		if character != '•' {
-			return false
-		}
-	}
-	return true
-}
-
-const (
-	maxPrettyJSONBytes        = int64(32 << 20)
-	maxPrettyJSONNestingDepth = 128
-)
-
-func prettyBody(raw []byte, contentType string) string {
-	if !prettyJSONWithinBudget(raw) {
-		return string(raw)
-	}
-	if strings.Contains(strings.ToLower(contentType), "json") || json.Valid(raw) {
-		var formatted bytes.Buffer
-		if err := json.Indent(&formatted, raw, "", "  "); err == nil {
-			return formatted.String()
-		}
-	}
-	return string(raw)
-}
-
-// prettyJSONWithinBudget estimates json.Indent's expansion before allocating
-// its destination. Structural characters inside JSON strings are ignored.
-func prettyJSONWithinBudget(raw []byte) bool {
-	if int64(len(raw)) > maxPrettyJSONBytes {
-		return false
-	}
-	estimatedBytes := int64(len(raw))
-	depth := 0
-	inString := false
-	escaped := false
-	for _, character := range raw {
-		if inString {
-			switch {
-			case escaped:
-				escaped = false
-			case character == '\\':
-				escaped = true
-			case character == '"':
-				inString = false
-			}
-			continue
-		}
-		if character == '"' {
-			inString = true
-			continue
-		}
-
-		switch character {
-		case '{', '[':
-			depth++
-			if depth > maxPrettyJSONNestingDepth {
-				return false
-			}
-			estimatedBytes += 1 + int64(depth*2)
-		case ',':
-			estimatedBytes += 1 + int64(depth*2)
-		case '}', ']':
-			if depth > 0 {
-				depth--
-			}
-			estimatedBytes += 1 + int64(depth*2)
-		}
-		if estimatedBytes > maxPrettyJSONBytes {
 			return false
 		}
 	}

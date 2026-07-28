@@ -45,14 +45,13 @@ func openSystemFile(ctx context.Context, options fileDialogOptions) (string, err
 		"CANBRIDGE_DIALOG_TITLE="+options.Title,
 		"CANBRIDGE_DIALOG_FILTER="+filter,
 	)
-	output, err := command.Output()
+	path, err := runFileDialogCommand(ctx, command)
 	if err != nil {
 		if errors.Is(ctx.Err(), context.Canceled) {
 			return "", ctx.Err()
 		}
 		return "", err
 	}
-	path := strings.TrimSpace(string(output))
 	if path == "" {
 		return "", errFileDialogCanceled
 	}

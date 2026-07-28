@@ -7,6 +7,8 @@ import (
 	"compress/gzip"
 	"compress/zlib"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -807,6 +809,147 @@ func TestSendRequestRejectsUnsupportedContentEncoding(t *testing.T) {
 	}
 }
 
+func TestSendRequestPreservesBinaryResponseAsBase64(t *testing.T) {
+	t.Parallel()
+	payload := []byte{0xff, 0x00, 0xfe, 0x01}
+	server := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		_ *http.Request,
+	) {
+		writer.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = writer.Write(payload)
+	}))
+	t.Cleanup(server.Close)
+
+	bridge := NewBridge()
+	t.Cleanup(func() {
+		Shutdown(bridge)(context.Background())
+	})
+	result := bridge.SendRequest(RequestInput{
+		ID:        "binary-response",
+		Method:    http.MethodGet,
+		URL:       server.URL,
+		TimeoutMS: 2_000,
+	})
+	if result.Error != nil || result.Response == nil {
+		t.Fatalf("SendRequest() result = %#v", result)
+	}
+	expected := base64.StdEncoding.EncodeToString(payload)
+	if result.Response.BodyEncoding != ResponseBodyBase64 ||
+		result.Response.RawBody != expected ||
+		result.Response.Body != expected ||
+		result.Response.SizeBytes != int64(len(payload)) {
+		t.Fatalf("binary response = %#v, want base64 %q", result.Response, expected)
+	}
+	decoded, err := decodePresentedResponseBody(
+		result.Response.RawBody,
+		result.Response.BodyEncoding,
+	)
+	if err != nil || !bytes.Equal(decoded, payload) {
+		t.Fatalf("decoded binary response = %v, %v", decoded, err)
+	}
+}
+
+func TestPresentResponseBodyUsesMediaTypeAndWireBudget(t *testing.T) {
+	t.Parallel()
+
+	declaredBinary := []byte("ASCII bytes can still be a binary payload")
+	binaryPresentation := presentResponseBody(
+		declaredBinary,
+		"application/octet-stream",
+	)
+	if binaryPresentation.Encoding != ResponseBodyBase64 {
+		t.Fatalf(
+			"declared binary encoding = %q, want %q",
+			binaryPresentation.Encoding,
+			ResponseBodyBase64,
+		)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(binaryPresentation.Raw)
+	if err != nil || !bytes.Equal(decoded, declaredBinary) {
+		t.Fatalf("declared binary roundtrip = %q, %v", decoded, err)
+	}
+
+	controlPresentation := presentResponseBody(
+		[]byte{'a', 0x00, 'b'},
+		"",
+	)
+	if controlPresentation.Encoding != ResponseBodyBase64 {
+		t.Fatalf(
+			"control-byte encoding = %q, want %q",
+			controlPresentation.Encoding,
+			ResponseBodyBase64,
+		)
+	}
+
+	textPresentation := presentResponseBody(
+		[]byte("hello\nworld"),
+		"text/plain; charset=utf-8",
+	)
+	if textPresentation.Encoding != ResponseBodyUTF8 ||
+		textPresentation.Raw != "hello\nworld" {
+		t.Fatalf("plain text presentation = %#v", textPresentation)
+	}
+
+	xmlBody := `<root><value id='42'>ok</value></root>`
+	xmlPresentation := presentResponseBody(
+		[]byte(xmlBody),
+		"application/xml",
+	)
+	if xmlPresentation.Encoding != ResponseBodyUTF8 ||
+		xmlPresentation.Raw != xmlBody ||
+		xmlPresentation.Body == xmlBody {
+		t.Fatalf("XML body/raw presentation = %#v", xmlPresentation)
+	}
+
+	// encoding/json expands '<' to six bytes. Presenting a large body twice as
+	// Body and RawBody would exceed the native response budget even though the
+	// source is valid UTF-8, so the presenter must select bounded Base64.
+	escapeHeavyBytes := int(maxResponseBodyJSONBytes/12) + 1
+	escapeHeavy := bytes.Repeat([]byte("<"), escapeHeavyBytes)
+	budgetedPresentation := presentResponseBody(escapeHeavy, "text/plain")
+	if budgetedPresentation.Encoding != ResponseBodyBase64 {
+		t.Fatalf(
+			"escape-heavy encoding = %q, want %q",
+			budgetedPresentation.Encoding,
+			ResponseBodyBase64,
+		)
+	}
+}
+
+func TestJSONStringEncodedSizeMatchesMarshal(t *testing.T) {
+	t.Parallel()
+	for _, value := range []string{
+		"",
+		"plain text",
+		"quotes \" and slash \\",
+		"controls\n\t\b",
+		"<html>&",
+		"Türkçe \u2028 ayırıcı",
+	} {
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			t.Fatalf("json.Marshal(%q): %v", value, err)
+		}
+		size, ok := jsonStringEncodedSize(value, int64(len(encoded)))
+		if !ok || size != int64(len(encoded)) {
+			t.Errorf(
+				"jsonStringEncodedSize(%q) = %d, %t; want %d, true",
+				value,
+				size,
+				ok,
+				len(encoded),
+			)
+		}
+		if _, fits := jsonStringEncodedSize(
+			value,
+			int64(len(encoded)-1),
+		); fits {
+			t.Errorf("jsonStringEncodedSize(%q) fit undersized budget", value)
+		}
+	}
+}
+
 func TestSendRequestRejectsExcessiveContentEncodingLayers(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Encoding", "gzip, gzip, gzip, gzip, gzip")
@@ -1044,6 +1187,70 @@ func TestPrettyBodyPreservesJSONLexemesDuplicateKeysAndOrder(t *testing.T) {
 
 	if got := prettyBody(raw, "application/json; charset=utf-8"); got != want {
 		t.Fatalf("prettyBody() changed JSON tokens:\n got: %s\nwant: %s", got, want)
+	}
+}
+
+func TestPrettyBodyFormatsXMLWhilePreservingLexemes(t *testing.T) {
+	t.Parallel()
+
+	raw := `<?xml version="1.0"?><soap:Envelope xmlns:soap="urn:soap"><soap:Body><item id='7'>&amp;<![CDATA[<raw>]]></item><!-- note --></soap:Body></soap:Envelope>`
+	want := "<?xml version=\"1.0\"?>\n" +
+		"<soap:Envelope xmlns:soap=\"urn:soap\">\n" +
+		"  <soap:Body>\n" +
+		"    <item id='7'>&amp;<![CDATA[<raw>]]></item>\n" +
+		"    <!-- note -->\n" +
+		"  </soap:Body>\n" +
+		"</soap:Envelope>"
+
+	if got := prettyBody(
+		[]byte(raw),
+		"application/soap+xml; charset=utf-8",
+	); got != want {
+		t.Fatalf("prettyBody() XML:\n got: %s\nwant: %s", got, want)
+	}
+}
+
+func TestPrettyBodyDetectsXMLWithoutContentType(t *testing.T) {
+	t.Parallel()
+
+	raw := `<root><empty/><value>42</value></root>`
+	want := "<root>\n" +
+		"  <empty/>\n" +
+		"  <value>42</value>\n" +
+		"</root>"
+	if got := prettyBody([]byte(raw), ""); got != want {
+		t.Fatalf("prettyBody() detected XML:\n got: %s\nwant: %s", got, want)
+	}
+}
+
+func TestPrettyBodyLeavesUnsafeXMLUntouched(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]string{
+		"malformed":            `<root><value></root>`,
+		"mixed content":        `<p>Hello <strong>world</strong>!</p>`,
+		"inline whitespace":    `<p><strong>Hello</strong> <em>world</em></p>`,
+		"preserved whitespace": `<root xml:space="preserve"><value>  x  </value></root>`,
+	}
+	for name, raw := range tests {
+		raw := raw
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if got := prettyBody([]byte(raw), "application/xml"); got != raw {
+				t.Fatalf("prettyBody() = %q, want unchanged %q", got, raw)
+			}
+		})
+	}
+}
+
+func TestPrettyBodySkipsXMLBeyondNestingBudget(t *testing.T) {
+	t.Parallel()
+
+	raw := strings.Repeat("<n>", maxPrettyXMLNestingDepth+1) +
+		"value" +
+		strings.Repeat("</n>", maxPrettyXMLNestingDepth+1)
+	if got := prettyBody([]byte(raw), "application/xml"); got != raw {
+		t.Fatal("prettyBody() formatted XML beyond the nesting budget")
 	}
 }
 
@@ -1414,8 +1621,13 @@ func TestBridgeLifecycleStateSupportsSerializedRestart(t *testing.T) {
 	if bridge.lifecycleState != bridgeLifecycleRunning {
 		t.Fatalf("restarted lifecycle state = %d", bridge.lifecycleState)
 	}
-	if bridge.runtimeContext() != secondRuntime {
-		t.Fatal("restart did not publish the new runtime context")
+	restartedRuntime := bridge.runtimeContext()
+	if restartedRuntime == nil || restartedRuntime == firstOperation ||
+		restartedRuntime.Err() != nil {
+		t.Fatalf(
+			"restart did not publish a fresh runtime context: %v",
+			restartedRuntime,
+		)
 	}
 	if err := bridge.operationContext().Err(); err != nil {
 		t.Fatalf("restarted operation context error = %v", err)

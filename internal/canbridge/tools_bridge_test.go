@@ -3,6 +3,7 @@ package canbridge
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -794,7 +795,7 @@ func TestValidateOpenAPIResponseExplainsMissingJSONSchema(t *testing.T) {
 	bridge.specs["schema-less"] = []core.Endpoint{{
 		Path:   "/health",
 		Method: http.MethodGet,
-		Schema: &openapi3.Operation{
+		Operation: &openapi3.Operation{
 			Responses: openapi3.NewResponses(
 				openapi3.WithStatus(http.StatusOK, &openapi3.ResponseRef{
 					Value: openapi3.NewResponse().WithDescription("OK"),
@@ -824,12 +825,57 @@ func TestValidateOpenAPIResponseExplainsMissingJSONSchema(t *testing.T) {
 	}
 }
 
+func TestValidateOpenAPIResponseDecodesPresentedBase64Body(t *testing.T) {
+	t.Parallel()
+	bridge := NewBridge()
+	bridge.specs["encoded"] = []core.Endpoint{{
+		Path:   "/value",
+		Method: http.MethodGet,
+		Operation: &openapi3.Operation{
+			Responses: openapi3.NewResponses(
+				openapi3.WithStatus(http.StatusOK, &openapi3.ResponseRef{
+					Value: openapi3.NewResponse().
+						WithDescription("OK").
+						WithJSONSchema(openapi3.NewIntegerSchema()),
+				}),
+			),
+		},
+	}}
+
+	result := bridge.ValidateOpenAPIResponse(ContractCheckInput{
+		SpecID:       "encoded",
+		Method:       http.MethodGet,
+		Path:         "/value",
+		StatusCode:   http.StatusOK,
+		ContentType:  "application/json",
+		Body:         base64.StdEncoding.EncodeToString([]byte("42")),
+		BodyEncoding: ResponseBodyBase64,
+	})
+	if !result.Available || !result.OK || len(result.Findings) != 0 {
+		t.Fatalf("base64 contract result = %#v", result)
+	}
+
+	invalid := bridge.ValidateOpenAPIResponse(ContractCheckInput{
+		SpecID:       "encoded",
+		Method:       http.MethodGet,
+		Path:         "/value",
+		StatusCode:   http.StatusOK,
+		ContentType:  "application/json",
+		Body:         "not-base64!",
+		BodyEncoding: ResponseBodyBase64,
+	})
+	if invalid.Error == nil ||
+		invalid.Error.Code != UserErrorBodyEncodingInvalid {
+		t.Fatalf("invalid base64 contract result = %#v", invalid)
+	}
+}
+
 func TestValidateOpenAPIResponseMapsFindingTruncation(t *testing.T) {
 	bridge := NewBridge()
 	bridge.specs["bounded-contract"] = []core.Endpoint{{
 		Path:   "/values",
 		Method: http.MethodGet,
-		Schema: &openapi3.Operation{
+		Operation: &openapi3.Operation{
 			Responses: openapi3.NewResponses(
 				openapi3.WithStatus(http.StatusOK, &openapi3.ResponseRef{
 					Value: openapi3.NewResponse().

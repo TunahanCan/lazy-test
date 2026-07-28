@@ -11,6 +11,7 @@ const (
 	maxKnownEndpoints           = 10_000
 	maxObservedCalls            = 100_000
 	maxCoverageMatchEvaluations = 5_000_000
+	maxObservedPathsPerEndpoint = 100
 )
 
 // KnownEndpoint is an endpoint from OpenAPI or Actuator mappings.
@@ -29,10 +30,11 @@ type ObservedCall struct {
 
 // EndpointCoverage contains hit information for one known endpoint.
 type EndpointCoverage struct {
-	Method        string   `json:"method"`
-	Path          string   `json:"path"`
-	HitCount      int      `json:"hitCount"`
-	ObservedPaths []string `json:"observedPaths,omitempty"`
+	Method                 string   `json:"method"`
+	Path                   string   `json:"path"`
+	HitCount               int      `json:"hitCount"`
+	ObservedPaths          []string `json:"observedPaths,omitempty"`
+	ObservedPathsTruncated bool     `json:"observedPathsTruncated"`
 }
 
 // CoverageReport compares the known route list with captured calls.
@@ -100,6 +102,7 @@ func AnalyzeEndpointCoverage(known []KnownEndpoint, observed []ObservedCall) (Co
 	}
 	unknown := make(map[unknownKey]int)
 	observedPathSets := make([]map[string]struct{}, len(routes))
+	observedPathsTruncated := make([]bool, len(routes))
 	for _, call := range observed {
 		method, err := normalizeHTTPMethod(call.Method)
 		if err != nil {
@@ -118,27 +121,50 @@ func AnalyzeEndpointCoverage(known []KnownEndpoint, observed []ObservedCall) (Co
 		}
 
 		bestRoute := -1
-		bestSpecificity := -1
 		actualSegments := splitPath(path)
 		for _, index := range routesByMethod[method] {
 			if !routeMatches(routes[index].segments, actualSegments) {
 				continue
 			}
-			if routes[index].specificity > bestSpecificity {
+			if bestRoute < 0 ||
+				preferredCoverageRoute(routes[index], routes[bestRoute]) {
 				bestRoute = index
-				bestSpecificity = routes[index].specificity
 			}
 		}
 		if bestRoute < 0 {
-			unknown[unknownKey{method: method, path: path}] += count
+			key := unknownKey{method: method, path: path}
+			total, ok := checkedCoverageCount(unknown[key], count)
+			if !ok {
+				return CoverageReport{}, limitExceeded(
+					"The aggregated observed call count is too large.",
+					"Reduce pre-aggregated call counts before comparing coverage.",
+				)
+			}
+			unknown[key] = total
 			continue
 		}
-		routes[bestRoute].HitCount += count
+		total, ok := checkedCoverageCount(
+			routes[bestRoute].HitCount,
+			count,
+		)
+		if !ok {
+			return CoverageReport{}, limitExceeded(
+				"The endpoint hit count is too large.",
+				"Reduce pre-aggregated call counts before comparing coverage.",
+			)
+		}
+		routes[bestRoute].HitCount = total
 		if observedPathSets[bestRoute] == nil {
 			observedPathSets[bestRoute] = make(map[string]struct{})
 		}
-		if len(observedPathSets[bestRoute]) < 100 {
+		if _, exists := observedPathSets[bestRoute][path]; exists {
+			continue
+		}
+		if len(observedPathSets[bestRoute]) <
+			maxObservedPathsPerEndpoint {
 			observedPathSets[bestRoute][path] = struct{}{}
+		} else {
+			observedPathsTruncated[bestRoute] = true
 		}
 	}
 
@@ -157,6 +183,8 @@ func AnalyzeEndpointCoverage(known []KnownEndpoint, observed []ObservedCall) (Co
 		}
 		sort.Strings(paths)
 		route.ObservedPaths = paths
+		route.ObservedPathsTruncated =
+			observedPathsTruncated[route.index]
 		if route.HitCount > 0 {
 			report.Covered++
 		}
@@ -175,6 +203,27 @@ func AnalyzeEndpointCoverage(known []KnownEndpoint, observed []ObservedCall) (Co
 		return report.UnknownObserved[i].Method < report.UnknownObserved[j].Method
 	})
 	return report, nil
+}
+
+func preferredCoverageRoute(
+	candidate coverageRoute,
+	current coverageRoute,
+) bool {
+	if candidate.specificity != current.specificity {
+		return candidate.specificity > current.specificity
+	}
+	if candidate.Path != current.Path {
+		return candidate.Path < current.Path
+	}
+	return candidate.index < current.index
+}
+
+func checkedCoverageCount(current, addition int) (int, bool) {
+	const maxInt = int(^uint(0) >> 1)
+	if addition < 0 || current > maxInt-addition {
+		return 0, false
+	}
+	return current + addition, true
 }
 
 func normalizeHTTPMethod(raw string) (string, error) {

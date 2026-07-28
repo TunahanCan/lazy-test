@@ -230,6 +230,36 @@ func TestValidateRoutes(t *testing.T) {
 				return route
 			}()},
 		},
+		{
+			name: "case-insensitive duplicate header",
+			routes: []Route{func() Route {
+				route := valid
+				route.Headers = map[string]string{
+					"X-Mode": "first",
+					"x-mode": "second",
+				}
+				return route
+			}()},
+		},
+		{
+			name: "managed response header",
+			routes: []Route{func() Route {
+				route := valid
+				route.Headers = map[string]string{
+					"Content-Length": "2",
+				}
+				return route
+			}()},
+		},
+		{
+			name: "oversized body",
+			routes: []Route{func() Route {
+				route := valid
+				route.Body = `"` +
+					strings.Repeat("x", MaxRouteBodyBytes) + `"`
+				return route
+			}()},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -255,6 +285,62 @@ func TestValidateRoutes(t *testing.T) {
 	_, err := server.Start(-1)
 	if err == nil || errors.Is(err, ErrAlreadyRunning) {
 		t.Fatalf("Start(-1) error = %v", err)
+	}
+}
+
+func TestServerBoundsConfiguredHitAndRouteCapacity(t *testing.T) {
+	t.Parallel()
+	server := New(Options{HitLimit: MaxHitLimit + 1})
+	if server.options.HitLimit != MaxHitLimit ||
+		server.hits.limit != MaxHitLimit {
+		t.Fatalf("hit limit was not clamped: %#v", server.options)
+	}
+	if err := ValidateRoutes(make([]Route, MaxRoutes+1)); err == nil ||
+		!strings.Contains(err.Error(), "maximum") {
+		t.Fatalf("oversized route table error = %v", err)
+	}
+}
+
+func TestServerBreaksEqualSpecificityTiesDeterministically(t *testing.T) {
+	t.Parallel()
+	first := Route{
+		ID:      "first",
+		Method:  http.MethodGet,
+		Path:    "/a/{value}",
+		Status:  http.StatusOK,
+		Body:    `{"route":"first"}`,
+		Enabled: true,
+	}
+	second := Route{
+		ID:      "second",
+		Method:  http.MethodGet,
+		Path:    "/{value}/b",
+		Status:  http.StatusOK,
+		Body:    `{"route":"second"}`,
+		Enabled: true,
+	}
+	for _, routes := range [][]Route{
+		{first, second},
+		{second, first},
+	} {
+		server := New(Options{})
+		if err := server.ReplaceRoutes(routes); err != nil {
+			t.Fatal(err)
+		}
+		request, err := http.NewRequest(http.MethodGet, "/a/b", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		recorder := newResponseRecorder()
+		server.ServeHTTP(recorder, request)
+		if string(recorder.body) != first.Body {
+			t.Fatalf(
+				"route order %v selected body %q, want %q",
+				[]string{routes[0].ID, routes[1].ID},
+				recorder.body,
+				first.Body,
+			)
+		}
 	}
 }
 

@@ -127,6 +127,20 @@ func TestDecodeBindingStringArguments(t *testing.T) {
 	}
 }
 
+func TestValidateBindingEnvelopeSizeRejectsBeforeJSONDecode(t *testing.T) {
+	t.Parallel()
+	if err := validateBindingEnvelopeSize("test", "1234", 4); err != nil {
+		t.Fatalf("exact envelope limit error = %v", err)
+	}
+	err := validateBindingEnvelopeSize("test", "12345", 4)
+	if err == nil || !strings.Contains(
+		err.Error(),
+		"native canbridge test request exceeds 4 bytes",
+	) {
+		t.Fatalf("oversized envelope error = %v", err)
+	}
+}
+
 func TestIPCBindingAdaptersDecodeAndForwardRequests(t *testing.T) {
 	view := &fakeWebView{evaluated: make(chan string, 1)}
 	runtime := &ipcRuntime{

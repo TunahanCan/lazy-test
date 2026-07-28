@@ -83,6 +83,53 @@ func TestEvaluateReturnsStableFailureAndMissingValueMessages(t *testing.T) {
 	}
 }
 
+func TestAssertionStrategyRegistryRejectsIncompleteDefinitions(t *testing.T) {
+	t.Parallel()
+	validOperator := map[Operator]assertionOperatorDefinition{
+		OperatorEquals: {
+			compare: func(any, bool, any) (bool, error) {
+				return true, nil
+			},
+		},
+	}
+	validTarget := map[Target]assertionTargetDefinition{
+		TargetBody: {
+			read: func(*assertionEvaluator, Assertion) (any, bool, error) {
+				return "", true, nil
+			},
+			expectedValueFor: map[Operator]expectedValueKind{
+				OperatorEquals: expectedValueAny,
+			},
+		},
+	}
+	if err := validateAssertionDefinitions(validTarget, validOperator); err != nil {
+		t.Fatalf("valid registry error = %v", err)
+	}
+	if err := validateAssertionDefinitions(
+		validTarget,
+		map[Operator]assertionOperatorDefinition{
+			OperatorEquals: {},
+		},
+	); err == nil || !strings.Contains(err.Error(), "no comparator") {
+		t.Fatalf("missing comparator error = %v", err)
+	}
+	if err := validateAssertionDefinitions(
+		map[Target]assertionTargetDefinition{
+			TargetBody: {
+				read: func(*assertionEvaluator, Assertion) (any, bool, error) {
+					return "", true, nil
+				},
+				expectedValueFor: map[Operator]expectedValueKind{
+					OperatorMatches: expectedValueString,
+				},
+			},
+		},
+		validOperator,
+	); err == nil || !strings.Contains(err.Error(), "unknown operator") {
+		t.Fatalf("unknown operator error = %v", err)
+	}
+}
+
 func TestEvaluatePreservesJSONNumberPrecisionAndCompositeEquality(t *testing.T) {
 	t.Parallel()
 	input := Input{Body: []byte(`{
@@ -116,6 +163,42 @@ func TestEvaluatePreservesJSONNumberPrecisionAndCompositeEquality(t *testing.T) 
 			"large integer expected = %#v, want precision-safe string",
 			results[0].Assertion.Expected,
 		)
+	}
+}
+
+func TestEvaluateDistinguishesPresentJSONNullFromMissingPath(t *testing.T) {
+	t.Parallel()
+	results := Evaluate(
+		Input{Body: []byte(`{"present":null}`)},
+		[]Assertion{
+			{
+				Target:   TargetJSONPath,
+				Path:     "$.present",
+				Operator: OperatorEquals,
+				Expected: nil,
+			},
+			{
+				Target:   TargetJSONPath,
+				Path:     "$.missing",
+				Operator: OperatorEquals,
+				Expected: nil,
+			},
+		},
+	)
+	if !results[0].Passed || !results[0].Exists ||
+		results[0].Actual != nil {
+		t.Fatalf("present null result = %#v", results[0])
+	}
+	if results[1].Passed || results[1].Exists {
+		t.Fatalf("missing path result = %#v", results[1])
+	}
+	encoded, err := json.Marshal(results)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"exists":true`) ||
+		!strings.Contains(string(encoded), `"exists":false`) {
+		t.Fatalf("result JSON does not preserve existence: %s", encoded)
 	}
 }
 
@@ -216,6 +299,17 @@ func TestEvaluateBoundsRegexPatternAndInput(t *testing.T) {
 	}})[0]
 	if !strings.Contains(result.Error, "regular expression input exceeds") {
 		t.Fatalf("long-input result = %#v", result)
+	}
+}
+
+func TestValuesEqualBoundsCyclicProgrammaticValues(t *testing.T) {
+	t.Parallel()
+	left := map[string]any{}
+	right := map[string]any{}
+	left["self"] = left
+	right["self"] = right
+	if valuesEqual(left, right) {
+		t.Fatal("cyclic values unexpectedly compared equal")
 	}
 }
 

@@ -6,9 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"math/big"
-	"mime"
 	"net"
 	"net/mail"
 	"net/url"
@@ -21,6 +19,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/getkin/kin-openapi/openapi3"
+
+	"validex/internal/httpmedia"
+	"validex/internal/jsonnumber"
 )
 
 // DriftType is the kind of contract drift.
@@ -36,16 +37,22 @@ const (
 	// Schema graphs may be cyclic, and valid response bodies may be much wider
 	// or deeper than a useful interactive drift report. Keep both dimensions
 	// bounded independently from the finding limit.
-	maxDriftTraversalDepth = 256
-	maxDriftTraversalNodes = 10_000
-	maxDriftFindingBytes   = 4 << 20
-	maxDriftFindingText    = 1 << 10
-	maxDriftEnumValues     = 32
+	maxDriftTraversalDepth  = 256
+	maxDriftTraversalNodes  = 10_000
+	maxDriftFindingBytes    = 4 << 20
+	maxDriftFindingText     = 1 << 10
+	maxDriftEnumValues      = 32
+	maxDriftNumericBytes    = 4 << 10
+	maxDriftNumericExponent = 4 << 10
 )
+
+// MaxDriftBodyBytes bounds JSON decoding for direct package callers. Desktop
+// and runner boundaries may choose a smaller input limit.
+const MaxDriftBodyBytes = 16 << 20
 
 // DriftFinding is one contract drift finding.
 type DriftFinding struct {
-	Path   string // JSON path e.g. "body.items[0].name"
+	Path   string // JSONPath-like location, for example $.items[0].name
 	Type   DriftType
 	Schema string   // expected (from OpenAPI)
 	Actual string   // actual value or type
@@ -69,9 +76,43 @@ func RunDrift(respBody []byte, op *openapi3.Operation, statusCode int) DriftResu
 	return RunDriftWithContentType(respBody, op, statusCode, "application/json")
 }
 
+// RunEndpointDrift compares a JSON response body against an endpoint and
+// preserves that endpoint's route identity in the result.
+func RunEndpointDrift(respBody []byte, endpoint Endpoint, statusCode int) DriftResult {
+	return RunEndpointDriftWithContentType(
+		respBody,
+		endpoint,
+		statusCode,
+		"application/json",
+	)
+}
+
+// RunEndpointDriftWithContentType is RunDriftWithContentType for callers that
+// have an Endpoint. An openapi3.Operation does not contain its owning path or
+// method, so route metadata is only populated by this endpoint-aware entry
+// point instead of being inferred.
+func RunEndpointDriftWithContentType(
+	respBody []byte,
+	endpoint Endpoint,
+	statusCode int,
+	contentType string,
+) DriftResult {
+	result := RunDriftWithContentType(
+		respBody,
+		endpoint.Operation,
+		statusCode,
+		contentType,
+	)
+	result.Path = endpoint.Path
+	result.Method = endpoint.Method
+	return result
+}
+
 // RunDriftWithContentType compares a JSON response body against the response
 // schema selected for its actual media type. Parameters such as charset are
-// ignored while selecting the OpenAPI content entry.
+// ignored while selecting the OpenAPI content entry. Path and Method remain
+// empty because an openapi3.Operation has no owning route identity; callers
+// with an Endpoint should use RunEndpointDriftWithContentType.
 func RunDriftWithContentType(respBody []byte, op *openapi3.Operation, statusCode int, contentType string) DriftResult {
 	res := DriftResult{OK: true}
 	if op == nil || op.Responses == nil {
@@ -89,6 +130,17 @@ func RunDriftWithContentType(respBody []byte, op *openapi3.Operation, statusCode
 		return res
 	}
 	res.Compared = true
+	if len(respBody) > MaxDriftBodyBytes {
+		addDriftFinding(&res, DriftFinding{
+			Path:   "$",
+			Type:   DriftTypeMismatch,
+			Schema: fmt.Sprintf("JSON body no larger than %d bytes", MaxDriftBodyBytes),
+			Actual: fmt.Sprintf("%d byte JSON body", len(respBody)),
+		})
+		res.Truncated = true
+		res.OK = false
+		return res
+	}
 	var body any
 	if err := decodeDriftJSON(respBody, &body); err != nil {
 		addDriftFinding(&res, DriftFinding{Path: "$", Type: DriftTypeMismatch, Schema: "valid JSON", Actual: "invalid JSON"})
@@ -122,11 +174,11 @@ func jsonResponseContent(content openapi3.Content, actualContentType string) *op
 		baseType string
 		priority int
 	}
-	actualBaseType := normalizedMediaType(actualContentType)
+	actualBaseType := httpmedia.BaseType(actualContentType)
 	if actualBaseType == "" {
 		actualBaseType = "application/json"
 	}
-	if !isJSONMediaType(actualBaseType) {
+	if !httpmedia.IsJSON(actualBaseType) {
 		return nil
 	}
 	candidates := make([]candidate, 0, len(content))
@@ -134,15 +186,15 @@ func jsonResponseContent(content openapi3.Content, actualContentType string) *op
 		if mediaType == nil || mediaType.Schema == nil || mediaType.Schema.Value == nil {
 			continue
 		}
-		baseType := normalizedMediaType(key)
+		baseType := httpmedia.BaseType(key)
 		switch {
 		case baseType == actualBaseType:
 			candidates = append(candidates, candidate{key: key, baseType: baseType})
-		case mediaRangeMatches(baseType, actualBaseType):
+		case httpmedia.Matches(baseType, actualBaseType):
 			candidates = append(candidates, candidate{key: key, baseType: baseType, priority: 1})
-		case isJSONMediaType(actualBaseType) && baseType == "application/json":
+		case httpmedia.IsJSON(actualBaseType) && baseType == "application/json":
 			candidates = append(candidates, candidate{key: key, baseType: baseType, priority: 2})
-		case isJSONMediaType(actualBaseType) && isJSONMediaType(baseType):
+		case httpmedia.IsJSON(actualBaseType) && httpmedia.IsJSON(baseType):
 			candidates = append(candidates, candidate{key: key, baseType: baseType, priority: 3})
 		}
 	}
@@ -159,41 +211,6 @@ func jsonResponseContent(content openapi3.Content, actualContentType string) *op
 		return nil
 	}
 	return content[candidates[0].key]
-}
-
-func normalizedMediaType(value string) string {
-	baseType, _, err := mime.ParseMediaType(strings.TrimSpace(value))
-	if err != nil {
-		baseType = strings.TrimSpace(strings.SplitN(value, ";", 2)[0])
-	}
-	return strings.ToLower(baseType)
-}
-
-func isJSONMediaType(value string) bool {
-	parts := strings.SplitN(value, "/", 2)
-	if len(parts) != 2 {
-		return false
-	}
-	return value == "application/json" || strings.HasSuffix(parts[1], "+json")
-}
-
-func mediaRangeMatches(mediaRange, actual string) bool {
-	rangeParts := strings.SplitN(mediaRange, "/", 2)
-	actualParts := strings.SplitN(actual, "/", 2)
-	if len(rangeParts) != 2 || len(actualParts) != 2 {
-		return false
-	}
-	if rangeParts[0] != "*" && rangeParts[0] != actualParts[0] {
-		return false
-	}
-	switch {
-	case rangeParts[1] == "*":
-		return true
-	case strings.HasPrefix(rangeParts[1], "*+"):
-		return strings.HasSuffix(actualParts[1], rangeParts[1][1:])
-	default:
-		return false
-	}
 }
 
 func schemaTypeStr(s *openapi3.Schema) string {
@@ -344,7 +361,7 @@ func (t *driftTraversal) compareSchemaToValue(
 		sort.Strings(propertyNames)
 		for _, name := range propertyNames {
 			prop := s.Properties[name]
-			subPath := path + "." + name
+			subPath := appendJSONPropertyPath(path, name)
 			if prop == nil || prop.Value == nil {
 				continue
 			}
@@ -375,14 +392,25 @@ func (t *driftTraversal) compareSchemaToValue(
 				continue
 			}
 			if additional := s.AdditionalProperties.Schema; additional != nil && additional.Value != nil {
-				t.compareSchemaToValue(additional.Value, path+"."+name, actual, t.newValueID(), depth+1, res)
+				t.compareSchemaToValue(
+					additional.Value,
+					appendJSONPropertyPath(path, name),
+					actual,
+					t.newValueID(),
+					depth+1,
+					res,
+				)
 				if res.Truncated {
 					return
 				}
 				continue
 			}
 			if allowed := s.AdditionalProperties.Has; allowed != nil && !*allowed {
-				addDriftFinding(res, DriftFinding{Path: path + "." + name, Type: DriftExtra, Actual: typeOf(obj[name])})
+				addDriftFinding(res, DriftFinding{
+					Path:   appendJSONPropertyPath(path, name),
+					Type:   DriftExtra,
+					Actual: typeOf(obj[name]),
+				})
 				if res.Truncated {
 					return
 				}
@@ -760,14 +788,51 @@ func appendDriftFindings(res *DriftResult, candidate *DriftResult) {
 	}
 }
 
+func appendJSONPropertyPath(path, property string) string {
+	if validDotJSONPathProperty(property) {
+		return path + "." + property
+	}
+	return path + "[" + strconv.Quote(property) + "]"
+}
+
+func validDotJSONPathProperty(property string) bool {
+	if property == "" {
+		return false
+	}
+	for index, character := range property {
+		if character >= 'a' && character <= 'z' ||
+			character >= 'A' && character <= 'Z' ||
+			character == '_' {
+			continue
+		}
+		if index > 0 && character >= '0' && character <= '9' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 func typeOf(v interface{}) string {
-	if v == nil {
+	switch v.(type) {
+	case nil:
 		return "null"
-	}
-	if _, ok := v.(json.Number); ok {
+	case bool:
+		return "boolean"
+	case string:
+		return "string"
+	case json.Number,
+		int, int8, int16, int32, int64,
+		uint, uint8, uint16, uint32, uint64,
+		float32, float64:
 		return "number"
+	case []interface{}:
+		return "array"
+	case map[string]interface{}:
+		return "object"
+	default:
+		return "non-JSON " + reflect.TypeOf(v).String()
 	}
-	return reflect.TypeOf(v).Kind().String()
 }
 
 func stringify(v interface{}) string {
@@ -823,45 +888,10 @@ func enumContains(allowed []interface{}, actual interface{}) bool {
 }
 
 func numberAsRat(value interface{}) (*big.Rat, bool) {
-	var encoded string
-	switch number := value.(type) {
-	case json.Number:
-		encoded = number.String()
-	case float32:
-		if math.IsNaN(float64(number)) || math.IsInf(float64(number), 0) {
-			return nil, false
-		}
-		encoded = strconv.FormatFloat(float64(number), 'g', -1, 32)
-	case float64:
-		if math.IsNaN(number) || math.IsInf(number, 0) {
-			return nil, false
-		}
-		encoded = strconv.FormatFloat(number, 'g', -1, 64)
-	case int:
-		encoded = strconv.FormatInt(int64(number), 10)
-	case int8:
-		encoded = strconv.FormatInt(int64(number), 10)
-	case int16:
-		encoded = strconv.FormatInt(int64(number), 10)
-	case int32:
-		encoded = strconv.FormatInt(int64(number), 10)
-	case int64:
-		encoded = strconv.FormatInt(number, 10)
-	case uint:
-		encoded = strconv.FormatUint(uint64(number), 10)
-	case uint8:
-		encoded = strconv.FormatUint(uint64(number), 10)
-	case uint16:
-		encoded = strconv.FormatUint(uint64(number), 10)
-	case uint32:
-		encoded = strconv.FormatUint(uint64(number), 10)
-	case uint64:
-		encoded = strconv.FormatUint(number, 10)
-	default:
-		return nil, false
-	}
-	result, ok := new(big.Rat).SetString(encoded)
-	return result, ok
+	return jsonnumber.Rat(value, jsonnumber.Limits{
+		MaxBytes:       maxDriftNumericBytes,
+		MaxAbsExponent: maxDriftNumericExponent,
+	})
 }
 
 func sliceContains(s []string, x string) bool {

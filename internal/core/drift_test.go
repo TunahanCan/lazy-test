@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -60,6 +61,37 @@ func TestRunDriftReportsWhetherAJSONSchemaWasCompared(t *testing.T) {
 	}
 }
 
+func TestRunEndpointDriftPreservesRouteIdentity(t *testing.T) {
+	t.Parallel()
+
+	endpoint := Endpoint{
+		Path:      "/orders/{id}",
+		Method:    "GET",
+		Operation: responseOperation(openapi3.NewStringSchema()),
+	}
+	result := RunEndpointDrift([]byte(`42`), endpoint, 200)
+	if result.Path != endpoint.Path || result.Method != endpoint.Method {
+		t.Fatalf(
+			"route identity = %q %q, want %q %q",
+			result.Method,
+			result.Path,
+			endpoint.Method,
+			endpoint.Path,
+		)
+	}
+	if result.OK || len(result.Findings) != 1 {
+		t.Fatalf("unexpected endpoint drift result: %#v", result)
+	}
+
+	operationOnly := RunDrift([]byte(`42`), endpoint.Operation, 200)
+	if operationOnly.Path != "" || operationOnly.Method != "" {
+		t.Fatalf(
+			"operation-only result invented route identity: %#v",
+			operationOnly,
+		)
+	}
+}
+
 func TestRunDriftHandlesAnOperationWithoutResponses(t *testing.T) {
 	result := RunDrift([]byte(`{"ok":true}`), &openapi3.Operation{}, 200)
 	if result.Compared || !result.OK || len(result.Findings) != 0 {
@@ -110,6 +142,30 @@ func TestRunDriftComparesLargeJSONIntegersExactly(t *testing.T) {
 	}
 }
 
+func TestRunDriftBoundsBodyAndNumericParsing(t *testing.T) {
+	t.Parallel()
+	schema := responseOperation(openapi3.NewFloat64Schema())
+
+	oversizedBody := make([]byte, MaxDriftBodyBytes+1)
+	result := RunDrift(oversizedBody, schema, 200)
+	if !result.Compared || result.OK || !result.Truncated ||
+		len(result.Findings) != 1 ||
+		result.Findings[0].Type != DriftTypeMismatch {
+		t.Fatalf("oversized body result = %#v", result)
+	}
+
+	for _, body := range [][]byte{
+		[]byte(strings.Repeat("9", maxDriftNumericBytes+1)),
+		[]byte("1e" + strconv.Itoa(maxDriftNumericExponent+1)),
+	} {
+		result = RunDrift(body, schema, 200)
+		if !result.Compared || result.OK || len(result.Findings) == 0 ||
+			result.Findings[0].Type != DriftTypeMismatch {
+			t.Fatalf("bounded numeric result = %#v", result)
+		}
+	}
+}
+
 func TestRunDriftHonorsAdditionalProperties(t *testing.T) {
 	openObject := openapi3.NewObjectSchema().
 		WithProperty("id", openapi3.NewIntegerSchema()).
@@ -134,6 +190,89 @@ func TestRunDriftHonorsAdditionalProperties(t *testing.T) {
 	)
 	if result.OK || len(result.Findings) != 1 || result.Findings[0].Type != DriftExtra {
 		t.Fatalf("closed additionalProperties result = %#v", result)
+	}
+}
+
+func TestRunDriftEscapesAmbiguousJSONPropertyPaths(t *testing.T) {
+	t.Parallel()
+
+	nested := openapi3.NewObjectSchema().
+		WithProperty(`quote"key`, openapi3.NewIntegerSchema()).
+		WithRequired([]string{`quote"key`})
+	schema := openapi3.NewObjectSchema().
+		WithProperty("simple", openapi3.NewStringSchema()).
+		WithProperty("a.b", nested).
+		WithRequired([]string{"simple", "a.b"}).
+		WithoutAdditionalProperties()
+
+	result := RunDrift(
+		[]byte(`{"simple":1,"a.b":{"quote\"key":false},"slash/key":[]}`),
+		responseOperation(schema),
+		200,
+	)
+	if result.OK || len(result.Findings) != 3 {
+		t.Fatalf("unexpected escaped-path result: %#v", result)
+	}
+	actualTypesByPath := make(map[string]string, len(result.Findings))
+	for _, finding := range result.Findings {
+		actualTypesByPath[finding.Path] = finding.Actual
+	}
+	want := map[string]string{
+		`$.simple`:               "number",
+		`$["a.b"]["quote\"key"]`: "boolean",
+		`$["slash/key"]`:         "array",
+	}
+	for path, actualType := range want {
+		if got := actualTypesByPath[path]; got != actualType {
+			t.Errorf("finding %s actual type = %q, want %q", path, got, actualType)
+		}
+	}
+}
+
+func TestAppendJSONPropertyPathIsUnambiguous(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]string{
+		"property":    "$.property",
+		"_private2":   "$._private2",
+		"":            `$[""]`,
+		"a.b":         `$["a.b"]`,
+		"1st":         `$["1st"]`,
+		`quote"key`:   `$["quote\"key"]`,
+		"line\nbreak": `$["line\nbreak"]`,
+		"müşteri":     `$["müşteri"]`,
+	}
+	for property, want := range tests {
+		if got := appendJSONPropertyPath("$", property); got != want {
+			t.Errorf(
+				"appendJSONPropertyPath(%q) = %q, want %q",
+				property,
+				got,
+				want,
+			)
+		}
+	}
+}
+
+func TestTypeOfUsesJSONVocabulary(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		value any
+		want  string
+	}{
+		{value: nil, want: "null"},
+		{value: false, want: "boolean"},
+		{value: "ready", want: "string"},
+		{value: json.Number("1.25"), want: "number"},
+		{value: int64(7), want: "number"},
+		{value: []interface{}{}, want: "array"},
+		{value: map[string]interface{}{}, want: "object"},
+	}
+	for _, test := range tests {
+		if got := typeOf(test.value); got != test.want {
+			t.Errorf("typeOf(%#v) = %q, want %q", test.value, got, test.want)
+		}
 	}
 }
 

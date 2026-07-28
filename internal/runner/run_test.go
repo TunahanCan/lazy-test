@@ -190,7 +190,7 @@ func TestFailureFromSendErrorClassifiesSharedExecutorErrors(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		err  error
-		code string
+		code FailureCode
 	}{
 		{
 			err:  ErrUnsupportedContentEncoding,

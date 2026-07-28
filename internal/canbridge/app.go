@@ -34,6 +34,8 @@ const (
 	maxCancellationIPCCalls          = 8
 	maxCancellationIPCArgumentBytes  = 1 << 20
 	maxIPCResponseBytes              = 64 << 20
+	maxIPCDispatchEnvelopeBytes      = 128 << 20
+	maxIPCLogEnvelopeBytes           = 128 << 10
 )
 
 type AppOptions struct {
@@ -73,13 +75,6 @@ type ipcResponse struct {
 	Result     any    `json:"result,omitempty"`
 	Error      string `json:"error,omitempty"`
 }
-
-type ipcAdmissionLane uint8
-
-const (
-	ipcAdmissionConcurrent ipcAdmissionLane = iota
-	ipcAdmissionCancellation
-)
 
 type ipcAdmissionLimits struct {
 	maxCalls         int
@@ -209,6 +204,13 @@ func Run(options AppOptions) error {
 }
 
 func (runtime *ipcRuntime) dispatchBinding(requestJSON string) error {
+	if err := validateBindingEnvelopeSize(
+		"dispatcher",
+		requestJSON,
+		maxIPCDispatchEnvelopeBytes,
+	); err != nil {
+		return err
+	}
 	arguments, err := decodeBindingStringArguments(requestJSON, 4)
 	if err != nil {
 		return fmt.Errorf("decode native canbridge dispatcher request: %w", err)
@@ -222,6 +224,13 @@ func (runtime *ipcRuntime) dispatchBinding(requestJSON string) error {
 }
 
 func (runtime *ipcRuntime) logBrowserMessageBinding(requestJSON string) error {
+	if err := validateBindingEnvelopeSize(
+		"logger",
+		requestJSON,
+		maxIPCLogEnvelopeBytes,
+	); err != nil {
+		return err
+	}
 	arguments, err := decodeBindingStringArguments(requestJSON, 3)
 	if err != nil {
 		return fmt.Errorf("decode native canbridge logger request: %w", err)
@@ -231,6 +240,21 @@ func (runtime *ipcRuntime) logBrowserMessageBinding(requestJSON string) error {
 		arguments[1],
 		arguments[2],
 	)
+}
+
+func validateBindingEnvelopeSize(
+	bindingName string,
+	requestJSON string,
+	maximumBytes int,
+) error {
+	if maximumBytes < 0 || len(requestJSON) > maximumBytes {
+		return fmt.Errorf(
+			"native canbridge %s request exceeds %d bytes",
+			bindingName,
+			maximumBytes,
+		)
+	}
+	return nil
 }
 
 func decodeBindingStringArguments(
@@ -412,15 +436,6 @@ func (runtime *ipcRuntime) admissionStateLocked(
 	}
 }
 
-func admissionLaneForBridgeMethod(method string) ipcAdmissionLane {
-	switch method {
-	case bridgeMethodCancelRequest, bridgeMethodCancelToolOperation:
-		return ipcAdmissionCancellation
-	default:
-		return ipcAdmissionConcurrent
-	}
-}
-
 func (admission *ipcAdmissionState) acquire(
 	lane ipcAdmissionLane,
 	argumentBytes int,
@@ -455,13 +470,6 @@ func (admission *ipcAdmissionState) acquire(
 func (admission *ipcAdmissionState) release(argumentBytes int) {
 	admission.inFlightCalls--
 	admission.acceptedArgumentBytes -= argumentBytes
-}
-
-func (lane ipcAdmissionLane) String() string {
-	if lane == ipcAdmissionCancellation {
-		return "cancellation"
-	}
-	return "concurrent"
 }
 
 func (runtime *ipcRuntime) execute(invocation ipcInvocation) {

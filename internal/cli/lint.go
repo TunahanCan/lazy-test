@@ -86,19 +86,11 @@ func lintDocumentContext(
 	ctx context.Context,
 	data []byte,
 ) (openapilint.Report, error) {
-	if err := ctx.Err(); err != nil {
-		return openapilint.Report{}, err
-	}
-	result := make(chan openapilint.Report, 1)
-	go func() {
-		result <- openapilint.LintBytes(data, openapilint.Options{})
-	}()
-	select {
-	case report := <-result:
-		return report, nil
-	case <-ctx.Done():
-		return openapilint.Report{}, ctx.Err()
-	}
+	return openapilint.LintBytesContext(
+		ctx,
+		data,
+		openapilint.Options{},
+	)
 }
 
 func writeLintReport(

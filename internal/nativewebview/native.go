@@ -22,6 +22,20 @@ package nativewebview
 #include <stdint.h>
 #include <stdlib.h>
 
+static size_t nativewebview_bounded_strlen(
+	const char *value,
+	size_t maximum
+) {
+	if (value == NULL) {
+		return 0;
+	}
+	size_t length = 0;
+	while (length < maximum && value[length] != '\0') {
+		length++;
+	}
+	return length;
+}
+
 typedef struct nativewebview_binding_context nativewebview_binding_context;
 
 void nativewebview_dispatch(webview_t view, uintptr_t handle);
@@ -64,6 +78,10 @@ const (
 // BindingHandler handles the raw JSON argument array from a JavaScript call.
 // A nil error resolves the JavaScript promise with null.
 type BindingHandler func(requestJSON string) error
+
+// MaxBindingRequestBytes is the absolute native-to-Go allocation boundary.
+// Application bindings should enforce their own smaller semantic limits.
+const MaxBindingRequestBytes = 128 << 20
 
 // WebView is the complete native-window surface used by Validex. Dispatch is
 // background-safe; all other methods belong to the locked native UI thread,
@@ -349,10 +367,20 @@ func nativewebviewBindingGoCallback(
 ) {
 	result := "null"
 	status := C.int(0)
-	if err := invokeBindingHandler(
-		cgo.Handle(handleValue),
-		C.GoString(request),
-	); err != nil {
+	requestLength := C.nativewebview_bounded_strlen(
+		request,
+		C.size_t(MaxBindingRequestBytes+1),
+	)
+	var err error
+	if requestLength > C.size_t(MaxBindingRequestBytes) {
+		err = errors.New("native WebView binding request exceeds safe byte limit")
+	} else {
+		err = invokeBindingHandler(
+			cgo.Handle(handleValue),
+			C.GoStringN(request, C.int(requestLength)),
+		)
+	}
+	if err != nil {
 		status = -1
 		encodedError, _ := json.Marshal(err.Error())
 		result = string(encodedError)

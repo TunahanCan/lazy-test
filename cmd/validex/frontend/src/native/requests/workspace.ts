@@ -714,6 +714,7 @@ export function mountRequestWorkspace(
                   statusCode: response.statusCode,
                   contentType: response.contentType,
                   body: response.rawBody,
+                  bodyEncoding: response.bodyEncoding ?? "utf8",
                 }),
               };
             } catch (error) {

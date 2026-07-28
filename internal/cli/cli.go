@@ -18,14 +18,6 @@ const (
 	exitUsage   = 2
 )
 
-const rootUsage = `Usage:
-  validex-cli run --file collection.json [--variables vars.json] [--json]
-  validex-cli inspect --url URL [--timeout 15s] [--max-redirects 10] [--insecure] [--json]
-  validex-cli lint --file openapi.yaml [--json] [--strict]
-
-Use --file - to read a collection or OpenAPI document from standard input.
-`
-
 // Execute runs one CLI invocation. args excludes the executable name.
 func Execute(
 	ctx context.Context,
@@ -56,25 +48,21 @@ func execute(
 		stderr = io.Discard
 	}
 	if len(args) == 0 {
-		writeIgnoringError(stderr, rootUsage)
+		writeIgnoringError(stderr, cliCommands.usage())
 		return exitUsage
 	}
 
-	switch args[0] {
-	case "help", "-h", "--help":
-		writeIgnoringError(stdout, rootUsage)
+	if args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
+		writeIgnoringError(stdout, cliCommands.usage())
 		return exitSuccess
-	case "run":
-		return executeRun(ctx, args[1:], stdin, stdout, stderr)
-	case "inspect":
-		return executeInspect(ctx, args[1:], stdout, stderr)
-	case "lint":
-		return executeLint(ctx, args[1:], stdin, stdout, stderr)
-	default:
+	}
+	command, ok := cliCommands.lookup(args[0])
+	if !ok {
 		writeIgnoringError(stderr, fmt.Sprintf("validex-cli: unknown command %q\n\n", args[0]))
-		writeIgnoringError(stderr, rootUsage)
+		writeIgnoringError(stderr, cliCommands.usage())
 		return exitUsage
 	}
+	return command.execute(ctx, args[1:], stdin, stdout, stderr)
 }
 
 func newFlagSet(name string) *flag.FlagSet {

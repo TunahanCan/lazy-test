@@ -3,8 +3,10 @@ package runner
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"validex/internal/assertions"
@@ -14,6 +16,54 @@ import (
 // limits. Zero-valued limits use DefaultLimits.
 func ParseCollection(data []byte, limits Limits) (Collection, error) {
 	return DecodeCollection(bytes.NewReader(data), limits)
+}
+
+// EncodeCollection validates and writes one collection using the canonical v2
+// wire model. It is the persistence boundary for collection files: legacy v1
+// input can be decoded, edited, and encoded without producing the invalid
+// combination of a v1 version field and v2 ordered headers.
+func EncodeCollection(
+	writer io.Writer,
+	collection Collection,
+	limits Limits,
+) error {
+	if writer == nil {
+		return fmt.Errorf("collection writer is required")
+	}
+	normalized, err := normalizeLimits(limits)
+	if err != nil {
+		return err
+	}
+	if err := validateCollection(collection, normalized); err != nil {
+		return err
+	}
+	wire, err := collection.canonicalWire()
+	if err != nil {
+		return err
+	}
+	if _, err := boundedJSONSize(wire, normalized.MaxCollectionBytes); err != nil {
+		if errors.Is(err, errJSONSizeLimit) {
+			return fmt.Errorf(
+				"encoded collection exceeds %d bytes",
+				normalized.MaxCollectionBytes,
+			)
+		}
+		return fmt.Errorf("preflight collection encoding: %w", err)
+	}
+	encoded, err := json.Marshal(wire)
+	if err != nil {
+		return fmt.Errorf("encode collection: %w", err)
+	}
+	if int64(len(encoded)) > normalized.MaxCollectionBytes {
+		return fmt.Errorf(
+			"encoded collection exceeds %d bytes",
+			normalized.MaxCollectionBytes,
+		)
+	}
+	if _, err := io.Copy(writer, bytes.NewReader(encoded)); err != nil {
+		return fmt.Errorf("write collection: %w", err)
+	}
+	return nil
 }
 
 // DecodeCollection decodes exactly one JSON collection and rejects unknown
@@ -48,6 +98,9 @@ func DecodeCollection(reader io.Reader, limits Limits) (Collection, error) {
 		}
 		return Collection{}, fmt.Errorf("decode collection: %w", err)
 	}
+	if err := validateCollectionWireCompatibility(collection); err != nil {
+		return Collection{}, err
+	}
 	if err := validateCollection(collection, normalized); err != nil {
 		return Collection{}, err
 	}
@@ -56,11 +109,11 @@ func DecodeCollection(reader io.Reader, limits Limits) (Collection, error) {
 
 func validateCollection(collection Collection, limits Limits) error {
 	switch collection.Version {
-	case 0, 1:
-	case 2:
+	case CollectionVersionUnspecified, CollectionVersionV1:
+	case CollectionVersionV2:
 	default:
 		return fmt.Errorf(
-			"collection version %d is not supported",
+			"collection version %s is not supported",
 			collection.Version,
 		)
 	}
@@ -74,20 +127,6 @@ func validateCollection(collection Collection, limits Limits) error {
 	assertionCount := 0
 	for index, request := range collection.Requests {
 		label := fmt.Sprintf("request %d", index+1)
-		if collection.Version < 2 &&
-			request.headerFormat == collectionHeadersArray {
-			return fmt.Errorf(
-				"%s uses ordered header arrays, which require collection version 2",
-				label,
-			)
-		}
-		if collection.Version == 2 &&
-			request.headerFormat == collectionHeadersObject {
-			return fmt.Errorf(
-				"%s uses a legacy header object; version 2 requires an ordered header array",
-				label,
-			)
-		}
 		if strings.TrimSpace(request.ID) != "" {
 			if _, exists := seenIDs[request.ID]; exists {
 				return fmt.Errorf("%s uses duplicate id %q", label, request.ID)
@@ -145,4 +184,65 @@ func validateCollection(collection Collection, limits Limits) error {
 		}
 	}
 	return nil
+}
+
+func validateCollectionWireCompatibility(collection Collection) error {
+	for index, request := range collection.Requests {
+		label := fmt.Sprintf("request %d", index+1)
+		if isLegacyCollectionVersion(collection.Version) &&
+			request.headerFormat == collectionHeadersArray {
+			return fmt.Errorf(
+				"%s uses ordered header arrays, which require collection version 2",
+				label,
+			)
+		}
+		if collection.Version == CollectionVersionV2 &&
+			request.headerFormat == collectionHeadersObject {
+			return fmt.Errorf(
+				"%s uses a legacy header object; version 2 requires an ordered header array",
+				label,
+			)
+		}
+	}
+	return nil
+}
+
+func isLegacyCollectionVersion(version CollectionVersion) bool {
+	return version == CollectionVersionUnspecified ||
+		version == CollectionVersionV1
+}
+
+// UnmarshalJSON preserves the numeric collection-version wire contract while
+// exposing a string-backed closed domain inside runner.
+func (version *CollectionVersion) UnmarshalJSON(data []byte) error {
+	if version == nil {
+		return fmt.Errorf("collection version destination is required")
+	}
+	if bytes.Equal(bytes.TrimSpace(data), []byte("null")) {
+		*version = CollectionVersionUnspecified
+		return nil
+	}
+	var number int
+	if err := json.Unmarshal(data, &number); err != nil {
+		return fmt.Errorf("collection version must be an integer: %w", err)
+	}
+	if number == 0 {
+		*version = CollectionVersionUnspecified
+		return nil
+	}
+	*version = CollectionVersion(strconv.Itoa(number))
+	return nil
+}
+
+// MarshalJSON preserves the numeric collection-version wire contract. A
+// Collection itself always overrides this with CurrentCollectionVersion.
+func (version CollectionVersion) MarshalJSON() ([]byte, error) {
+	if version == CollectionVersionUnspecified {
+		return []byte("0"), nil
+	}
+	number, err := strconv.Atoi(string(version))
+	if err != nil {
+		return nil, fmt.Errorf("invalid collection version %q", version)
+	}
+	return json.Marshal(number)
 }

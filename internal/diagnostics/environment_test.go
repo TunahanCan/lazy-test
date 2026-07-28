@@ -188,6 +188,16 @@ func TestEnvironmentComparisonSupportsScalarJSONRoots(t *testing.T) {
 		len(diff.JSONDifferences) != 1 || diff.JSONDifferences[0].Path != "$" {
 		t.Fatalf("scalar JSON comparison = %#v", diff)
 	}
+
+	equalNumber := compareEnvironmentResponses(
+		EnvironmentResponse{Name: "local", StatusCode: http.StatusOK, Body: `1`},
+		EnvironmentResponse{Name: "test", StatusCode: http.StatusOK, Body: `1.0`},
+		normalizedIgnoredHeaders(nil),
+		nil,
+	)
+	if !equalNumber.BodyEqual || len(equalNumber.JSONDifferences) != 0 {
+		t.Fatalf("equivalent JSON numbers = %#v", equalNumber)
+	}
 }
 
 func TestEnvironmentComparisonBoundsJSONDifferencesAndSignalsTruncation(t *testing.T) {
@@ -243,5 +253,79 @@ func TestEnvironmentComparisonBoundsHeaderDifferencesAndSignalsTruncation(t *tes
 	if !diff.HeaderDifferencesTruncated ||
 		len(diff.HeaderDifferences) != maxEnvironmentDifferences {
 		t.Fatalf("bounded header comparison = %#v", diff)
+	}
+}
+
+func TestEnvironmentComparisonQuotesAmbiguousJSONPathKeys(t *testing.T) {
+	t.Parallel()
+	diff := compareEnvironmentResponses(
+		EnvironmentResponse{
+			Name:       "local",
+			StatusCode: http.StatusOK,
+			Body:       `{"a.b":1,"*":1}`,
+		},
+		EnvironmentResponse{
+			Name:       "test",
+			StatusCode: http.StatusOK,
+			Body:       `{"a.b":2,"*":2}`,
+		},
+		normalizedIgnoredHeaders(nil),
+		nil,
+	)
+	if len(diff.JSONDifferences) != 2 ||
+		diff.JSONDifferences[0].Path != `$["*"]` ||
+		diff.JSONDifferences[1].Path != `$["a.b"]` {
+		t.Fatalf("escaped JSON paths = %#v", diff.JSONDifferences)
+	}
+
+	ignored, err := compileJSONPaths([]string{`$["a.b"]`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	diff = compareEnvironmentResponses(
+		EnvironmentResponse{Name: "local", StatusCode: http.StatusOK, Body: `{"a.b":1,"*":1}`},
+		EnvironmentResponse{Name: "test", StatusCode: http.StatusOK, Body: `{"a.b":2,"*":2}`},
+		normalizedIgnoredHeaders(nil),
+		ignored,
+	)
+	if len(diff.JSONDifferences) != 1 ||
+		diff.JSONDifferences[0].Path != `$["*"]` {
+		t.Fatalf("quoted ignore path result = %#v", diff.JSONDifferences)
+	}
+}
+
+func TestEnvironmentComparisonBoundsJSONPathAndTraversal(t *testing.T) {
+	t.Parallel()
+	if _, err := compileJSONPaths([]string{
+		"$." + strings.Repeat("x", maxEnvironmentJSONPathBytes),
+	}); ErrorCode(err) != CodeLimitExceeded {
+		t.Fatalf("oversized JSON path error = %v", err)
+	}
+
+	body := strings.Repeat(`{"child":`, maxEnvironmentJSONDiffDepth+2) +
+		`0` +
+		strings.Repeat(`}`, maxEnvironmentJSONDiffDepth+2)
+	diff := compareEnvironmentResponses(
+		EnvironmentResponse{Name: "local", StatusCode: http.StatusOK, Body: body},
+		EnvironmentResponse{Name: "test", StatusCode: http.StatusOK, Body: body},
+		normalizedIgnoredHeaders(nil),
+		nil,
+	)
+	if diff.BodyEqual || !diff.JSONDifferencesTruncated {
+		t.Fatalf("deep JSON comparison = %#v", diff)
+	}
+}
+
+func TestEnvironmentComparisonSummarizesCompositeDifferenceValues(t *testing.T) {
+	t.Parallel()
+	diff := compareEnvironmentResponses(
+		EnvironmentResponse{Name: "local", StatusCode: http.StatusOK, Body: `{"items":[1,2,3]}`},
+		EnvironmentResponse{Name: "test", StatusCode: http.StatusOK, Body: `{}`},
+		normalizedIgnoredHeaders(nil),
+		nil,
+	)
+	if len(diff.JSONDifferences) != 1 ||
+		diff.JSONDifferences[0].Baseline != "<array: 3 items>" {
+		t.Fatalf("composite difference preview = %#v", diff.JSONDifferences)
 	}
 }

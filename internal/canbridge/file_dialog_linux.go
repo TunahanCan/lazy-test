@@ -34,7 +34,10 @@ func openSystemFile(ctx context.Context, options fileDialogOptions) (string, err
 }
 
 func runLinuxFilePicker(ctx context.Context, binary string, arguments ...string) (string, error) {
-	output, err := exec.CommandContext(ctx, binary, arguments...).Output()
+	path, err := runFileDialogCommand(
+		ctx,
+		exec.CommandContext(ctx, binary, arguments...),
+	)
 	if err != nil {
 		if errors.Is(ctx.Err(), context.Canceled) {
 			return "", ctx.Err()
@@ -45,7 +48,6 @@ func runLinuxFilePicker(ctx context.Context, binary string, arguments ...string)
 		}
 		return "", err
 	}
-	path := strings.TrimSpace(string(output))
 	if path == "" {
 		return "", errFileDialogCanceled
 	}

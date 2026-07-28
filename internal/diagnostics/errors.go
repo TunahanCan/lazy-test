@@ -7,21 +7,25 @@ import (
 	"fmt"
 )
 
+// DiagnosticErrorCode is a stable machine-readable error category. Its JSON
+// representation remains a string.
+type DiagnosticErrorCode string
+
 const (
-	CodeInvalidInput     = "invalid_input"
-	CodeUnsafeMethod     = "unsafe_method"
-	CodeRequestFailed    = "request_failed"
-	CodeResponseTooLarge = "response_too_large"
-	CodeInvalidResponse  = "invalid_response"
-	CodeLimitExceeded    = "limit_exceeded"
+	CodeInvalidInput     DiagnosticErrorCode = "invalid_input"
+	CodeUnsafeMethod     DiagnosticErrorCode = "unsafe_method"
+	CodeRequestFailed    DiagnosticErrorCode = "request_failed"
+	CodeResponseTooLarge DiagnosticErrorCode = "response_too_large"
+	CodeInvalidResponse  DiagnosticErrorCode = "invalid_response"
+	CodeLimitExceeded    DiagnosticErrorCode = "limit_exceeded"
 )
 
 // DiagnosticError is safe to show to an end user. The wrapped cause is kept
 // for logs and errors.Is/errors.As, but is never included in Error().
 type DiagnosticError struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-	Hint    string `json:"hint,omitempty"`
+	Code    DiagnosticErrorCode `json:"code"`
+	Message string              `json:"message"`
+	Hint    string              `json:"hint,omitempty"`
 	cause   error
 }
 
@@ -39,7 +43,12 @@ func (e *DiagnosticError) Unwrap() error {
 	return e.cause
 }
 
-func newDiagnosticError(code, message, hint string, cause error) *DiagnosticError {
+func newDiagnosticError(
+	code DiagnosticErrorCode,
+	message string,
+	hint string,
+	cause error,
+) *DiagnosticError {
 	return &DiagnosticError{
 		Code:    code,
 		Message: message,
@@ -49,7 +58,7 @@ func newDiagnosticError(code, message, hint string, cause error) *DiagnosticErro
 }
 
 // ErrorCode extracts a stable error code for UI branching.
-func ErrorCode(err error) string {
+func ErrorCode(err error) DiagnosticErrorCode {
 	var diagnosticErr *DiagnosticError
 	if errors.As(err, &diagnosticErr) {
 		return diagnosticErr.Code

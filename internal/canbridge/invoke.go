@@ -41,11 +41,22 @@ const (
 	bridgeExecutionCollectionLibrarySerial
 )
 
+// ipcAdmissionLane classifies concurrent calls by operational purpose. Keeping
+// the lane on the method descriptor makes transport admission policy part of
+// the same catalog as dispatch and argument decoding.
+type ipcAdmissionLane uint8
+
+const (
+	ipcAdmissionConcurrent ipcAdmissionLane = iota
+	ipcAdmissionCancellation
+)
+
 type bridgeMethodDescriptor struct {
-	Name       string
-	Policy     bridgeExecutionPolicy
-	BusyResult func() any
-	invoke     bridgeMethodInvoker
+	Name          string
+	Policy        bridgeExecutionPolicy
+	AdmissionLane ipcAdmissionLane
+	BusyResult    func() any
+	invoke        bridgeMethodInvoker
 }
 
 type bridgeMethodInvoker func(*Bridge, string) (any, error)
@@ -64,6 +75,14 @@ func withBridgeExecutionPolicy(
 	return func(method *bridgeMethodDescriptor) {
 		method.Policy = policy
 		method.BusyResult = busyResult
+	}
+}
+
+func withBridgeAdmissionLane(
+	lane ipcAdmissionLane,
+) bridgeMethodOption {
+	return func(method *bridgeMethodDescriptor) {
+		method.AdmissionLane = lane
 	}
 }
 
@@ -157,6 +176,15 @@ func validateBridgeMethodDescriptor(method bridgeMethodDescriptor) error {
 	if method.invoke == nil {
 		return fmt.Errorf("bridge method %q has no invocation handler", method.Name)
 	}
+	switch method.AdmissionLane {
+	case ipcAdmissionConcurrent, ipcAdmissionCancellation:
+	default:
+		return fmt.Errorf(
+			"bridge method %q has unsupported admission lane %d",
+			method.Name,
+			method.AdmissionLane,
+		)
+	}
 	switch method.Policy {
 	case bridgeExecutionConcurrent:
 		if method.BusyResult != nil {
@@ -166,6 +194,12 @@ func validateBridgeMethodDescriptor(method bridgeMethodDescriptor) error {
 			)
 		}
 	case bridgeExecutionCollectionLibrarySerial:
+		if method.AdmissionLane != ipcAdmissionConcurrent {
+			return fmt.Errorf(
+				"serial bridge method %q has an unused admission lane",
+				method.Name,
+			)
+		}
 		if method.BusyResult == nil {
 			return fmt.Errorf(
 				"serial bridge method %q has no typed busy result",
@@ -236,7 +270,11 @@ var bridgeMethodRegistry = mustBridgeMethodCatalog(
 		),
 	),
 	registerBridgeMethod1(bridgeMethodSendRequest, (*Bridge).SendRequest),
-	registerBridgeMethod1(bridgeMethodCancelRequest, (*Bridge).CancelRequest),
+	registerBridgeMethod1(
+		bridgeMethodCancelRequest,
+		(*Bridge).CancelRequest,
+		withBridgeAdmissionLane(ipcAdmissionCancellation),
+	),
 	registerBridgeMethod0(bridgeMethodImportOpenAPI, (*Bridge).ImportOpenAPI),
 	registerBridgeMethod1(
 		bridgeMethodValidateOpenAPIResponse,
@@ -255,6 +293,7 @@ var bridgeMethodRegistry = mustBridgeMethodCatalog(
 	registerBridgeMethod1(
 		bridgeMethodCancelToolOperation,
 		(*Bridge).CancelToolOperation,
+		withBridgeAdmissionLane(ipcAdmissionCancellation),
 	),
 	registerBridgeMethod1(bridgeMethodInspectActuator, (*Bridge).InspectActuator),
 	registerBridgeMethod1(
@@ -297,6 +336,21 @@ func busyResultForBridgeMethod(methodName string) (any, bool) {
 		return nil, false
 	}
 	return method.BusyResult(), true
+}
+
+func admissionLaneForBridgeMethod(methodName string) ipcAdmissionLane {
+	method, ok := bridgeMethodForName(methodName)
+	if !ok {
+		return ipcAdmissionConcurrent
+	}
+	return method.AdmissionLane
+}
+
+func (lane ipcAdmissionLane) String() string {
+	if lane == ipcAdmissionCancellation {
+		return "cancellation"
+	}
+	return "concurrent"
 }
 
 // Invoke dispatches the small, explicit API exposed to the frontend. Keeping an

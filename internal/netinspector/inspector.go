@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"validex/internal/httpexec"
 )
 
 const (
@@ -60,8 +62,9 @@ type Resolver interface {
 	LookupIPAddr(context.Context, string) ([]net.IPAddr, error)
 }
 
-// HTTPDoer executes one HTTP request. Implementations must return the response
-// for that request without automatically following redirects.
+// HTTPDoer executes one HTTP request. Generic implementations must return the
+// response without automatically following redirects. Injected *http.Client
+// values are cloned with redirect following disabled.
 type HTTPDoer interface {
 	Do(*http.Request) (*http.Response, error)
 }
@@ -191,9 +194,18 @@ func New(options Options) (*Inspector, error) {
 		resolver = net.DefaultResolver
 	}
 	httpClient := options.HTTPClient
+	if client, ok := httpClient.(*http.Client); ok {
+		if client == nil {
+			httpClient = nil
+		} else {
+			cloned := *client
+			cloned.CheckRedirect = stopRedirects
+			httpClient = &cloned
+		}
+	}
 	var closeIdleConnections func()
 	if httpClient == nil {
-		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport := cloneHTTPTransport(http.DefaultTransport)
 		transport.DisableCompression = true
 		transport.MaxResponseHeaderBytes = maxResponseHeaderBytes
 		tlsConfig := transport.TLSClientConfig
@@ -210,10 +222,8 @@ func New(options Options) (*Inspector, error) {
 		tlsConfig.InsecureSkipVerify = options.InsecureSkipVerify //nolint:gosec
 		transport.TLSClientConfig = tlsConfig
 		httpClient = &http.Client{
-			Transport: transport,
-			CheckRedirect: func(*http.Request, []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
+			Transport:     transport,
+			CheckRedirect: stopRedirects,
 		}
 		closeIdleConnections = transport.CloseIdleConnections
 	}
@@ -433,7 +443,10 @@ func (inspector *Inspector) execute(
 
 	hop.StatusCode = response.StatusCode
 	hop.Location = response.Header.Get("Location")
-	if responseHeadersExceed(response.Header, inspector.maxResponseHeaderBytes) {
+	if httpexec.ResponseHeadersExceed(
+		response.Header,
+		inspector.maxResponseHeaderBytes,
+	) {
 		return hop, fmt.Errorf(
 			"%w: %s %s",
 			ErrResponseHeadersTooLarge,
@@ -611,27 +624,15 @@ func isRedirectStatus(status int) bool {
 	}
 }
 
-func responseHeadersExceed(headers http.Header, limit int64) bool {
-	var size int64
-	for name, values := range headers {
-		if addExceeds(&size, int64(len(name))+4, limit) {
-			return true
-		}
-		for _, value := range values {
-			if addExceeds(&size, int64(len(value))+2, limit) {
-				return true
-			}
-		}
+func cloneHTTPTransport(base http.RoundTripper) *http.Transport {
+	if transport, ok := base.(*http.Transport); ok && transport != nil {
+		return transport.Clone()
 	}
-	return false
+	return &http.Transport{Proxy: http.ProxyFromEnvironment}
 }
 
-func addExceeds(total *int64, amount, limit int64) bool {
-	if amount > limit-*total {
-		return true
-	}
-	*total += amount
-	return false
+func stopRedirects(*http.Request, []*http.Request) error {
+	return http.ErrUseLastResponse
 }
 
 func elapsedMilliseconds(started time.Time) int64 {

@@ -385,6 +385,23 @@ func TestExecutorNeverClosesCallerOwnedCustomTransport(t *testing.T) {
 	}
 }
 
+func TestExecutorCloseIdleConnectionsRemainsRepeatable(t *testing.T) {
+	t.Parallel()
+	var calls atomic.Int32
+	executor := &Executor{
+		closeIdle: []func(){func() {
+			calls.Add(1)
+		}},
+	}
+
+	executor.CloseIdleConnections()
+	executor.CloseIdleConnections()
+
+	if calls.Load() != 2 {
+		t.Fatalf("close-idle calls = %d, want 2", calls.Load())
+	}
+}
+
 func TestResponseHeadersExceedUsesBoundedAccounting(t *testing.T) {
 	t.Parallel()
 	header := http.Header{"X-Test": {strings.Repeat("x", 8)}}

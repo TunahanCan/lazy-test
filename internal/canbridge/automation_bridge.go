@@ -49,7 +49,7 @@ func (b *Bridge) RunCollection(input CollectionRunInput) CollectionRunResult {
 	ctx, finish, err := b.beginToolOperation(input.OperationID)
 	if err != nil {
 		return CollectionRunResult{Error: automationError(
-			"collection_operation_invalid",
+			UserErrorCollectionOperationInvalid,
 			"Collection çalıştırılamadı",
 			"Collection işlemi başlatılamadı.",
 			"Aynı operationId ile çalışan başka bir işlem olmadığını kontrol edin.",
@@ -65,7 +65,7 @@ func (b *Bridge) RunCollection(input CollectionRunInput) CollectionRunResult {
 	)
 	if err != nil {
 		return CollectionRunResult{Error: automationError(
-			"collection_invalid",
+			UserErrorCollectionInvalid,
 			"Collection çalıştırılamadı",
 			"Collection JSON tanımı geçerli değil.",
 			"JSON yapısını, request alanlarını ve assertion kurallarını kontrol edin.",
@@ -74,7 +74,7 @@ func (b *Bridge) RunCollection(input CollectionRunInput) CollectionRunResult {
 	}
 	if err := ctx.Err(); err != nil {
 		return CollectionRunResult{Error: automationContextError(
-			"collection_run_failed",
+			UserErrorCollectionRunFailed,
 			"Collection tamamlanamadı",
 			"Collection çalıştırılmadan önce iptal edildi.",
 			err,
@@ -92,7 +92,7 @@ func (b *Bridge) RunCollection(input CollectionRunInput) CollectionRunResult {
 	result := CollectionRunResult{Report: &report}
 	if runErr != nil {
 		result.Error = automationContextError(
-			"collection_run_failed",
+			UserErrorCollectionRunFailed,
 			"Collection tamamlanamadı",
 			"Collection çalışırken beklenmeyen bir hata oluştu.",
 			runErr,
@@ -105,7 +105,7 @@ func (b *Bridge) AnalyzeNetwork(input NetworkInspectInput) NetworkInspectResult 
 	ctx, finish, err := b.beginToolOperation(input.OperationID)
 	if err != nil {
 		return NetworkInspectResult{Error: automationError(
-			"network_operation_invalid",
+			UserErrorNetworkOperationInvalid,
 			"Ağ analizi başlatılamadı",
 			"DNS ve redirect işlemi başlatılamadı.",
 			"Aynı operationId ile çalışan başka bir işlem olmadığını kontrol edin.",
@@ -122,7 +122,7 @@ func (b *Bridge) AnalyzeNetwork(input NetworkInspectInput) NetworkInspectResult 
 	result := NetworkInspectResult{Report: &report}
 	if inspectErr != nil {
 		result.Error = automationContextError(
-			"network_inspection_failed",
+			UserErrorNetworkInspectionFailed,
 			"Ağ analizi tamamlanamadı",
 			"DNS çözümü veya redirect zinciri tamamlanamadı.",
 			inspectErr,
@@ -135,7 +135,7 @@ func (b *Bridge) LintOpenAPI() OpenAPILintResult {
 	ctx := b.runtimeContext()
 	if ctx == nil {
 		return OpenAPILintResult{Error: automationError(
-			"runtime_unavailable",
+			UserErrorRuntimeUnavailable,
 			"OpenAPI dosyası seçilemedi",
 			"Desktop runtime henüz hazır değil.",
 			"Uygulamayı native canbridge runtime içinde açın.",
@@ -148,7 +148,7 @@ func (b *Bridge) LintOpenAPI() OpenAPILintResult {
 	})
 	if err != nil {
 		return OpenAPILintResult{Error: automationError(
-			"file_dialog_failed",
+			UserErrorFileDialogFailed,
 			"OpenAPI dosyası seçilemedi",
 			"Sistem dosya seçicisi tamamlanamadı.",
 			"Dosya izinlerini ve masaüstü ortamını kontrol edin.",
@@ -159,12 +159,16 @@ func (b *Bridge) LintOpenAPI() OpenAPILintResult {
 		return OpenAPILintResult{Canceled: true}
 	}
 
-	report, err := openapilint.LintFile(path, openapilint.Options{})
+	report, err := openapilint.LintFileContext(
+		ctx,
+		path,
+		openapilint.Options{},
+	)
 	if err != nil {
 		return OpenAPILintResult{
 			Path: path,
 			Error: automationError(
-				"openapi_lint_failed",
+				UserErrorOpenAPILintFailed,
 				"OpenAPI lint tamamlanamadı",
 				"OpenAPI dosyası okunamadı.",
 				"Dosya izinlerini ve dosyanın hâlâ mevcut olduğunu kontrol edin.",
@@ -183,7 +187,7 @@ func milliseconds(value int) time.Duration {
 }
 
 func automationContextError(
-	code string,
+	code UserErrorCode,
 	title string,
 	message string,
 	err error,
@@ -191,13 +195,13 @@ func automationContextError(
 	switch {
 	case errors.Is(err, context.Canceled):
 		return &UserError{
-			Code:    "tool_canceled",
+			Code:    UserErrorToolCanceled,
 			Title:   title,
 			Message: "İşlem kullanıcı tarafından iptal edildi.",
 		}
 	case errors.Is(err, context.DeadlineExceeded):
 		return &UserError{
-			Code:    "tool_timeout",
+			Code:    UserErrorToolTimeout,
 			Title:   title,
 			Message: "İşlem belirtilen timeout süresinde tamamlanamadı.",
 			Hint:    "Timeout değerini artırın veya hedef servisi kontrol edin.",
@@ -214,7 +218,7 @@ func automationContextError(
 }
 
 func automationError(
-	code string,
+	code UserErrorCode,
 	title string,
 	message string,
 	hint string,

@@ -245,7 +245,7 @@ func TestRunPreservesOrderedDuplicateAndSpecialHeaders(t *testing.T) {
 	sender := NewHTTPSender(nil)
 	defer sender.CloseIdleConnections()
 	report, err := Run(context.Background(), Collection{
-		Version: 2,
+		Version: CollectionVersionV2,
 		Requests: []Request{{
 			Method: http.MethodGet,
 			URL:    server.URL,

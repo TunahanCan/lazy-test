@@ -1,6 +1,7 @@
 package mockserver
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -12,6 +13,7 @@ import (
 	"github.com/getkin/kin-openapi/openapi3"
 
 	"validex/internal/core"
+	"validex/internal/httpmedia"
 )
 
 const (
@@ -128,14 +130,42 @@ func (b *openAPIImportBudget) consumeBodyBytes(count int64) error {
 // response. Explicit response examples are used before deterministic
 // schema-derived JSON samples.
 func ImportOpenAPI(path string) ([]Route, error) {
-	endpoints, _, err := core.LoadOpenAPI(path)
+	return ImportOpenAPIContext(context.Background(), path)
+}
+
+// ImportOpenAPIContext converts an OpenAPI document while honoring caller
+// cancellation between load, route, and sample-generation phases.
+func ImportOpenAPIContext(
+	ctx context.Context,
+	path string,
+) ([]Route, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	endpoints, _, err := core.LoadOpenAPIContext(ctx, path)
 	if err != nil {
 		return nil, err
 	}
-	return importOpenAPIEndpoints(endpoints, defaultOpenAPIImportLimits())
+	return importOpenAPIEndpointsContext(
+		ctx,
+		endpoints,
+		defaultOpenAPIImportLimits(),
+	)
 }
 
 func importOpenAPIEndpoints(
+	endpoints []core.Endpoint,
+	limits openAPIImportLimits,
+) ([]Route, error) {
+	return importOpenAPIEndpointsContext(
+		context.Background(),
+		endpoints,
+		limits,
+	)
+}
+
+func importOpenAPIEndpointsContext(
+	ctx context.Context,
 	endpoints []core.Endpoint,
 	limits openAPIImportLimits,
 ) ([]Route, error) {
@@ -143,16 +173,24 @@ func importOpenAPIEndpoints(
 	if err := budget.consumeRoutes(int64(len(endpoints))); err != nil {
 		return nil, err
 	}
-	sort.Slice(endpoints, func(i, j int) bool {
-		if endpoints[i].Path == endpoints[j].Path {
-			return endpoints[i].Method < endpoints[j].Method
+	orderedEndpoints := append([]core.Endpoint(nil), endpoints...)
+	sort.Slice(orderedEndpoints, func(i, j int) bool {
+		if orderedEndpoints[i].Path == orderedEndpoints[j].Path {
+			return orderedEndpoints[i].Method < orderedEndpoints[j].Method
 		}
-		return endpoints[i].Path < endpoints[j].Path
+		return orderedEndpoints[i].Path < orderedEndpoints[j].Path
 	})
 
-	routes := make([]Route, 0, len(endpoints))
-	for _, endpoint := range endpoints {
-		status, response := selectResponse(endpoint.Schema.Responses)
+	routes := make([]Route, 0, len(orderedEndpoints))
+	for _, endpoint := range orderedEndpoints {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		var responses *openapi3.Responses
+		if endpoint.Operation != nil {
+			responses = endpoint.Operation.Responses
+		}
+		status, response := selectResponse(responses)
 		body, err := responseBody(response, status)
 		if err != nil {
 			return nil, fmt.Errorf("%s %s response: %w", endpoint.Method, endpoint.Path, err)
@@ -297,7 +335,7 @@ func preferredMediaType(content openapi3.Content) *openapi3.MediaType {
 	}
 	sort.Strings(keys)
 	for _, key := range keys {
-		if strings.Contains(strings.ToLower(key), "json") && content[key] != nil {
+		if httpmedia.IsJSON(key) && content[key] != nil {
 			return content[key]
 		}
 	}
@@ -462,13 +500,19 @@ func (v *schemaSampleVisitor) visit(ref *openapi3.SchemaRef, depth int) (any, er
 	}
 
 	schemaType := ""
+	sawNullType := false
 	if schema.Type != nil {
 		for _, candidate := range schema.Type.Slice() {
-			if candidate != "null" {
-				schemaType = candidate
-				break
+			if candidate == "null" {
+				sawNullType = true
+				continue
 			}
+			schemaType = candidate
+			break
 		}
+	}
+	if schemaType == "" && sawNullType {
+		schemaType = "null"
 	}
 	if schemaType == "" {
 		switch {

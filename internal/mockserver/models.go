@@ -7,6 +7,22 @@ const (
 	// DefaultHitLimit is the number of recent requests retained when no limit is
 	// supplied.
 	DefaultHitLimit = 500
+	// MaxHitLimit is the largest in-memory hit ring accepted by New.
+	MaxHitLimit = 10_000
+	// MaxRoutes bounds one installed route-table snapshot.
+	MaxRoutes = 2_000
+	// MaxRouteBodyBytes bounds one retained JSON response body.
+	MaxRouteBodyBytes = 1 << 20
+	// MaxRouteTableBodyBytes bounds all retained response bodies together.
+	MaxRouteTableBodyBytes = 32 << 20
+	// MaxRouteHeaders bounds response metadata per route.
+	MaxRouteHeaders = 128
+	// MaxRouteHeaderBytes bounds all names and values on one route.
+	MaxRouteHeaderBytes = 64 << 10
+	// MaxRoutePathBytes bounds path-template and regexp construction.
+	MaxRoutePathBytes = 4 << 10
+	// MaxRouteIDBytes bounds stable route identifiers.
+	MaxRouteIDBytes = 256
 
 	// MaxDelayMS prevents an accidentally large route delay from leaving mock
 	// requests hanging indefinitely.
@@ -16,7 +32,7 @@ const (
 // Options controls server-wide behavior.
 type Options struct {
 	// HitLimit bounds the in-memory request log. Values below one use
-	// DefaultHitLimit.
+	// DefaultHitLimit; values above MaxHitLimit are clamped.
 	HitLimit int `json:"hitLimit"`
 	// EnableCORS adds permissive development CORS headers and handles browser
 	// preflight requests. The server is still bound exclusively to 127.0.0.1.

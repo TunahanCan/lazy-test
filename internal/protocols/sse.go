@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -22,6 +23,8 @@ const (
 	defaultSSEMaxEventBytes    = int64(1 << 20)
 	maxSSERedirects            = 5
 )
+
+var errSSELineLimitExceeded = errors.New("SSE line limit exceeded")
 
 // SSERequest configures a bounded Server-Sent Events read.
 type SSERequest struct {
@@ -127,6 +130,10 @@ func ReadSSE(parent context.Context, input SSERequest) (SSEResult, error) {
 			Body:       strings.TrimSpace(string(excerpt)),
 		}
 	}
+	if err := validateSSEContentType(response.Header.Get("Content-Type")); err != nil {
+		result.Duration = time.Since(started)
+		return result, err
+	}
 
 	events, err := parseSSE(ctx, response.Body, maxEvents, maxResponseBytes, maxEventBytes)
 	result.Events = events
@@ -162,6 +169,14 @@ func validateSSEURL(raw string) (*url.URL, error) {
 		)
 	}
 	return parsed, nil
+}
+
+func validateSSEContentType(value string) error {
+	mediaType, _, err := mime.ParseMediaType(value)
+	if err != nil || !strings.EqualFold(mediaType, "text/event-stream") {
+		return &ContentTypeError{ContentType: value}
+	}
+	return nil
 }
 
 func normalizeSSELimits(input SSERequest) (int, int64, int64, error) {
@@ -248,12 +263,21 @@ func parseSSE(
 		if err := ctx.Err(); err != nil {
 			return events, err
 		}
-		line, readErr := reader.ReadString('\n')
-		totalBytes += int64(len(line))
+		responseRemaining := maxResponseBytes - totalBytes
+		eventRemaining := maxEventBytes - eventBytes
+		lineLimit := min(responseRemaining, eventRemaining)
+		line, consumed, readErr := readBoundedSSELine(reader, lineLimit)
+		totalBytes += consumed
+		eventBytes += consumed
+		if errors.Is(readErr, errSSELineLimitExceeded) {
+			if responseRemaining <= eventRemaining {
+				return events, fmt.Errorf("%w: SSE response exceeds %d bytes", ErrLimitExceeded, maxResponseBytes)
+			}
+			return events, fmt.Errorf("%w: SSE event exceeds %d bytes", ErrLimitExceeded, maxEventBytes)
+		}
 		if totalBytes > maxResponseBytes {
 			return events, fmt.Errorf("%w: SSE response exceeds %d bytes", ErrLimitExceeded, maxResponseBytes)
 		}
-		eventBytes += int64(len(line))
 		if eventBytes > maxEventBytes {
 			return events, fmt.Errorf("%w: SSE event exceeds %d bytes", ErrLimitExceeded, maxEventBytes)
 		}
@@ -302,6 +326,28 @@ func parseSSE(
 		}
 	}
 	return events, nil
+}
+
+func readBoundedSSELine(
+	reader *bufio.Reader,
+	maxBytes int64,
+) (line string, consumed int64, err error) {
+	var builder strings.Builder
+	for {
+		fragment, readErr := reader.ReadSlice('\n')
+		consumed += int64(len(fragment))
+		if consumed > maxBytes {
+			return "", consumed, errSSELineLimitExceeded
+		}
+		if builder.Len() == 0 && !errors.Is(readErr, bufio.ErrBufferFull) {
+			return string(fragment), consumed, readErr
+		}
+		builder.Write(fragment)
+		if errors.Is(readErr, bufio.ErrBufferFull) {
+			continue
+		}
+		return builder.String(), consumed, readErr
+	}
 }
 
 func allASCIIDigits(value string) bool {

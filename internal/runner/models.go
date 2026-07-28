@@ -37,18 +37,35 @@ const (
 	maxHeaderValueBytes        = 64 << 10
 )
 
+// CollectionVersion is a closed domain value. It is string-backed so callers
+// cannot accidentally apply numeric ordering to format compatibility, while
+// its JSON representation remains the historical integer.
+type CollectionVersion string
+
 const (
-	FailureInvalidRequest          = "invalid_request"
-	FailureMissingVariables        = "missing_variables"
-	FailureRequestBodyTooLarge     = "request_body_too_large"
-	FailureResponseBodyTooLarge    = "response_body_too_large"
-	FailureResponseHeadersTooLarge = "response_headers_too_large"
-	FailureUnsupportedEncoding     = "unsupported_content_encoding"
-	FailureTooManyEncodings        = "too_many_content_encodings"
-	FailureResponseDecodeFailed    = "response_decode_failed"
-	FailureRequestTimeout          = "request_timeout"
-	FailureRequestCanceled         = "request_canceled"
-	FailureSendFailed              = "send_failed"
+	// CollectionVersionUnspecified is the historical wire default. Missing,
+	// null, and zero version fields use the v1 compatibility rules.
+	CollectionVersionUnspecified CollectionVersion = ""
+	CollectionVersionV1          CollectionVersion = "1"
+	CollectionVersionV2          CollectionVersion = "2"
+	CurrentCollectionVersion     CollectionVersion = CollectionVersionV2
+)
+
+// FailureCode is a stable machine-readable report failure category.
+type FailureCode string
+
+const (
+	FailureInvalidRequest          FailureCode = "invalid_request"
+	FailureMissingVariables        FailureCode = "missing_variables"
+	FailureRequestBodyTooLarge     FailureCode = "request_body_too_large"
+	FailureResponseBodyTooLarge    FailureCode = "response_body_too_large"
+	FailureResponseHeadersTooLarge FailureCode = "response_headers_too_large"
+	FailureUnsupportedEncoding     FailureCode = "unsupported_content_encoding"
+	FailureTooManyEncodings        FailureCode = "too_many_content_encodings"
+	FailureResponseDecodeFailed    FailureCode = "response_decode_failed"
+	FailureRequestTimeout          FailureCode = "request_timeout"
+	FailureRequestCanceled         FailureCode = "request_canceled"
+	FailureSendFailed              FailureCode = "send_failed"
 )
 
 // Limits bounds collection decoding and request execution. Zero values use
@@ -91,7 +108,7 @@ type Options struct {
 
 // Collection is the JSON-serializable sequential request model.
 type Collection struct {
-	Version   int               `json:"version,omitempty"`
+	Version   CollectionVersion `json:"version,omitempty"`
 	Name      string            `json:"name,omitempty"`
 	Variables map[string]string `json:"variables,omitempty"`
 	Requests  []Request         `json:"requests"`
@@ -151,9 +168,9 @@ type Sender interface {
 
 // Failure is a stable, user-readable execution failure.
 type Failure struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-	Hint    string `json:"hint,omitempty"`
+	Code    FailureCode `json:"code"`
+	Message string      `json:"message"`
+	Hint    string      `json:"hint,omitempty"`
 }
 
 // RequestResult is one execution result.

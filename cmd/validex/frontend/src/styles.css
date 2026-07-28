@@ -2023,7 +2023,9 @@ kbd {
   display: grid;
   height: 100%;
   min-height: 0;
-  grid-template-rows: 32px minmax(0, 1fr);
+  grid-template-rows: 39px minmax(0, 1fr);
+  overflow: hidden;
+  background: var(--surface-inset);
 }
 
 .response-tab-content {
@@ -2034,24 +2036,83 @@ kbd {
 
 .response-toolbar {
   display: flex;
+  min-width: 0;
   align-items: center;
   justify-content: space-between;
-  padding: 0 6px;
+  gap: 12px;
+  padding: 0 9px 0 11px;
   border-bottom: 1px solid var(--border);
-  background: var(--surface-muted);
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--accent-soft) 34%, transparent),
+      transparent 38%
+    ),
+    var(--surface-muted);
+}
+
+.response-view-meta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
 }
 
 .response-format-label {
   display: inline-flex;
+  min-width: 54px;
+  height: 22px;
   align-items: center;
+  justify-content: center;
   gap: 5px;
-  padding-left: 4px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
   color: var(--text-muted);
-  font-size: 12px;
+  font: 700 10px/1 "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  letter-spacing: 0.06em;
+}
+
+.response-format-indicator {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 14%, transparent);
+}
+
+.response-view-description {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .response-toolbar-actions {
   display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+.response-body[data-response-kind="json"] .response-format-label {
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--border));
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.response-body[data-response-kind="xml"] .response-format-label {
+  border-color: color-mix(in srgb, var(--warning) 30%, var(--border));
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.response-body[data-response-kind="base64"] .response-format-label {
+  border-color: color-mix(in srgb, var(--danger) 28%, var(--border));
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 
 .kv-table {
@@ -2188,15 +2249,76 @@ kbd {
   font-size: 11px;
 }
 
-.raw-response {
-  min-height: 100%;
+.response-code {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
   margin: 0;
-  padding: 12px;
+  padding: 16px 18px 40px;
   overflow: auto;
-  background: var(--surface-muted);
+  border: 0;
+  outline: none;
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--accent) 8%, transparent) 0,
+      transparent 3px
+    ),
+    var(--surface-inset);
   color: var(--text-secondary);
-  font: 12px/1.6 "SFMono-Regular", Consolas, monospace;
-  white-space: pre-wrap;
+  font: 12px/1.68 "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  tab-size: 2;
+  white-space: pre;
+}
+
+.response-code:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--focus);
+}
+
+.response-code code {
+  color: inherit;
+  font: inherit;
+}
+
+.response-code::selection,
+.response-code code::selection,
+.response-code code *::selection {
+  background: color-mix(in srgb, var(--accent) 27%, transparent);
+}
+
+.response-syntax-punctuation {
+  color: var(--text-muted);
+}
+
+.response-syntax-key,
+.response-syntax-tag {
+  color: var(--accent);
+  font-weight: 620;
+}
+
+.response-syntax-string,
+.response-syntax-cdata {
+  color: var(--success);
+}
+
+.response-syntax-number,
+.response-syntax-literal {
+  color: var(--method-patch);
+}
+
+.response-syntax-attribute {
+  color: var(--method-post);
+}
+
+.response-syntax-comment {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.response-syntax-declaration {
+  color: var(--warning);
 }
 
 .user-error-card {
@@ -6396,8 +6518,7 @@ label.diagnostics-field {
   grid-template-rows: auto minmax(0, 1fr);
 }
 
-.body-editor-toolbar,
-.response-body-actions {
+.body-editor-toolbar {
   display: flex;
   min-height: 35px;
   align-items: center;
@@ -6456,21 +6577,6 @@ label.diagnostics-field {
 .status-mark.danger {
   background: var(--danger-soft);
   color: var(--danger);
-}
-
-.response-body-editor {
-  display: grid;
-  height: 100%;
-  min-height: 0;
-  grid-template-rows: 35px minmax(0, 1fr);
-  overflow: hidden;
-}
-
-.response-body-editor > .response-body {
-  display: block;
-  width: 100%;
-  height: 100%;
-  min-height: 0;
 }
 
 .response-kv-table .kv-header,

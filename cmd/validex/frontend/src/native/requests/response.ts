@@ -1,5 +1,11 @@
 import { html, type TrustedHTMLFragment } from "../../core/dom.js";
 import { icon, type IconName } from "../../core/icons.js";
+import {
+  responseBodyViewModel,
+  type ResponseBodySection,
+  type ResponseBodyViewKind,
+  type ResponseBodyViewModel,
+} from "../../features/requests/model/responsePresentation.js";
 import { t } from "../../i18n/locale.js";
 import type {
   ContractFinding,
@@ -477,6 +483,73 @@ function contractResult(response: ResponseEnvelope): TrustedHTMLFragment {
   `;
 }
 
+const responseBodyKindLabels: Readonly<Record<ResponseBodyViewKind, string>> = {
+  json: "JSON",
+  xml: "XML",
+  text: "TEXT",
+  base64: "BASE64",
+};
+
+function responseSyntaxMarkup(
+  view: ResponseBodyViewModel,
+): TrustedHTMLFragment {
+  if (!view.highlighted) return html`${view.text}`;
+  return html`${view.tokens.map(
+    (token) =>
+      html`<span class="response-syntax-${token.kind}">${token.text}</span>`,
+  )}`;
+}
+
+function responseBodyViewer(
+  response: ResponseEnvelope,
+  section: ResponseBodySection,
+): TrustedHTMLFragment {
+  const view = responseBodyViewModel(response, section);
+  const formatLabel = responseBodyKindLabels[view.kind];
+  const viewLabel = view.raw
+    ? t("requests.response.section.raw")
+    : view.formatted
+      ? t("requests.response.formatted")
+      : t("requests.response.section.body");
+  const copyAction = view.raw ? "copy-raw-response" : "copy-response";
+  const copyLabel = view.raw
+    ? t("requests.response.copyRaw")
+    : t("requests.response.copyBody");
+
+  return html`
+    <div
+      class="response-body"
+      data-response-kind="${view.kind}"
+      data-response-highlighted="${view.highlighted ? "true" : "false"}"
+    >
+      <div class="response-toolbar">
+        <div class="response-view-meta">
+          <span class="response-format-label">
+            <span class="response-format-indicator" aria-hidden="true"></span>
+            ${formatLabel}
+          </span>
+          <span class="response-view-description">${viewLabel}</span>
+        </div>
+        <div class="response-toolbar-actions">
+          <button
+            type="button"
+            class="button ghost sm"
+            data-action="${copyAction}"
+            title="${copyLabel}"
+          >
+            ${icon("copy", 13)} ${copyLabel}
+          </button>
+        </div>
+      </div>
+      <pre
+        class="response-code"
+        tabindex="0"
+        aria-label="${viewLabel}: ${formatLabel}"
+      ><code>${responseSyntaxMarkup(view)}</code></pre>
+    </div>
+  `;
+}
+
 function responseContent(
   tab: RequestTab,
   active: ResponseSection,
@@ -544,21 +617,7 @@ function responseContent(
       return contractResult(response);
     case "raw":
       return response.rawBody
-        ? html`
-            <div class="response-body-editor">
-              <div class="response-body-actions">
-                <button
-                  type="button"
-                  class="button ghost sm"
-                  data-action="copy-raw-response"
-                  title="${t("requests.response.copyRaw")}"
-                >
-                  ${icon("copy", 13)} ${t("requests.response.copyRaw")}
-                </button>
-              </div>
-              <pre class="raw-response" tabindex="0">${response.rawBody}</pre>
-            </div>
-          `
+        ? responseBodyViewer(response, "raw")
         : emptyState(
             t("requests.response.rawEmpty.title"),
             t("requests.response.rawEmpty.description"),
@@ -566,21 +625,7 @@ function responseContent(
     case "body":
     default:
       return response.body
-        ? html`
-            <div class="response-body-editor">
-              <div class="response-body-actions">
-                <button
-                  type="button"
-                  class="button ghost sm"
-                  data-action="copy-response"
-                  title="${t("requests.response.copyBody")}"
-                >
-                  ${icon("copy", 13)} ${t("requests.response.copyBody")}
-                </button>
-              </div>
-              <pre class="raw-response response-body" tabindex="0">${response.body}</pre>
-            </div>
-          `
+        ? responseBodyViewer(response, "body")
         : emptyState(
             t("requests.response.rawEmpty.title"),
             t("requests.response.rawEmpty.description"),

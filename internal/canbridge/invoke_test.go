@@ -131,6 +131,13 @@ func TestBridgeMethodCatalogValidation(t *testing.T) {
 	invalidPolicy := valid
 	invalidPolicy.Name = "InvalidPolicy"
 	invalidPolicy.Policy = bridgeExecutionPolicy(255)
+	invalidLane := valid
+	invalidLane.Name = "InvalidLane"
+	invalidLane.AdmissionLane = ipcAdmissionLane(255)
+	serialWithLane := serialWithoutBusy
+	serialWithLane.Name = "SerialWithLane"
+	serialWithLane.BusyResult = func() any { return false }
+	serialWithLane.AdmissionLane = ipcAdmissionCancellation
 
 	tests := []struct {
 		name    string
@@ -175,6 +182,16 @@ func TestBridgeMethodCatalogValidation(t *testing.T) {
 			name:    "unsupported policy",
 			methods: []bridgeMethodDescriptor{invalidPolicy},
 			want:    "unsupported execution policy",
+		},
+		{
+			name:    "unsupported admission lane",
+			methods: []bridgeMethodDescriptor{invalidLane},
+			want:    "unsupported admission lane",
+		},
+		{
+			name:    "serial admission lane",
+			methods: []bridgeMethodDescriptor{serialWithLane},
+			want:    "unused admission lane",
 		},
 	}
 
@@ -246,6 +263,19 @@ func TestBridgeMethodRegistryHasUniqueNamesAndCollectionPolicy(t *testing.T) {
 	if policy := executionPolicyForBridgeMethod(bridgeMethodBootstrap); policy !=
 		bridgeExecutionConcurrent {
 		t.Fatalf("Bootstrap policy = %d, want concurrent", policy)
+	}
+	for _, method := range []string{
+		bridgeMethodCancelRequest,
+		bridgeMethodCancelToolOperation,
+	} {
+		if lane := admissionLaneForBridgeMethod(method); lane !=
+			ipcAdmissionCancellation {
+			t.Fatalf("%s lane = %d, want cancellation", method, lane)
+		}
+	}
+	if lane := admissionLaneForBridgeMethod(bridgeMethodBootstrap); lane !=
+		ipcAdmissionConcurrent {
+		t.Fatalf("Bootstrap lane = %d, want concurrent", lane)
 	}
 	if _, ok := bridgeMethodForName("NotRegistered"); ok {
 		t.Fatal("unknown method exists in registry index")

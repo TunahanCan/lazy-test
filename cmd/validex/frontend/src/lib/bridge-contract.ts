@@ -108,5 +108,11 @@ export function normalizeLogSearchResult(
 export function normalizeCoverageResult(
   result: CoverageResult,
 ): CoverageResult {
-  return { ...result, endpoints: listOrEmpty(result.endpoints) };
+  return {
+    ...result,
+    endpoints: listOrEmpty(result.endpoints).map((endpoint) => ({
+      ...endpoint,
+      observedPathsTruncated: endpoint.observedPathsTruncated === true,
+    })),
+  };
 }

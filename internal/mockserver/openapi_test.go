@@ -93,6 +93,30 @@ paths:
 	}
 }
 
+func TestImportOpenAPIEndpointsDoesNotMutateInputAndHandlesMissingOperation(t *testing.T) {
+	t.Parallel()
+	endpoints := []core.Endpoint{
+		{Method: http.MethodPost, Path: "/z", Operation: &openapi3.Operation{}},
+		{Method: http.MethodGet, Path: "/a"},
+	}
+
+	routes, err := importOpenAPIEndpoints(
+		endpoints,
+		defaultOpenAPIImportLimits(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if endpoints[0].Path != "/z" || endpoints[1].Path != "/a" {
+		t.Fatalf("input endpoint order was mutated: %#v", endpoints)
+	}
+	if len(routes) != 2 ||
+		routes[0].ID != "GET /a" ||
+		routes[0].Body != "{}" {
+		t.Fatalf("routes = %#v", routes)
+	}
+}
+
 func TestSelectResponseUsesDocumentedDeterministicPriority(t *testing.T) {
 	t.Parallel()
 
@@ -193,6 +217,24 @@ paths:
 	}
 	if body.Sequence != 3 {
 		t.Fatalf("sequence = %d, want 3", body.Sequence)
+	}
+}
+
+func TestSchemaSampleVisitorSupportsNullOnlySchema(t *testing.T) {
+	t.Parallel()
+	types := openapi3.Types{"null"}
+	schema := openapi3.NewSchema()
+	schema.Type = &types
+	sample, err := sampleFromSchema(
+		&openapi3.SchemaRef{Value: schema},
+		nil,
+		0,
+	)
+	if err != nil {
+		t.Fatalf("sampleFromSchema() error = %v", err)
+	}
+	if sample != nil {
+		t.Fatalf("null-only schema sample = %#v, want nil", sample)
 	}
 }
 

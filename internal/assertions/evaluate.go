@@ -5,15 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"math/big"
 	"net/http"
 	"reflect"
-	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"validex/internal/jsonnumber"
 )
 
 const (
@@ -23,111 +22,41 @@ const (
 	maxNumericValueBytes  = 4 << 10
 	maxNumericExponent    = 4 << 10
 	maxReportedValueBytes = 8 << 10
+	maxEqualityDepth      = 256
+	maxEqualityNodes      = 10_000
 )
 
 // Validate checks target, operator, path, and regular-expression syntax.
 func Validate(assertion Assertion) error {
-	switch assertion.Target {
-	case TargetStatus, TargetHeader, TargetBody, TargetJSONPath, TargetDurationMS:
-	default:
+	target, targetSupported := assertionTargets[assertion.Target]
+	if !targetSupported {
 		return fmt.Errorf("unsupported assertion target %q", assertion.Target)
 	}
-	switch assertion.Operator {
-	case OperatorEquals, OperatorNotEquals, OperatorContains, OperatorExists,
-		OperatorNotExists, OperatorLessThan, OperatorGreaterThan, OperatorMatches:
-	default:
+	operator, operatorSupported := assertionOperators[assertion.Operator]
+	if !operatorSupported {
 		return fmt.Errorf("unsupported assertion operator %q", assertion.Operator)
 	}
-
-	switch assertion.Target {
-	case TargetHeader:
-		if err := validateHeaderName(assertion.Path); err != nil {
-			return err
-		}
-	case TargetJSONPath:
-		if _, err := parseJSONPath(assertion.Path); err != nil {
+	if target.validatePath != nil {
+		if err := target.validatePath(assertion.Path); err != nil {
 			return err
 		}
 	}
-
-	if err := validateOperatorTarget(assertion); err != nil {
+	expectedKind, supportedCombination :=
+		target.expectedValueFor[assertion.Operator]
+	if !supportedCombination {
+		return fmt.Errorf(
+			"operator %q is not supported for target %q",
+			assertion.Operator,
+			assertion.Target,
+		)
+	}
+	if err := validateExpectedValue(assertion, expectedKind); err != nil {
 		return err
 	}
-	if assertion.Operator == OperatorMatches {
-		pattern := assertion.Expected.(string)
-		if len(pattern) > maxRegexPatternBytes {
-			return fmt.Errorf("regular expression exceeds %d bytes", maxRegexPatternBytes)
-		}
-		if _, err := regexp.Compile(pattern); err != nil {
-			return fmt.Errorf("invalid regular expression: %w", err)
-		}
+	if operator.validateExpected != nil {
+		return operator.validateExpected(assertion.Expected)
 	}
 	return nil
-}
-
-func validateOperatorTarget(assertion Assertion) error {
-	switch assertion.Target {
-	case TargetStatus, TargetDurationMS:
-		switch assertion.Operator {
-		case OperatorEquals, OperatorNotEquals, OperatorLessThan, OperatorGreaterThan:
-			if _, ok := numericRat(assertion.Expected); !ok {
-				return fmt.Errorf(
-					"operator %q on target %q requires a numeric expected value",
-					assertion.Operator,
-					assertion.Target,
-				)
-			}
-			return nil
-		default:
-			return fmt.Errorf(
-				"operator %q is not supported for target %q",
-				assertion.Operator,
-				assertion.Target,
-			)
-		}
-	case TargetHeader, TargetBody:
-		switch assertion.Operator {
-		case OperatorExists, OperatorNotExists:
-			return nil
-		case OperatorEquals, OperatorNotEquals, OperatorContains, OperatorMatches:
-			if _, ok := assertion.Expected.(string); !ok {
-				return fmt.Errorf(
-					"operator %q on target %q requires a string expected value",
-					assertion.Operator,
-					assertion.Target,
-				)
-			}
-			return nil
-		default:
-			return fmt.Errorf(
-				"operator %q is not supported for target %q",
-				assertion.Operator,
-				assertion.Target,
-			)
-		}
-	case TargetJSONPath:
-		switch assertion.Operator {
-		case OperatorLessThan, OperatorGreaterThan:
-			if _, ok := numericRat(assertion.Expected); !ok {
-				return fmt.Errorf(
-					"operator %q on target %q requires a numeric expected value",
-					assertion.Operator,
-					assertion.Target,
-				)
-			}
-		case OperatorMatches:
-			if _, ok := assertion.Expected.(string); !ok {
-				return fmt.Errorf(
-					"operator %q on target %q requires a string expected value",
-					assertion.Operator,
-					assertion.Target,
-				)
-			}
-		}
-		return nil
-	default:
-		return fmt.Errorf("unsupported assertion target %q", assertion.Target)
-	}
 }
 
 // Evaluate evaluates assertions in input order and always returns results in
@@ -158,6 +87,7 @@ func (e *assertionEvaluator) evaluate(assertion Assertion) Result {
 	}
 
 	actual, exists, err := e.actual(assertion)
+	result.Exists = exists
 	if assertion.Operator == OperatorExists || assertion.Operator == OperatorNotExists {
 		result.Actual = exists
 	} else {
@@ -185,43 +115,12 @@ func reportedAssertion(assertion Assertion) Assertion {
 }
 
 func (e *assertionEvaluator) actual(assertion Assertion) (any, bool, error) {
-	switch assertion.Target {
-	case TargetStatus:
-		return e.input.StatusCode, true, nil
-	case TargetHeader:
-		values := caseInsensitiveHeaderValues(e.input.Headers, assertion.Path)
-		if len(values) == 0 {
-			return nil, false, nil
-		}
-		return strings.Join(values, ", "), true, nil
-	case TargetBody:
-		if !e.bodyLoaded {
-			e.bodyLoaded = true
-			e.bodyValue = string(e.input.Body)
-		}
-		return e.bodyValue, len(e.input.Body) > 0, nil
-	case TargetDurationMS:
-		return float64(e.input.Duration) / float64(timeMillisecond), true, nil
-	case TargetJSONPath:
-		if !e.jsonLoaded {
-			e.jsonLoaded = true
-			e.jsonValue, e.jsonErr = decodeJSON(e.input.Body)
-		}
-		if e.jsonErr != nil {
-			return nil, false, e.jsonErr
-		}
-		tokens, err := parseJSONPath(assertion.Path)
-		if err != nil {
-			return nil, false, err
-		}
-		value, exists := lookupJSONPath(e.jsonValue, tokens)
-		return value, exists, nil
-	default:
+	target, ok := assertionTargets[assertion.Target]
+	if !ok || target.read == nil {
 		return nil, false, fmt.Errorf("unsupported assertion target %q", assertion.Target)
 	}
+	return target.read(e, assertion)
 }
-
-const timeMillisecond = 1_000_000
 
 func decodeJSON(body []byte) (any, error) {
 	if len(body) > maxJSONBodyBytes {
@@ -244,52 +143,16 @@ func decodeJSON(body []byte) (any, error) {
 }
 
 func compare(operator Operator, actual any, exists bool, expected any) (bool, error) {
-	switch operator {
-	case OperatorExists:
-		return exists, nil
-	case OperatorNotExists:
-		return !exists, nil
-	}
-	if !exists {
-		return false, nil
-	}
-
-	switch operator {
-	case OperatorEquals:
-		return valuesEqual(actual, expected), nil
-	case OperatorNotEquals:
-		return !valuesEqual(actual, expected), nil
-	case OperatorContains:
-		return contains(actual, expected)
-	case OperatorLessThan, OperatorGreaterThan:
-		comparison, err := compareNumeric(actual, expected)
-		if err != nil {
-			return false, err
-		}
-		if operator == OperatorLessThan {
-			return comparison < 0, nil
-		}
-		return comparison > 0, nil
-	case OperatorMatches:
-		actualText, ok := actual.(string)
-		if !ok {
-			return false, fmt.Errorf("operator %q requires an actual string value", operator)
-		}
-		if !utf8.ValidString(actualText) {
-			return false, fmt.Errorf("regular expression input is not valid UTF-8")
-		}
-		if len(actualText) > maxRegexInputBytes {
-			return false, fmt.Errorf("regular expression input exceeds %d bytes", maxRegexInputBytes)
-		}
-		pattern, _ := expected.(string)
-		compiled, err := regexp.Compile(pattern)
-		if err != nil {
-			return false, fmt.Errorf("invalid regular expression: %w", err)
-		}
-		return compiled.MatchString(actualText), nil
-	default:
+	definition, ok := assertionOperators[operator]
+	if !ok || definition.compare == nil {
 		return false, fmt.Errorf("unsupported assertion operator %q", operator)
 	}
+	if !exists &&
+		operator != OperatorExists &&
+		operator != OperatorNotExists {
+		return false, nil
+	}
+	return definition.compare(actual, exists, expected)
 }
 
 func contains(actual, expected any) (bool, error) {
@@ -320,6 +183,28 @@ func contains(actual, expected any) (bool, error) {
 }
 
 func valuesEqual(left, right any) bool {
+	return valuesEqualWithBudget(
+		left,
+		right,
+		0,
+		&equalityBudget{},
+	)
+}
+
+type equalityBudget struct {
+	nodes int
+}
+
+func valuesEqualWithBudget(
+	left, right any,
+	depth int,
+	budget *equalityBudget,
+) bool {
+	if budget == nil || depth > maxEqualityDepth ||
+		budget.nodes >= maxEqualityNodes {
+		return false
+	}
+	budget.nodes++
 	if comparison, err := compareNumeric(left, right); err == nil {
 		return comparison == 0
 	}
@@ -330,7 +215,12 @@ func valuesEqual(left, right any) bool {
 			return false
 		}
 		for index := range leftValue {
-			if !valuesEqual(leftValue[index], rightValue[index]) {
+			if !valuesEqualWithBudget(
+				leftValue[index],
+				rightValue[index],
+				depth+1,
+				budget,
+			) {
 				return false
 			}
 		}
@@ -342,7 +232,12 @@ func valuesEqual(left, right any) bool {
 		}
 		for key, value := range leftValue {
 			other, exists := rightValue[key]
-			if !exists || !valuesEqual(value, other) {
+			if !exists || !valuesEqualWithBudget(
+				value,
+				other,
+				depth+1,
+				budget,
+			) {
 				return false
 			}
 		}
@@ -362,63 +257,10 @@ func compareNumeric(left, right any) (int, error) {
 }
 
 func numericRat(value any) (*big.Rat, bool) {
-	var encoded string
-	switch number := value.(type) {
-	case json.Number:
-		encoded = number.String()
-	case int:
-		encoded = strconv.FormatInt(int64(number), 10)
-	case int8:
-		encoded = strconv.FormatInt(int64(number), 10)
-	case int16:
-		encoded = strconv.FormatInt(int64(number), 10)
-	case int32:
-		encoded = strconv.FormatInt(int64(number), 10)
-	case int64:
-		encoded = strconv.FormatInt(number, 10)
-	case uint:
-		encoded = strconv.FormatUint(uint64(number), 10)
-	case uint8:
-		encoded = strconv.FormatUint(uint64(number), 10)
-	case uint16:
-		encoded = strconv.FormatUint(uint64(number), 10)
-	case uint32:
-		encoded = strconv.FormatUint(uint64(number), 10)
-	case uint64:
-		encoded = strconv.FormatUint(number, 10)
-	case float32:
-		if math.IsNaN(float64(number)) || math.IsInf(float64(number), 0) {
-			return nil, false
-		}
-		encoded = strconv.FormatFloat(float64(number), 'g', -1, 32)
-	case float64:
-		if math.IsNaN(number) || math.IsInf(number, 0) {
-			return nil, false
-		}
-		encoded = strconv.FormatFloat(number, 'g', -1, 64)
-	default:
-		return nil, false
-	}
-	if len(encoded) > maxNumericValueBytes || !numericExponentAllowed(encoded) {
-		return nil, false
-	}
-	result := new(big.Rat)
-	if _, ok := result.SetString(encoded); !ok {
-		return nil, false
-	}
-	return result, true
-}
-
-func numericExponentAllowed(value string) bool {
-	index := strings.LastIndexAny(value, "eE")
-	if index < 0 {
-		return true
-	}
-	exponent, err := strconv.ParseInt(value[index+1:], 10, 32)
-	if err != nil {
-		return false
-	}
-	return exponent >= -maxNumericExponent && exponent <= maxNumericExponent
+	return jsonnumber.Rat(value, jsonnumber.Limits{
+		MaxBytes:       maxNumericValueBytes,
+		MaxAbsExponent: maxNumericExponent,
+	})
 }
 
 func caseInsensitiveHeaderValues(headers http.Header, name string) []string {

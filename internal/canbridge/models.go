@@ -32,24 +32,35 @@ type TimelinePhase struct {
 	Description string  `json:"description,omitempty"`
 }
 
+// ResponseBodyEncoding describes how Body and RawBody are represented in the
+// JSON bridge envelope. Binary bytes use base64 so JSON marshaling cannot
+// replace invalid UTF-8 sequences.
+type ResponseBodyEncoding string
+
+const (
+	ResponseBodyUTF8   ResponseBodyEncoding = "utf8"
+	ResponseBodyBase64 ResponseBodyEncoding = "base64"
+)
+
 type ResponseEnvelope struct {
-	RequestID   string               `json:"requestId"`
-	StatusCode  int                  `json:"statusCode"`
-	Status      string               `json:"status"`
-	DurationMS  int64                `json:"durationMs"`
-	SizeBytes   int64                `json:"sizeBytes"`
-	ContentType string               `json:"contentType"`
-	Protocol    string               `json:"protocol"`
-	RemoteAddr  string               `json:"remoteAddr"`
-	TLS         string               `json:"tls"`
-	TraceID     string               `json:"traceId"`
-	Headers     map[string][]string  `json:"headers"`
-	Cookies     []ResponseCookie     `json:"cookies"`
-	Body        string               `json:"body"`
-	RawBody     string               `json:"rawBody"`
-	Timeline    []TimelinePhase      `json:"timeline"`
-	ResolvedURL string               `json:"resolvedUrl"`
-	Contract    *ContractCheckResult `json:"contract,omitempty"`
+	RequestID    string               `json:"requestId"`
+	StatusCode   int                  `json:"statusCode"`
+	Status       string               `json:"status"`
+	DurationMS   int64                `json:"durationMs"`
+	SizeBytes    int64                `json:"sizeBytes"`
+	ContentType  string               `json:"contentType"`
+	Protocol     string               `json:"protocol"`
+	RemoteAddr   string               `json:"remoteAddr"`
+	TLS          string               `json:"tls"`
+	TraceID      string               `json:"traceId"`
+	Headers      map[string][]string  `json:"headers"`
+	Cookies      []ResponseCookie     `json:"cookies"`
+	Body         string               `json:"body"`
+	RawBody      string               `json:"rawBody"`
+	BodyEncoding ResponseBodyEncoding `json:"bodyEncoding"`
+	Timeline     []TimelinePhase      `json:"timeline"`
+	ResolvedURL  string               `json:"resolvedUrl"`
+	Contract     *ContractCheckResult `json:"contract,omitempty"`
 }
 
 type ResponseCookie struct {
@@ -62,12 +73,56 @@ type ResponseCookie struct {
 	Secure   bool   `json:"secure"`
 }
 
+// UserErrorCode is the stable machine-readable category used by frontend
+// branching. Human-readable Turkish text may change; these wire values must
+// remain backward compatible.
+type UserErrorCode string
+
+const (
+	UserErrorInvalidRequest             UserErrorCode = "invalid_request"
+	UserErrorMissingVariables           UserErrorCode = "missing_variables"
+	UserErrorRequestAlreadyRunning      UserErrorCode = "request_already_running"
+	UserErrorRequestCanceled            UserErrorCode = "request_canceled"
+	UserErrorRequestTimeout             UserErrorCode = "request_timeout"
+	UserErrorRequestFailed              UserErrorCode = "request_failed"
+	UserErrorNetwork                    UserErrorCode = "network_error"
+	UserErrorResponseTooLarge           UserErrorCode = "response_too_large"
+	UserErrorResponseHeadersTooLarge    UserErrorCode = "response_headers_too_large"
+	UserErrorUnsupportedEncoding        UserErrorCode = "unsupported_content_encoding"
+	UserErrorTooManyEncodings           UserErrorCode = "too_many_content_encodings"
+	UserErrorResponseDecodeFailed       UserErrorCode = "response_decode_failed"
+	UserErrorRuntimeUnavailable         UserErrorCode = "runtime_unavailable"
+	UserErrorFileDialogFailed           UserErrorCode = "file_dialog_failed"
+	UserErrorInvalidOpenAPI             UserErrorCode = "invalid_openapi"
+	UserErrorOperationCanceled          UserErrorCode = "operation_canceled"
+	UserErrorSpecUnavailable            UserErrorCode = "spec_unavailable"
+	UserErrorResponseSchemaUnavailable  UserErrorCode = "response_schema_unavailable"
+	UserErrorOperationUnavailable       UserErrorCode = "operation_unavailable"
+	UserErrorMockRoutesInvalid          UserErrorCode = "mock_routes_invalid"
+	UserErrorMockAlreadyRunning         UserErrorCode = "mock_already_running"
+	UserErrorMockStartFailed            UserErrorCode = "mock_start_failed"
+	UserErrorMockStopFailed             UserErrorCode = "mock_stop_failed"
+	UserErrorToolCanceled               UserErrorCode = "tool_canceled"
+	UserErrorToolTimeout                UserErrorCode = "tool_timeout"
+	UserErrorInvalidInput               UserErrorCode = "invalid_input"
+	UserErrorDiagnosticFailed           UserErrorCode = "diagnostic_failed"
+	UserErrorCollectionOperationInvalid UserErrorCode = "collection_operation_invalid"
+	UserErrorCollectionInvalid          UserErrorCode = "collection_invalid"
+	UserErrorCollectionRunFailed        UserErrorCode = "collection_run_failed"
+	UserErrorNetworkOperationInvalid    UserErrorCode = "network_operation_invalid"
+	UserErrorNetworkInspectionFailed    UserErrorCode = "network_inspection_failed"
+	UserErrorOpenAPILintFailed          UserErrorCode = "openapi_lint_failed"
+	UserErrorSSEFailed                  UserErrorCode = "sse_failed"
+	UserErrorCoverageSpecMissing        UserErrorCode = "coverage_spec_missing"
+	UserErrorBodyEncodingInvalid        UserErrorCode = "response_body_encoding_invalid"
+)
+
 type UserError struct {
-	Code      string `json:"code"`
-	Title     string `json:"title"`
-	Message   string `json:"message"`
-	Hint      string `json:"hint,omitempty"`
-	Technical string `json:"technical,omitempty"`
+	Code      UserErrorCode `json:"code"`
+	Title     string        `json:"title"`
+	Message   string        `json:"message"`
+	Hint      string        `json:"hint,omitempty"`
+	Technical string        `json:"technical,omitempty"`
 }
 
 type SendResult struct {
@@ -137,12 +192,13 @@ type ImportSpecResult struct {
 }
 
 type ContractCheckInput struct {
-	SpecID      string `json:"specId"`
-	Method      string `json:"method"`
-	Path        string `json:"path"`
-	StatusCode  int    `json:"statusCode"`
-	ContentType string `json:"contentType"`
-	Body        string `json:"body"`
+	SpecID       string               `json:"specId"`
+	Method       string               `json:"method"`
+	Path         string               `json:"path"`
+	StatusCode   int                  `json:"statusCode"`
+	ContentType  string               `json:"contentType"`
+	Body         string               `json:"body"`
+	BodyEncoding ResponseBodyEncoding `json:"bodyEncoding,omitempty"`
 }
 
 type ContractFinding struct {

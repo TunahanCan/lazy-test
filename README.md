@@ -1,93 +1,231 @@
-# <p align="center"><img src="cmd/validex/build/appicon.svg" width="144" height="144" alt="Validex uygulama ikonu"></p>
+<p align="center">
+  <img src="cmd/validex/build/appicon.svg" width="144" height="144" alt="Validex uygulama ikonu">
+</p>
 
 <h1 align="center">Validex</h1>
 
 <p align="center">
-  <strong>API geliştirme, doğrulama ve backend tanılaması için yerel masaüstü çalışma alanı.</strong>
+  <strong>API geliştirirken ihtiyaç duyduğunuz araçları tek, yerel çalışma alanında buluşturan masaüstü uygulaması.</strong>
 </p>
 
 <p align="center">
-  HTTP · OpenAPI · Mock Server · JSON · Spring Diagnostics · SSE · Automation
+  HTTP Requests · Collections · OpenAPI · Mock Server · JSON Lab · Diagnostics · SSE · Automation
 </p>
 
-Validex, API ile uğraşırken tek pencerede kalmak isteyenler için yapıldı. Bir isteği sıfırdan kurabilir, koleksiyonlarda düzenleyebilir, OpenAPI sözleşmesiyle eşleştirebilir, mock server ile akışları canlandırabilir ve backend sorunlarını aynı ortamda inceleyebilirsiniz.
+Bir endpoint’i denerken istek aracı, OpenAPI belgesi, terminal, log ekranı ve
+mock servis arasında gidip gelmek yorucu olabiliyor. Validex bu dağınık akışı
+tek pencerede toplamak için geliştirildi.
 
-Mimarinin ana fikri basit: ağır bir frontend runtime bağımlılığı taşımamak, paketi şişirmemek ve yine de masaüstü deneyimini kaybetmemek. UI, sistem WebView üzerinde çalışır; işin asıl mantığı Go tarafındadır. Frontend için npm runtime bağımlılığı yoktur, TypeScript derleyicisi repository içine sabitlenmiştir ve canlı akış tarafında gRPC/WebSocket yerine iptal edilebilir SSE istemcisi kullanılır.
+İsteklerinizi hazırlayabilir, koleksiyonlarda düzenleyebilir, ortam
+değişkenleriyle tekrar çalıştırabilir, gelen cevabı OpenAPI sözleşmesiyle
+karşılaştırabilir ve gerektiğinde aynı uygulama içinden mock server
+başlatabilirsiniz. JSON araçları, Spring/JVM tanılama ekranları, SSE istemcisi
+ve otomasyon araçları da günlük backend geliştirme akışının bir parçası olarak
+yanınızda olur.
 
-## Türkçe
+Validex yerel çalışır ve kullanmak için bir hesap açmanızı istemez. Kaydettiğiniz
+koleksiyonlar kendi bilgisayarınızda tutulur. İstekler Validex’e ait bir bulut
+servisine gönderilmez; işletim sisteminizde tanımlı proxy ve ağ ayarları
+uygulanabilir.
 
-### Validex ne yapar?
+## Validex ile neler yapabilirsiniz?
 
-| Alan | Kısa açıklama |
+| Alan | Ne sağlar? |
 | --- | --- |
-| Requests | HTTP istekleri oluşturur, query/header/body düzenler, yanıtı ve timeline’ı gösterir. |
-| Collections | İstekleri collection’larda toplar, arar, taşır, yeniden adlandırır, siler ve güvenli şekilde kaydeder. |
-| OpenAPI | YAML/JSON OpenAPI dosyalarını içe aktarır, endpoint’ten istek üretir ve contract drift kontrolü yapar. |
-| Mock Server | Elle ya da OpenAPI’den route üretir, gecikme/header/body davranışlarını ayarlatır. |
-| JSON Lab | JSON biçimlendirme, fark alma, JSON Path, şema çıkarımı ve Java DTO’dan örnek JSON üretme sağlar. |
-| Diagnostics | Spring hata analizi, JWT inceleme, Actuator görünümü, thread dump, trace log ve environment karşılaştırma sunar. |
-| SSE | HTTP(S) üzerinden Server-Sent Events dinler; timeout, header ve iptal desteği verir. |
-| Automation | Collection runner, assertion motoru, DNS/redirect analizi ve OpenAPI lint sağlar. |
-| CLI | Headless çalıştırma, network inspection ve lint işlemlerini terminalden yapar. |
+| Requests | Method, URL, query, header ve body hazırlayın; cevabı, cookie’leri ve bağlantı zamanlamasını inceleyin. |
+| Collections | İstekleri klasörlü koleksiyonlarda saklayın, taşıyın ve daha sonra yeniden çalıştırın. |
+| OpenAPI | YAML veya JSON belge içe aktarın, endpoint’ten istek oluşturun ve response contract farklarını görün. |
+| Mock Server | Route’ları elle veya OpenAPI’den üretin; status, header, body ve gecikme davranışını belirleyin. |
+| JSON Lab | JSON biçimlendirin, karşılaştırın, JSON Path çalıştırın, şema çıkarın ve örnek veri üretin. |
+| Diagnostics | Spring hatalarını, JWT’leri, Actuator verilerini, thread dump’ları, logları ve environment farklarını inceleyin. |
+| SSE | Header ve timeout desteğiyle Server-Sent Events akışlarını canlı izleyin ve gerektiğinde durdurun. |
+| Automation | Collection’ları assertion’larla çalıştırın, ağ yönlendirmelerini inceleyin ve OpenAPI lint alın. |
+| CLI | Aynı otomasyon, network inspection ve lint işlerini masaüstü arayüzü olmadan terminalde çalıştırın. |
 
-### Nasıl çalışır?
+## Başlamadan önce
 
-Validex iki parçalı düşünülür:
+Bu repository şu anda hazır bir MSI, notarized macOS paketi veya evrensel Linux
+paketi yayınlamıyor. Uygulamayı kaynak koddan, kullanacağınız işletim sistemi
+üzerinde derliyorsunuz.
 
-1. Go çekirdeği, ağ isteklerini, dosya işlemlerini, mock server’ı, runner’ı ve native köprüleri yönetir.
-2. Frontend, yalnızca arayüz ve kullanıcı akışını sağlar; gerçek iş yükü browser içinde değil, Go tarafında yürür.
+`make build`, yalnız çalıştırıldığı işletim sistemi ve CPU mimarisi için çıktı
+üretir. Windows sürümünü Windows’ta, macOS sürümünü macOS’ta, Linux sürümünü
+Linux’ta oluşturun.
 
-Bu sayede uygulama hafif kalır. WebView sadece ekranı taşır; koleksiyon kaydı, HTTP istekleri, OpenAPI kontrolü, SSE ve diagnostics gibi işler doğrudan yerel uygulama içinde çözülür.
+Ortak gereksinimler:
 
-### Executable nasıl oluşur?
+- Git
+- [Go](https://go.dev/dl/) 1.24 veya üzeri
+- [Node.js](https://nodejs.org/en/download) 20 veya üzeri
+- GNU Make
+- Masaüstü build’i için CGO ve platformun C/C++ araç zinciri
 
-Üretim build’inde frontend önce derlenir, sonra üretilen `dist` çıktısı Go uygulamasına gömülür. Desktop executable açıldığında bu gömülü dosyalar yerel bir asset sunucusundan servis edilir ve sistem WebView o adrese bağlanır.
-
-Kısaca akış şu şekildedir:
-
-1. TypeScript kaynakları derlenir.
-2. Frontend `dist` üretir.
-3. Go binary, bu çıktıyı `go:embed` ile içine alır.
-4. Uygulama açılırken local asset server başlar.
-5. Sistem WebView bu yerel adrese bağlanır.
-
-Bu yapı sayesinde dağıtılan executable kendi arayüzünü yanında taşır; ayrıca runtime npm paketi gerekmez.
-
-### Kurulum ve kullanım
-
-Gereksinimler:
-
-| İş akışı | Gereksinimler |
-| --- | --- |
-| `make build-cli` | Go 1.24+, GNU Make, POSIX uyumlu shell |
-| Doğrudan Go testleri | Go 1.24+ |
-| Frontend typecheck/build/test | Node.js 20+ |
-| Masaüstü build | Go 1.24+, Node.js 20+, GNU Make, CGO ve platform toolchain |
-| `make dev` | Masaüstü gereksinimlerine ek olarak `curl` |
-| `make test` | Go 1.24+, Node.js 20+, GNU Make, CGO ve native platform toolchain |
-
-Repoyu alıp geliştirme modunu başlatmak için:
+Go ve Node sürümlerini kontrol etmek için:
 
 ```bash
+go version
+node --version
+make --version
+```
+
+Frontend derleyicisi repository içinde hazır gelir. `npm install` veya
+`npm ci` çalıştırmanız gerekmez.
+
+## Windows
+
+Bu bölümdeki MSYS2 araç zinciri adımları 64-bit x86 Windows içindir. Repository
+şu anda ayrı bir Windows ARM64 paketleme hedefi sunmaz.
+
+### Hazır EXE’yi çalıştırmak
+
+Elinizde daha önce derlenmiş bir Validex paketi varsa klasörü herhangi bir
+konuma çıkarın ve `validex.exe` dosyasını çalıştırın. Validex portable
+çalışabildiği için ayrıca kurulum sihirbazına ihtiyaç duymaz.
+
+Uygulama penceresi açılmıyorsa bilgisayarda
+[Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)
+bulunduğunu kontrol edin. Windows 11’de genellikle hazırdır; bazı Windows 10,
+Windows Server veya sadeleştirilmiş kurulumlarda ayrıca yüklenmesi gerekebilir.
+
+### Geliştirme ortamını hazırlamak
+
+Windows build’i GNU Make, POSIX shell, GCC/G++ ve `windres` kullandığı için
+komutları normal PowerShell yerine
+[MSYS2 UCRT64](https://www.msys2.org/docs/environments/) terminalinde
+çalıştırmak en sorunsuz yoldur.
+
+Önce PowerShell’de MSYS2’yi kurun:
+
+```powershell
+winget install --id MSYS2.MSYS2 -e
+```
+
+Ardından Başlat menüsünden **MSYS2 UCRT64** terminalini açın ve Go, Node.js ile
+derleme araçlarını aynı ortam içine kurun:
+
+```bash
+pacman -Syu
+pacman -S --needed git make curl \
+  mingw-w64-ucrt-x86_64-go \
+  mingw-w64-ucrt-x86_64-nodejs \
+  mingw-w64-ucrt-x86_64-gcc \
+  mingw-w64-ucrt-x86_64-binutils
+```
+
+İlk güncelleme terminali kapatmanızı isterse UCRT64 terminalini yeniden açın,
+`pacman -Syu` komutunu tekrar çalıştırın ve kuruluma devam edin.
+
+Araçların görünür olduğunu doğrulayın:
+
+```bash
+go version
+node --version
+gcc --version
+g++ --version
+windres --version
+```
+
+### Kaynak koddan çalıştırmak
+
+MSYS2 UCRT64 terminalinde:
+
+```bash
+export CGO_ENABLED=1
+export CC=gcc
+export CXX=g++
+
 git clone https://github.com/TunahanCan/validex.git
 cd validex
 make dev
 ```
 
-`make dev`, uygun bir loopback portu seçer, Node standart kütüphanesiyle çalışan geliştirme sunucusunu açar ve native pencereyi bu sunucuya bağlar.
+`make dev`, frontend geliştirme sunucusunu uygun bir yerel portta başlatır ve
+native Validex penceresini bu sunucuya bağlar. Terminal açık kaldığı sürece
+uygulama çalışmaya devam eder.
 
-Sadece frontend tarafını görmek isterseniz:
+### EXE oluşturmak
+
+Repository kökünde:
 
 ```bash
-cd cmd/validex/frontend
-node scripts/dev.mjs
+make build
 ```
 
-Bu mod arayüz geliştirmek içindir; native backend gerektiren özellikler burada çalışmaz.
+Oluşan dosyalar:
 
-### Build
+```text
+cmd/validex/build/bin/validex.exe
+cmd/validex/build/bin/validex-cli.exe
+cmd/validex/build/bin/THIRD_PARTY_NOTICES.md
+```
 
-Geçerli platform için masaüstü uygulaması ve CLI üretmek:
+Masaüstü uygulamasını terminalden çalıştırabilirsiniz:
+
+```bash
+./cmd/validex/build/bin/validex.exe
+```
+
+Ya da `cmd\validex\build\bin` klasörünü Dosya Gezgini’nde açıp
+`validex.exe` dosyasına çift tıklayabilirsiniz.
+
+Portable bir ZIP hazırlamak isterseniz repository kökünde PowerShell açın:
+
+```powershell
+Compress-Archive `
+  -Path .\cmd\validex\build\bin\validex.exe,`
+        .\cmd\validex\build\bin\validex-cli.exe,`
+        .\cmd\validex\build\bin\THIRD_PARTY_NOTICES.md `
+  -DestinationPath .\Validex-windows.zip `
+  -Force
+```
+
+Bu işlem bir `.exe` ve ZIP üretir; MSI/setup oluşturmaz. Üretilen executable
+Authenticode ile imzalanmadığı için başka bilgisayarlarda SmartScreen uyarısı
+görülebilir.
+
+## macOS
+
+### Hazır uygulamayı kurmak
+
+Elinizde bir `Validex.app` varsa uygulamayı `Applications` klasörüne taşıyıp
+açabilirsiniz.
+
+Bir DMG dosyanız varsa:
+
+```bash
+open Validex.dmg
+```
+
+Açılan pencerede `Validex.app` dosyasını `Applications` klasörüne sürükleyin.
+
+### Geliştirme ortamını hazırlamak
+
+Önce Xcode Command Line Tools’u kurun:
+
+```bash
+xcode-select --install
+```
+
+Go ve Node.js kurulu değilse Homebrew ile yükleyebilirsiniz:
+
+```bash
+brew install go node
+```
+
+Ardından repository’yi alın:
+
+```bash
+git clone https://github.com/TunahanCan/validex.git
+cd validex
+```
+
+### Kaynak koddan çalıştırmak
+
+```bash
+make dev
+```
+
+### Uygulama paketi (.app) oluşturmak
 
 ```bash
 make build
@@ -95,70 +233,216 @@ make build
 
 Çıktılar:
 
-| Platform | Masaüstü uygulaması | CLI |
-| --- | --- | --- |
-| macOS | `cmd/validex/build/bin/Validex.app` | `cmd/validex/build/bin/validex-cli` |
-| Linux | `cmd/validex/build/bin/validex` | `cmd/validex/build/bin/validex-cli` |
-| Windows | `cmd/validex/build/bin/validex.exe` | `cmd/validex/build/bin/validex-cli.exe` |
+```text
+cmd/validex/build/bin/Validex.app
+cmd/validex/build/bin/validex-cli
+```
 
-Çalıştırma:
+Uygulamayı doğrudan açmak için:
 
 ```bash
-# macOS
 open cmd/validex/build/bin/Validex.app
-
-# Linux
-./cmd/validex/build/bin/validex
 ```
 
-```powershell
-# Windows
-.\cmd\validex\build\bin\validex.exe
+Yalnız kendi kullanıcı hesabınıza kurmak isterseniz:
+
+```bash
+mkdir -p "$HOME/Applications"
+ditto \
+  cmd/validex/build/bin/Validex.app \
+  "$HOME/Applications/Validex.app"
+open "$HOME/Applications/Validex.app"
 ```
 
-macOS build’i yerel geliştirme için ad-hoc imzalanır ve sıkı bundle doğrulamasından geçirilir. Son kullanıcı dağıtımı için ayrıca Developer ID imzası ve notarization gerekir.
+### DMG oluşturmak
 
-### Linux kurulumu
+Önce `.app` bundle’ını oluşturun:
 
-Ubuntu veya Debian tabanlı sistemlerde native bağımlılıklar:
+```bash
+make build
+```
+
+Sonra uygulama ve `Applications` kısayolunu içeren DMG’yi hazırlayın:
+
+```bash
+(
+  dmg_stage="$(mktemp -d)"
+  trap 'rm -rf "$dmg_stage"' EXIT
+
+  ditto \
+    cmd/validex/build/bin/Validex.app \
+    "$dmg_stage/Validex.app"
+  ln -s /Applications "$dmg_stage/Applications"
+
+  hdiutil create \
+    -volname "Validex" \
+    -srcfolder "$dmg_stage" \
+    -ov \
+    -format UDZO \
+    cmd/validex/build/bin/Validex.dmg
+)
+```
+
+Oluşan dosya:
+
+```text
+cmd/validex/build/bin/Validex.dmg
+```
+
+`make build`, uygulamayı yerel geliştirme için ad-hoc olarak imzalar. DMG
+oluşturmak bu imzayı bir yayın imzasına dönüştürmez. Uygulamayı başka
+kullanıcılara dağıtmak istiyorsanız Apple Developer ID ile imzalama, hardened
+runtime ve notarization adımlarını ayrıca tamamlamanız gerekir. Build yalnız
+çalıştırdığınız Mac’in mimarisi içindir; universal binary üretilmez.
+
+## Linux
+
+### Hazır executable’ı çalıştırmak
+
+Elinizde derlenmiş `validex` dosyası varsa çalıştırma izni verip açın:
+
+```bash
+chmod +x validex
+./validex
+```
+
+Validex, Linux’ta GTK 3 ve WebKitGTK 4.1 kullanır. Dosya seçici için `zenity`
+önerilir; `zenity` yoksa `kdialog` kullanılabilir.
+
+Ubuntu veya Debian tabanlı bir sistemde runtime paketlerini kurmak için:
 
 ```bash
 sudo apt update
-sudo apt install build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev zenity curl make
+sudo apt install -y libwebkit2gtk-4.1-0 zenity
 ```
 
-Kullanıcı hesabına kurmak için:
+Başka bir dağıtım kullanıyorsanız paket yöneticinizde GTK 3,
+`webkit2gtk-4.1` ve `zenity` veya `kdialog` karşılıklarını kurun.
+
+### Geliştirme ortamını hazırlamak
+
+Ubuntu veya Debian tabanlı sistemlerde:
+
+```bash
+sudo apt update
+sudo apt install -y \
+  git \
+  make \
+  curl \
+  build-essential \
+  pkg-config \
+  libgtk-3-dev \
+  libwebkit2gtk-4.1-dev \
+  zenity
+```
+
+Ayrıca Go 1.24+ ve Node.js 20+ kurulu olmalıdır. Dağıtımınızın paketleri daha
+eski sürüm veriyorsa Go ve Node.js’in güncel sürümlerini resmi dağıtım
+kanallarından kurun.
+
+Native bağımlılıkları kontrol edebilirsiniz:
+
+```bash
+pkg-config --modversion gtk+-3.0
+pkg-config --modversion webkit2gtk-4.1
+```
+
+Repository’yi alın:
+
+```bash
+git clone https://github.com/TunahanCan/validex.git
+cd validex
+```
+
+### Kaynak koddan çalıştırmak
+
+```bash
+make dev
+```
+
+### Linux executable oluşturmak
+
+```bash
+make build
+```
+
+Çıktılar:
+
+```text
+cmd/validex/build/bin/validex
+cmd/validex/build/bin/validex-cli
+cmd/validex/build/bin/THIRD_PARTY_NOTICES.md
+```
+
+Masaüstü uygulamasını doğrudan çalıştırmak için:
+
+```bash
+./cmd/validex/build/bin/validex
+```
+
+### Kullanıcı hesabına kurmak
 
 ```bash
 make install-linux
 ```
 
-Başka bir kurulum kökü seçmek için:
+Bu komut:
+
+- executable’ı `~/.local/bin/validex` konumuna,
+- uygulama menüsü kaydını `~/.local/share/applications` altına,
+- ikonu `~/.local/share/icons` altına
+
+kurar.
+
+Kurulumdan sonra uygulamayı menüden veya şu komutla açabilirsiniz:
+
+```bash
+"$HOME/.local/bin/validex"
+```
+
+Farklı bir kurulum kökü kullanmak için:
 
 ```bash
 make install-linux LINUX_INSTALL_PREFIX=/hedef/dizin
 ```
 
-### Yalnızca CLI
+### Host sistem için arşiv hazırlamak
 
-Headless araçları derlemek için:
+```bash
+make build
+
+tar -czf "Validex-linux-$(go env GOARCH).tar.gz" \
+  -C cmd/validex/build/bin \
+  validex \
+  validex-cli \
+  THIRD_PARTY_NOTICES.md
+```
+
+Bu arşiv evrensel veya tamamen statik bir Linux paketi değildir. Hedef
+bilgisayar build aldığınız sistemle aynı CPU mimarisine ve uyumlu Linux
+ABI’sine sahip olmalıdır; uyumlu glibc, libstdc++, GTK 3 ve WebKitGTK 4.1
+runtime’ları gerekir. Özellikle yeni bir dağıtımda oluşturulan executable daha
+eski bir dağıtımda çalışmayabilir.
+
+## Yalnızca CLI kullanmak
+
+Masaüstü arayüzüne ihtiyacınız yoksa yalnız CLI’yi derleyebilirsiniz:
 
 ```bash
 make build-cli
 ```
 
-Bu hedef Node.js, WebView ve CGO gerektirmez; yalnızca Go ile çalışan bir terminal aracı üretir.
+Bu hedef Node.js, CGO veya WebView gerektirmez; Go ile çalışan terminal
+uygulamasını üretir.
 
-### CLI kullanımı
-
-`collection.sample.json`, varsayılan olarak `http://localhost:8080/actuator/health` adresini çağırır. Örnek runner’ı denemeden önce bu endpoint’i sunan yerel servisi açın.
+Örnek kullanımlar:
 
 ```bash
-# Koleksiyon çalıştır
+# Bir collection çalıştır
 ./cmd/validex/build/bin/validex-cli run \
   --file collection.sample.json
 
-# DNS, redirect zinciri ve son HTTP sonucunu incele
+# DNS ve redirect zincirini incele
 ./cmd/validex/build/bin/validex-cli inspect \
   --url https://example.com \
   --timeout 15s
@@ -169,290 +453,61 @@ Bu hedef Node.js, WebView ve CGO gerektirmez; yalnızca Go ile çalışan bir te
   --strict
 ```
 
-Runtime değişkenleri için önce `variables.json` dosyasını oluşturun:
+Windows’ta aynı komutlarda `validex-cli.exe` kullanın.
 
-```json
-{
-  "baseUrl": "http://localhost:8080"
-}
-```
+`collection.sample.json`, varsayılan olarak
+`http://localhost:8080/actuator/health` adresine istek gönderir. Örneği
+çalıştırmadan önce bu endpoint’i sunan yerel servisin açık olduğundan emin
+olun.
 
-Sonra çalıştırın:
+## Sık karşılaşılan durumlar
 
-```bash
-./cmd/validex/build/bin/validex-cli run \
-  --file collection.sample.json \
-  --variables variables.json \
-  --json
-```
+### `make dev` çalışıyor ama native özellikler görünmüyor
 
-### Bağımlılık politikası
-
-- Frontend runtime tarafında React, Vite, Vitest, jsdom veya başka bir UI framework’ü yoktur.
-- `package.json` runtime bağımlılığı taşımaz.
-- `npm install` ve `npm ci` gerekmez.
-- TypeScript 5.9.3 derleyicisi `cmd/validex/frontend/third_party/typescript` altında build-only olarak vendor edilir.
-- Native pencere katmanı yalnızca Validex’in gerçekten kullandığı yetenekleri açar.
-
-### Veriler nerede tutulur?
-
-| Veri | Nerede tutulur |
-| --- | --- |
-| Kaydedilmiş koleksiyonlar | `<kullanıcı config dizini>/Validex/collection-library.json` |
-| Frontend-only fallback | WebView/browser `localStorage` |
-| Açık sekmeler ve görünüm durumu | WebView origin’ine ait `localStorage` |
-| OpenAPI cache, mock durumları, çalışan işlemler | Go process belleği |
-| CLI çıktıları | Kullanıcının verdiği stdin/stdout ve dosyalar |
-
-### Test
-
-Tüm zinciri çalıştırmak için:
-
-```bash
-make test
-```
-
-Parça parça çalıştırmak isterseniz:
-
-```bash
-cd cmd/validex/frontend
-node scripts/typecheck.mjs
-node scripts/build.mjs
-node --test
-```
-
-```bash
-go test ./...
-go test -tags canbridge ./internal/nativewebview ./internal/canbridge ./cmd/validex
-```
-
-## English
-
-### What Validex does
-
-Validex is a local desktop workspace for API development, validation, and backend troubleshooting. It is designed to keep the whole workflow in one place: build a request, organize it in a collection, compare it with an OpenAPI contract, replay behavior with a mock server, and inspect backend issues without switching tools.
-
-The architecture keeps the runtime surface intentionally small. The UI runs on the system WebView, while the real application logic lives in Go. There is no npm runtime dependency, the TypeScript compiler is vendored in the repository, and live protocol work uses a cancellable SSE client instead of gRPC or WebSocket.
-
-### How it works
-
-Validex is split into two cooperating parts:
-
-1. The Go core handles networking, files, mock server behavior, the runner, and native bridge code.
-2. The frontend provides the user interface and workflow state, but the heavy lifting is performed on the Go side.
-
-That keeps the desktop app light while still giving you a native-like experience. The WebView simply hosts the screen; collections, HTTP requests, OpenAPI checks, SSE, and diagnostics are handled locally inside the application.
-
-### How the executable is produced
-
-In the production build, the frontend is compiled first. The resulting `dist` output is embedded into the Go application, and the desktop executable serves those files from a local asset server when it starts. The system WebView then connects to that local address.
-
-In short:
-
-1. TypeScript sources are compiled.
-2. The frontend produces a `dist` directory.
-3. The Go binary embeds that output with `go:embed`.
-4. A local asset server starts on application launch.
-5. The system WebView attaches to that local server.
-
-This means the packaged app carries its own UI with it, without needing a runtime npm install.
-
-### Build and run
-
-Requirements:
-
-| Workflow | Requirements |
-| --- | --- |
-| `make build-cli` | Go 1.24+, GNU Make, POSIX-compatible shell |
-| Direct Go tests | Go 1.24+ |
-| Frontend typecheck/build/test | Node.js 20+ |
-| Desktop build | Go 1.24+, Node.js 20+, GNU Make, CGO, and the platform toolchain |
-| `make dev` | Desktop build requirements plus `curl` |
-| `make test` | Go 1.24+, Node.js 20+, GNU Make, CGO, and native platform toolchain |
-
-Clone the repository and start development mode:
-
-```bash
-git clone https://github.com/TunahanCan/validex.git
-cd validex
-make dev
-```
-
-`make dev` picks a free loopback port, starts the Node-based development server, and connects the native window to it.
-
-If you want the frontend only:
+Frontend’i yalnız şu komutla açtıysanız:
 
 ```bash
 cd cmd/validex/frontend
 node scripts/dev.mjs
 ```
 
-That mode is useful for UI work, but native backend features are not available there.
+sadece arayüz geliştirme sunucusu çalışır. Dosya seçici, yerel collection
+kaydı, mock server ve native HTTP işlemleri için repository kökünden
+`make dev` kullanın.
 
-### Build
+### Linux’ta WebKitGTK bulunamıyor
 
-Build the desktop app and CLI for the current platform:
-
-```bash
-make build
-```
-
-Outputs:
-
-| Platform | Desktop app | CLI |
-| --- | --- | --- |
-| macOS | `cmd/validex/build/bin/Validex.app` | `cmd/validex/build/bin/validex-cli` |
-| Linux | `cmd/validex/build/bin/validex` | `cmd/validex/build/bin/validex-cli` |
-| Windows | `cmd/validex/build/bin/validex.exe` | `cmd/validex/build/bin/validex-cli.exe` |
-
-Run it with:
+Şu komut hata veriyorsa geliştirme paketi eksiktir:
 
 ```bash
-# macOS
-open cmd/validex/build/bin/Validex.app
-
-# Linux
-./cmd/validex/build/bin/validex
+pkg-config --modversion webkit2gtk-4.1
 ```
 
-```powershell
-# Windows
-.\cmd\validex\build\bin\validex.exe
-```
+Ubuntu/Debian üzerinde `libwebkit2gtk-4.1-dev` paketini kurun.
 
-macOS builds are ad-hoc signed for local development and then verified strictly. For end-user distribution, Developer ID signing and notarization are still required.
+### Windows’ta `windres: command not found`
 
-### Linux install
+Komutu MSYS2 UCRT64 terminalinde çalıştırdığınızdan ve
+`mingw-w64-ucrt-x86_64-binutils` paketini kurduğunuzdan emin olun.
 
-On Ubuntu or Debian-based systems:
+### Windows’ta boş pencere veya WebView hatası
 
-```bash
-sudo apt update
-sudo apt install build-essential pkg-config libgtk-3-dev libwebkit2gtk-4.1-dev zenity curl make
-```
+[WebView2 Runtime’ın](https://developer.microsoft.com/microsoft-edge/webview2/)
+kurulu ve güncel olduğunu kontrol edin.
 
-Install for your user account:
+### macOS başka bir bilgisayarda uygulamayı doğrulamıyor
 
-```bash
-make install-linux
-```
+Yerel build yalnız ad-hoc imzalıdır. Başka kullanıcılara gönderilecek sürüm
+Developer ID ile imzalanmalı ve Apple tarafından notarize edilmelidir.
 
-Choose a different prefix:
+## Build komutlarının kısa özeti
 
-```bash
-make install-linux LINUX_INSTALL_PREFIX=/target/path
-```
-
-### CLI only
-
-To build only the headless tool:
-
-```bash
-make build-cli
-```
-
-That target does not require Node.js, WebView, or CGO. It produces a pure Go terminal executable.
-
-### CLI usage
-
-`collection.sample.json` calls `http://localhost:8080/actuator/health` by default. Start a local service that exposes that endpoint before trying the sample runner.
-
-```bash
-# Run a collection
-./cmd/validex/build/bin/validex-cli run \
-  --file collection.sample.json
-
-# Inspect DNS, redirect chain, and the final HTTP result
-./cmd/validex/build/bin/validex-cli inspect \
-  --url https://example.com \
-  --timeout 15s
-
-# Lint an OpenAPI document
-./cmd/validex/build/bin/validex-cli lint \
-  --file openapi.sample.yaml \
-  --strict
-```
-
-Create `variables.json` first if you want runtime overrides:
-
-```json
-{
-  "baseUrl": "http://localhost:8080"
-}
-```
-
-Then run:
-
-```bash
-./cmd/validex/build/bin/validex-cli run \
-  --file collection.sample.json \
-  --variables variables.json \
-  --json
-```
-
-### Dependency policy
-
-- There is no React, Vite, Vitest, jsdom, or other UI framework in the runtime path.
-- `package.json` does not carry runtime dependencies.
-- No `npm install` or `npm ci` is needed.
-- TypeScript 5.9.3 is vendored as a build-only compiler under `cmd/validex/frontend/third_party/typescript`.
-- The native window layer exposes only the capabilities Validex actually uses.
-
-### Where data lives
-
-| Data | Storage |
+| Komut | Sonuç |
 | --- | --- |
-| Saved collections | `<user config dir>/Validex/collection-library.json` |
-| Frontend-only fallback | WebView/browser `localStorage` |
-| Open tabs and view state | WebView origin `localStorage` |
-| OpenAPI cache, mock state, running operations | Go process memory |
-| CLI output | The files/stdin/stdout provided by the user |
+| `make dev` | Frontend geliştirme sunucusunu ve native masaüstü penceresini birlikte açar. |
+| `make build` | Geçerli işletim sistemi için masaüstü uygulamasını ve CLI’yi üretir. |
+| `make build-cli` | Yalnızca terminal uygulamasını üretir. |
+| `make install-linux` | Linux masaüstü uygulamasını kullanıcı hesabına kurar. |
 
-### Testing
-
-Run the full chain with:
-
-```bash
-make test
-```
-
-For individual steps:
-
-```bash
-cd cmd/validex/frontend
-node scripts/typecheck.mjs
-node scripts/build.mjs
-node --test
-```
-
-```bash
-go test ./...
-go test -tags canbridge ./internal/nativewebview ./internal/canbridge ./cmd/validex
-```
-
-## Repository map
-
-```text
-cmd/validex/             Native desktop composition root and frontend
-cmd/validex-cli/         Headless CLI composition root
-internal/canbridge/      TypeScript ↔ Go IPC and desktop application adapter
-internal/nativewebview/  Narrow native WebView/CGO layer
-internal/core/           OpenAPI parse and contract drift
-internal/mockserver/     Loopback mock HTTP server
-internal/protocols/      SSE client
-internal/diagnostics/    Backend and JVM analysis tools
-internal/runner/         Collection runner
-internal/assertions/     Assertion engine
-internal/netinspector/   DNS and redirect inspection
-internal/openapilint/    OpenAPI lint
-examples/                Explanatory usage notes
-```
-
-For component boundaries, IPC contracts, data flow, and extension rules, see [architect.md](architect.md).
-
-## Current limits
-
-- Only HTTP(S) and SSE are supported; gRPC and WebSocket are out of scope.
-- The desktop build targets the host OS and CPU architecture; there is no cross-platform packaging pipeline yet.
-- Running the frontend alone in a browser does not provide native features.
-- Release installers, Developer ID / Authenticode signing, and notarization are not part of the current pipeline.
+Uygulamanın teknik sınırları, veri akışları ve yeni özellik ekleme rehberi
+[architect.md](architect.md) içinde tutulur.

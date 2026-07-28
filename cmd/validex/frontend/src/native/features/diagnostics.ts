@@ -1223,7 +1223,9 @@ function coverageResult(result: CoverageResult): TrustedHTMLFragment {
                     <td>${endpoint.hitCount ?? 0}</td>
                     <td>
                       ${endpoint.observedPaths?.join(", ") ||
-                      t("diagnostics.coverage.notSeen")}
+                      t("diagnostics.coverage.notSeen")}${endpoint.observedPathsTruncated
+                        ? " …"
+                        : ""}
                     </td>
                   </tr>
                 `,

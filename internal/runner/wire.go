@@ -6,8 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
-
-	"validex/internal/assertions"
+	"strconv"
 )
 
 type collectionHeaderFormat uint8
@@ -18,24 +17,63 @@ const (
 	collectionHeadersArray
 )
 
+type canonicalCollectionWire struct {
+	Version   int               `json:"version"`
+	Name      string            `json:"name,omitempty"`
+	Variables map[string]string `json:"variables,omitempty"`
+	Requests  []Request         `json:"requests"`
+}
+
+// MarshalJSON is the collection serialization boundary. Decoded source
+// versions remain available in memory for compatibility validation, while
+// every persisted representation is upgraded to the canonical v2 wire model.
+func (collection Collection) MarshalJSON() ([]byte, error) {
+	wire, err := collection.canonicalWire()
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(wire)
+}
+
+func (collection Collection) canonicalWire() (canonicalCollectionWire, error) {
+	switch collection.Version {
+	case CollectionVersionUnspecified,
+		CollectionVersionV1,
+		CollectionVersionV2:
+	default:
+		return canonicalCollectionWire{}, fmt.Errorf(
+			"collection version %s is not supported",
+			collection.Version,
+		)
+	}
+	currentVersion, err := strconv.Atoi(string(CurrentCollectionVersion))
+	if err != nil {
+		return canonicalCollectionWire{}, fmt.Errorf(
+			"current collection version %q is not numeric: %w",
+			CurrentCollectionVersion,
+			err,
+		)
+	}
+	return canonicalCollectionWire{
+		Version:   currentVersion,
+		Name:      collection.Name,
+		Variables: collection.Variables,
+		Requests:  collection.Requests,
+	}, nil
+}
+
 // UnmarshalJSON is the anti-corruption boundary between the legacy v1 header
 // object and the ordered v2 header array. The rest of runner only sees the
 // canonical []Header model.
 func (request *Request) UnmarshalJSON(data []byte) error {
+	type requestAlias Request
 	type requestWire struct {
-		ID            string                 `json:"id,omitempty"`
-		Name          string                 `json:"name,omitempty"`
-		Method        string                 `json:"method"`
-		URL           string                 `json:"url"`
-		Headers       json.RawMessage        `json:"headers,omitempty"`
-		Body          string                 `json:"body,omitempty"`
-		Variables     map[string]string      `json:"variables,omitempty"`
-		LiteralValues bool                   `json:"literalValues,omitempty"`
-		TimeoutMS     int                    `json:"timeoutMs,omitempty"`
-		Assertions    []assertions.Assertion `json:"assertions,omitempty"`
+		*requestAlias
+		Headers json.RawMessage `json:"headers,omitempty"`
 	}
 
-	var wire requestWire
+	decoded := requestAlias{}
+	wire := requestWire{requestAlias: &decoded}
 	if err := decodeStrictJSON(data, &wire); err != nil {
 		return err
 	}
@@ -43,19 +81,9 @@ func (request *Request) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
-	*request = Request{
-		ID:            wire.ID,
-		Name:          wire.Name,
-		Method:        wire.Method,
-		URL:           wire.URL,
-		Headers:       headers,
-		Body:          wire.Body,
-		Variables:     wire.Variables,
-		LiteralValues: wire.LiteralValues,
-		TimeoutMS:     wire.TimeoutMS,
-		Assertions:    wire.Assertions,
-		headerFormat:  format,
-	}
+	decoded.Headers = headers
+	*request = Request(decoded)
+	request.headerFormat = format
 	return nil
 }
 

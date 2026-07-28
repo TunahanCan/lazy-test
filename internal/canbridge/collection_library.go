@@ -3,13 +3,13 @@ package canbridge
 // Collection library error codes are stable API contract values. Keep UI
 // branching on these constants instead of storage or transport error text.
 const (
-	CollectionLibraryErrorConflict    = "collection_library_conflict"
-	CollectionLibraryErrorInvalid     = "collection_library_invalid"
-	CollectionLibraryErrorCorrupt     = "collection_library_corrupt"
-	CollectionLibraryErrorBusy        = "collection_library_busy"
-	CollectionLibraryErrorNotLoaded   = "collection_library_not_loaded"
-	CollectionLibraryErrorReadFailed  = "collection_library_read_failed"
-	CollectionLibraryErrorWriteFailed = "collection_library_write_failed"
+	CollectionLibraryErrorConflict    UserErrorCode = "collection_library_conflict"
+	CollectionLibraryErrorInvalid     UserErrorCode = "collection_library_invalid"
+	CollectionLibraryErrorCorrupt     UserErrorCode = "collection_library_corrupt"
+	CollectionLibraryErrorBusy        UserErrorCode = "collection_library_busy"
+	CollectionLibraryErrorNotLoaded   UserErrorCode = "collection_library_not_loaded"
+	CollectionLibraryErrorReadFailed  UserErrorCode = "collection_library_read_failed"
+	CollectionLibraryErrorWriteFailed UserErrorCode = "collection_library_write_failed"
 )
 
 // CollectionLibraryLoadResult is deliberately string-based. The frontend owns

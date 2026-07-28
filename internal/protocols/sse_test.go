@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -20,7 +21,7 @@ func TestReadSSEParsesEventsAndHeaders(t *testing.T) {
 			http.Error(writer, "missing test header", http.StatusBadRequest)
 			return
 		}
-		writer.Header().Set("Content-Type", "text/event-stream")
+		writer.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 		writer.Header().Set("X-Stream", "ready")
 		_, _ = fmt.Fprint(
 			writer,
@@ -159,6 +160,32 @@ func TestReadSSEReportsHTTPStatus(t *testing.T) {
 	}
 }
 
+func TestReadSSERejectsUnexpectedContentType(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(writer, `{"data":"not an event stream"}`)
+	}))
+	t.Cleanup(server.Close)
+
+	result, err := ReadSSE(context.Background(), SSERequest{
+		URL:     server.URL,
+		Timeout: time.Second,
+	})
+	if !errors.Is(err, ErrUnexpectedContentType) {
+		t.Fatalf("error = %v, want ErrUnexpectedContentType", err)
+	}
+	var contentTypeError *ContentTypeError
+	if !errors.As(err, &contentTypeError) ||
+		contentTypeError.ContentType != "application/json" {
+		t.Fatalf("error = %#v, want typed application/json error", err)
+	}
+	if result.StatusCode != http.StatusOK || result.Duration < 0 {
+		t.Fatalf("partial result = %#v", result)
+	}
+}
+
 func TestReadSSEHonorsContextCancellation(t *testing.T) {
 	t.Parallel()
 
@@ -270,6 +297,17 @@ func TestReadSSEValidatesInput(t *testing.T) {
 			URL:     "https://example.test/events",
 			Headers: map[string]string{"X-Test": "valid\r\nInjected: yes"},
 		},
+		"header name whitespace": {
+			URL:     "https://example.test/events",
+			Headers: map[string]string{" X-Test": "valid"},
+		},
+		"canonical duplicate header": {
+			URL: "https://example.test/events",
+			Headers: map[string]string{
+				"X-Test": "first",
+				"x-test": "second",
+			},
+		},
 		"invalid event limit": {
 			URL:       "https://example.test/events",
 			MaxEvents: -1,
@@ -287,5 +325,41 @@ func TestReadSSEValidatesInput(t *testing.T) {
 				)
 			}
 		})
+	}
+}
+
+type countingReader struct {
+	reader io.Reader
+	read   int64
+}
+
+func (reader *countingReader) Read(buffer []byte) (int, error) {
+	count, err := reader.reader.Read(buffer)
+	reader.read += int64(count)
+	return count, err
+}
+
+func TestParseSSERejectsLongLineIncrementally(t *testing.T) {
+	t.Parallel()
+
+	payload := "data: " + strings.Repeat("x", 1<<20)
+	source := &countingReader{reader: strings.NewReader(payload)}
+	_, err := parseSSE(
+		context.Background(),
+		source,
+		1,
+		int64(len(payload))+1,
+		64,
+	)
+	if !errors.Is(err, ErrLimitExceeded) ||
+		!strings.Contains(err.Error(), "SSE event exceeds") {
+		t.Fatalf("error = %v, want event limit", err)
+	}
+	if source.read >= int64(len(payload)) {
+		t.Fatalf(
+			"reader consumed %d bytes from a %d-byte oversized line",
+			source.read,
+			len(payload),
+		)
 	}
 }

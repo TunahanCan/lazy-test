@@ -20,8 +20,14 @@ import {
   looksLikeCurlBash,
   parseCurlBash,
 } from "../.typescript-build/esm/features/requests/model/curlImport.js";
+import {
+  RESPONSE_SYNTAX_MAX_BYTES,
+  responseBodyViewModel,
+  tokenizeResponseBody,
+} from "../.typescript-build/esm/features/requests/model/responsePresentation.js";
 import { methodAllowsBody } from "../.typescript-build/esm/lib/http.js";
 import { isSecretKey } from "../.typescript-build/esm/lib/secrets.js";
+import { responsePanelMarkup } from "../.typescript-build/esm/native/requests/response.js";
 
 const request = {
   method: "POST",
@@ -131,6 +137,163 @@ test("clipboard success follows the writer promise result", async () => {
     false,
   );
   assert.equal(await writeClipboardText(undefined, "response"), false);
+});
+
+function tokenText(tokenization) {
+  return tokenization.tokens.map((token) => token.text).join("");
+}
+
+test("response JSON lexer preserves source text while classifying tokens", () => {
+  const source =
+    '{"z":9007199254740993,"id":1,"id":2,' +
+    '"message":"</script> \\\\ \\"","ok":true,"missing":null}';
+  const tokenization = tokenizeResponseBody(source, "json");
+
+  assert.equal(tokenization.highlighted, true);
+  assert.equal(tokenText(tokenization), source);
+  assert.ok(tokenization.tokens.some((token) => token.kind === "key"));
+  assert.ok(tokenization.tokens.some((token) => token.kind === "string"));
+  assert.ok(tokenization.tokens.some((token) => token.kind === "number"));
+  assert.ok(tokenization.tokens.some((token) => token.kind === "literal"));
+  assert.ok(
+    tokenization.tokens.some((token) => token.kind === "punctuation"),
+  );
+});
+
+test("response XML lexer preserves namespaces, entities, and opaque sections", () => {
+  const source =
+    '<?xml version="1.0"?>' +
+    '<soap:Envelope xmlns:soap="urn:soap">' +
+    "<!-- response note -->" +
+    "<soap:Body>" +
+    '<item enabled="true">Tom &amp; Jerry</item>' +
+    "<![CDATA[<unsafe>still text</unsafe>]]>" +
+    "</soap:Body>" +
+    "</soap:Envelope>";
+  const tokenization = tokenizeResponseBody(source, "xml");
+
+  assert.equal(tokenization.highlighted, true);
+  assert.equal(tokenText(tokenization), source);
+  for (const kind of [
+    "declaration",
+    "tag",
+    "attribute",
+    "string",
+    "comment",
+    "cdata",
+  ]) {
+    assert.ok(
+      tokenization.tokens.some((token) => token.kind === kind),
+      `missing ${kind} XML token`,
+    );
+  }
+});
+
+test("response lexer falls back to one plain token at byte and token limits", () => {
+  const tooLarge = "ü".repeat(RESPONSE_SYNTAX_MAX_BYTES / 2 + 1);
+  const byteFallback = tokenizeResponseBody(tooLarge, "json");
+  assert.deepEqual(byteFallback, {
+    tokens: [{ kind: "plain", text: tooLarge }],
+    highlighted: false,
+  });
+
+  const tooManyTokens = `[${Array.from(
+    { length: 10_001 },
+    () => "0",
+  ).join(",")}]`;
+  const tokenFallback = tokenizeResponseBody(tooManyTokens, "json");
+  assert.deepEqual(tokenFallback, {
+    tokens: [{ kind: "plain", text: tooManyTokens }],
+    highlighted: false,
+  });
+});
+
+test("response view model separates formatted, raw, base64, and plain views", () => {
+  const response = {
+    body: '{\n  "ok": true\n}',
+    rawBody: '{"ok":true}',
+    contentType: "application/problem+json; charset=utf-8",
+    bodyEncoding: "utf8",
+  };
+  const formatted = responseBodyViewModel(response);
+  assert.equal(formatted.kind, "json");
+  assert.equal(formatted.formatted, true);
+  assert.equal(formatted.raw, false);
+  assert.equal(formatted.text, response.body);
+  assert.equal(tokenText(formatted), response.body);
+
+  const raw = responseBodyViewModel(response, "raw");
+  assert.equal(raw.kind, "json");
+  assert.equal(raw.formatted, false);
+  assert.equal(raw.raw, true);
+  assert.equal(raw.text, response.rawBody);
+  assert.equal(tokenText(raw), response.rawBody);
+
+  const base64 = responseBodyViewModel({
+    body: "AP+A",
+    rawBody: "AP+A",
+    contentType: "application/octet-stream",
+    bodyEncoding: "base64",
+  });
+  assert.equal(base64.kind, "base64");
+  assert.equal(base64.highlighted, false);
+  assert.equal(base64.formatted, false);
+  assert.deepEqual(base64.tokens, [{ kind: "plain", text: "AP+A" }]);
+
+  const plain = responseBodyViewModel({
+    body: "service ready",
+    rawBody: "service ready",
+    contentType: "text/plain",
+  });
+  assert.equal(plain.kind, "text");
+  assert.equal(plain.highlighted, false);
+  assert.equal(tokenText(plain), plain.text);
+
+  const sniffedXML = responseBodyViewModel({
+    body: "<root>\n  <value>42</value>\n</root>",
+    rawBody: "<root><value>42</value></root>",
+    contentType: "text/plain",
+  });
+  assert.equal(sniffedXML.kind, "xml");
+  assert.equal(sniffedXML.formatted, true);
+  assert.equal(sniffedXML.highlighted, true);
+  assert.equal(tokenText(sniffedXML), sniffedXML.text);
+});
+
+test("response viewer escapes highlighted content and uses the code surface", () => {
+  const body = JSON.stringify({
+    unsafe: "</code><script>boom()</script>",
+  });
+  const markup = responsePanelMarkup({
+    id: "response-xss",
+    running: false,
+    responseSection: "body",
+    response: {
+      requestId: "response-xss",
+      statusCode: 200,
+      status: "200 OK",
+      durationMs: 3,
+      sizeBytes: body.length,
+      contentType: "application/json",
+      protocol: "HTTP/1.1",
+      remoteAddr: "",
+      tls: "",
+      traceId: "",
+      headers: {},
+      cookies: [],
+      body,
+      rawBody: body,
+      bodyEncoding: "utf8",
+      timeline: [],
+      resolvedUrl: "https://api.example.test/value",
+    },
+  }).value;
+
+  assert.equal(markup.includes("<script>boom()"), false);
+  assert.ok(markup.includes("&lt;/code&gt;&lt;script&gt;boom()"));
+  assert.ok(markup.includes('class="response-code"'));
+  assert.ok(markup.includes("response-syntax-key"));
+  assert.ok(markup.includes('data-response-kind="json"'));
 });
 
 test("Chrome Copy as cURL imports browser session headers and query exactly", () => {

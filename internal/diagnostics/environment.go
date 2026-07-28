@@ -14,13 +14,22 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
+
+	"validex/internal/jsonnumber"
 )
 
 const (
-	defaultMaxEnvironments    = 8
-	defaultRequestLimit       = int64(2 << 20)
-	maxRequestLimit           = int64(16 << 20)
-	maxEnvironmentDifferences = 1000
+	defaultMaxEnvironments         = 8
+	defaultRequestLimit            = int64(2 << 20)
+	maxRequestLimit                = int64(16 << 20)
+	maxEnvironmentDifferences      = 1000
+	maxEnvironmentJSONPathBytes    = 4 << 10
+	maxEnvironmentJSONPathSegments = 128
+	maxEnvironmentJSONPathIndex    = 1_000_000_000
+	maxEnvironmentJSONDiffDepth    = 256
+	maxEnvironmentJSONDiffNodes    = 10_000
+	maxEnvironmentJSONValueBytes   = 4 << 10
 )
 
 // EnvironmentTarget identifies one deployment of the same service.
@@ -44,6 +53,8 @@ type EnvironmentRequest struct {
 
 // EnvironmentCompareOptions controls bounded network activity.
 type EnvironmentCompareOptions struct {
+	// HTTPClient supplies transport and redirect behavior. Its CookieJar is not
+	// reused: comparison targets must not exchange ambient cookie state.
 	HTTPClient       *http.Client
 	Timeout          time.Duration
 	MaxResponseBytes int64
@@ -64,29 +75,48 @@ type EnvironmentResponse struct {
 	Error       string              `json:"error,omitempty"`
 }
 
+// JSONDifferenceKind is the closed set of structural comparison outcomes.
+type JSONDifferenceKind string
+
+const (
+	JSONDifferenceValueMismatch      JSONDifferenceKind = "value_mismatch"
+	JSONDifferenceTypeMismatch       JSONDifferenceKind = "type_mismatch"
+	JSONDifferenceExtraInCandidate   JSONDifferenceKind = "extra_in_candidate"
+	JSONDifferenceMissingInCandidate JSONDifferenceKind = "missing_in_candidate"
+)
+
 // JSONDifference is one structural or value difference. Candidate refers to
 // the compared environment and baseline refers to the first environment.
 type JSONDifference struct {
-	Path      string `json:"path"`
-	Kind      string `json:"kind"`
-	Baseline  any    `json:"baseline,omitempty"`
-	Candidate any    `json:"candidate,omitempty"`
+	Path      string             `json:"path"`
+	Kind      JSONDifferenceKind `json:"kind"`
+	Baseline  any                `json:"baseline,omitempty"`
+	Candidate any                `json:"candidate,omitempty"`
 }
+
+// EnvironmentBodyMode explains how two response bodies were compared.
+type EnvironmentBodyMode string
+
+const (
+	EnvironmentBodyUnavailable EnvironmentBodyMode = "unavailable"
+	EnvironmentBodyJSON        EnvironmentBodyMode = "json"
+	EnvironmentBodyText        EnvironmentBodyMode = "text"
+)
 
 // EnvironmentDiff compares one target with the first target.
 type EnvironmentDiff struct {
-	Baseline                   string           `json:"baseline"`
-	Candidate                  string           `json:"candidate"`
-	StatusMatch                bool             `json:"statusMatch"`
-	BaselineStatus             int              `json:"baselineStatus"`
-	CandidateStatus            int              `json:"candidateStatus"`
-	HeaderDifferences          []string         `json:"headerDifferences,omitempty"`
-	HeaderDifferencesTruncated bool             `json:"headerDifferencesTruncated"`
-	BodyEqual                  bool             `json:"bodyEqual"`
-	BodyMode                   string           `json:"bodyMode"`
-	JSONDifferences            []JSONDifference `json:"jsonDifferences,omitempty"`
-	JSONDifferencesTruncated   bool             `json:"jsonDifferencesTruncated"`
-	Error                      string           `json:"error,omitempty"`
+	Baseline                   string              `json:"baseline"`
+	Candidate                  string              `json:"candidate"`
+	StatusMatch                bool                `json:"statusMatch"`
+	BaselineStatus             int                 `json:"baselineStatus"`
+	CandidateStatus            int                 `json:"candidateStatus"`
+	HeaderDifferences          []string            `json:"headerDifferences,omitempty"`
+	HeaderDifferencesTruncated bool                `json:"headerDifferencesTruncated"`
+	BodyEqual                  bool                `json:"bodyEqual"`
+	BodyMode                   EnvironmentBodyMode `json:"bodyMode"`
+	JSONDifferences            []JSONDifference    `json:"jsonDifferences,omitempty"`
+	JSONDifferencesTruncated   bool                `json:"jsonDifferencesTruncated"`
+	Error                      string              `json:"error,omitempty"`
 }
 
 // EnvironmentComparison contains responses in target order and comparisons
@@ -169,13 +199,14 @@ func CompareEnvironments(ctx context.Context, input EnvironmentRequest, options 
 		targetURLs[i] = targetURL
 	}
 
-	client := cloneHTTPClient(options.HTTPClient, timeout)
 	responses := make([]EnvironmentResponse, len(input.Targets))
 	var waitGroup sync.WaitGroup
 	for i := range input.Targets {
 		waitGroup.Add(1)
 		go func(index int) {
 			defer waitGroup.Done()
+			client := cloneHTTPClient(options.HTTPClient, timeout)
+			client.Jar = nil
 			responses[index] = fetchEnvironment(
 				ctx,
 				client,
@@ -197,8 +228,17 @@ func CompareEnvironments(ctx context.Context, input EnvironmentRequest, options 
 		Responses: responses,
 	}
 	ignoredHeaders := normalizedIgnoredHeaders(input.IgnoreHeaders)
+	preparedBaseline := prepareEnvironmentResponse(responses[0])
 	for i := 1; i < len(responses); i++ {
-		result.Comparisons = append(result.Comparisons, compareEnvironmentResponses(responses[0], responses[i], ignoredHeaders, ignorePaths))
+		result.Comparisons = append(
+			result.Comparisons,
+			comparePreparedEnvironmentResponses(
+				preparedBaseline,
+				prepareEnvironmentResponse(responses[i]),
+				ignoredHeaders,
+				ignorePaths,
+			),
+		)
 	}
 	return result, nil
 }
@@ -317,43 +357,79 @@ func compareEnvironmentResponses(
 	ignoredHeaders map[string]struct{},
 	ignorePaths []jsonPath,
 ) EnvironmentDiff {
-	result := EnvironmentDiff{
-		Baseline:        baseline.Name,
-		Candidate:       candidate.Name,
-		BaselineStatus:  baseline.StatusCode,
-		CandidateStatus: candidate.StatusCode,
-		StatusMatch:     baseline.StatusCode == candidate.StatusCode,
+	return comparePreparedEnvironmentResponses(
+		prepareEnvironmentResponse(baseline),
+		prepareEnvironmentResponse(candidate),
+		ignoredHeaders,
+		ignorePaths,
+	)
+}
+
+type preparedEnvironmentResponse struct {
+	response         EnvironmentResponse
+	canonicalHeaders map[string][]string
+	jsonValue        any
+	jsonErr          error
+}
+
+func prepareEnvironmentResponse(
+	response EnvironmentResponse,
+) preparedEnvironmentResponse {
+	prepared := preparedEnvironmentResponse{
+		response:         response,
+		canonicalHeaders: canonicalHeaderValues(response.Headers),
 	}
-	if baseline.Error != "" || candidate.Error != "" {
+	if response.Error == "" {
+		prepared.jsonErr = decodeJSON(
+			[]byte(response.Body),
+			&prepared.jsonValue,
+		)
+	}
+	return prepared
+}
+
+func comparePreparedEnvironmentResponses(
+	baseline, candidate preparedEnvironmentResponse,
+	ignoredHeaders map[string]struct{},
+	ignorePaths []jsonPath,
+) EnvironmentDiff {
+	result := EnvironmentDiff{
+		Baseline:        baseline.response.Name,
+		Candidate:       candidate.response.Name,
+		BaselineStatus:  baseline.response.StatusCode,
+		CandidateStatus: candidate.response.StatusCode,
+		StatusMatch: baseline.response.StatusCode ==
+			candidate.response.StatusCode,
+	}
+	if baseline.response.Error != "" || candidate.response.Error != "" {
 		result.Error = "One or both environment responses could not be compared."
-		result.BodyMode = "unavailable"
+		result.BodyMode = EnvironmentBodyUnavailable
 		return result
 	}
-	result.HeaderDifferences, result.HeaderDifferencesTruncated = diffHeaders(
-		baseline.Headers,
-		candidate.Headers,
-		ignoredHeaders,
-	)
+	result.HeaderDifferences, result.HeaderDifferencesTruncated =
+		diffCanonicalHeaders(
+			baseline.canonicalHeaders,
+			candidate.canonicalHeaders,
+			ignoredHeaders,
+		)
 
-	var baselineJSON any
-	var candidateJSON any
-	baselineJSONError := decodeJSON([]byte(baseline.Body), &baselineJSON)
-	candidateJSONError := decodeJSON([]byte(candidate.Body), &candidateJSON)
-	if baselineJSONError == nil && candidateJSONError == nil {
-		result.BodyMode = "json"
+	if baseline.jsonErr == nil && candidate.jsonErr == nil {
+		result.BodyMode = EnvironmentBodyJSON
 		diffJSONValues(
-			baselineJSON,
-			candidateJSON,
+			baseline.jsonValue,
+			candidate.jsonValue,
 			nil,
 			ignorePaths,
 			&result.JSONDifferences,
 			&result.JSONDifferencesTruncated,
+			0,
+			&jsonDiffBudget{},
 		)
 		result.BodyEqual = len(result.JSONDifferences) == 0 && !result.JSONDifferencesTruncated
 		return result
 	}
-	result.BodyMode = "text"
-	result.BodyEqual = baseline.Body == candidate.Body
+	result.BodyMode = EnvironmentBodyText
+	result.BodyEqual = baseline.response.Body == candidate.response.Body
 	return result
 }
 
@@ -377,9 +453,23 @@ func decodeJSON(data []byte, target any) error {
 }
 
 func diffHeaders(baseline, candidate map[string][]string, ignored map[string]struct{}) ([]string, bool) {
-	allKeys := make(map[string]struct{}, len(baseline)+len(candidate))
 	baselineValues := canonicalHeaderValues(baseline)
 	candidateValues := canonicalHeaderValues(candidate)
+	return diffCanonicalHeaders(
+		baselineValues,
+		candidateValues,
+		ignored,
+	)
+}
+
+func diffCanonicalHeaders(
+	baselineValues, candidateValues map[string][]string,
+	ignored map[string]struct{},
+) ([]string, bool) {
+	allKeys := make(
+		map[string]struct{},
+		len(baselineValues)+len(candidateValues),
+	)
 	for key := range baselineValues {
 		allKeys[key] = struct{}{}
 	}
@@ -445,10 +535,38 @@ func parseJSONPath(raw string) (jsonPath, error) {
 	if value == "" || value[0] != '$' {
 		return nil, invalidInput("A JSON ignore path is invalid.", "Use paths such as $.traceId or $.items[*].updatedAt.")
 	}
+	if !utf8.ValidString(value) {
+		return nil, invalidInput(
+			"A JSON ignore path is not valid UTF-8.",
+			"Use a valid Unicode JSON path.",
+		)
+	}
+	if len(value) > maxEnvironmentJSONPathBytes {
+		return nil, limitExceeded(
+			"A JSON ignore path is too long.",
+			fmt.Sprintf(
+				"Use paths no longer than %d bytes.",
+				maxEnvironmentJSONPathBytes,
+			),
+		)
+	}
 	if value == "$" {
 		return jsonPath{}, nil
 	}
 	var tokens jsonPath
+	appendToken := func(token jsonPathToken) error {
+		if len(tokens) >= maxEnvironmentJSONPathSegments {
+			return limitExceeded(
+				"A JSON ignore path has too many segments.",
+				fmt.Sprintf(
+					"Use at most %d path segments.",
+					maxEnvironmentJSONPathSegments,
+				),
+			)
+		}
+		tokens = append(tokens, token)
+		return nil
+	}
 	for index := 1; index < len(value); {
 		switch value[index] {
 		case '.':
@@ -461,8 +579,24 @@ func parseJSONPath(raw string) (jsonPath, error) {
 				return nil, invalidInput("A JSON ignore path is invalid.", "Use paths such as $.traceId or $.items[*].updatedAt.")
 			}
 			key := value[start:index]
-			tokens = append(tokens, jsonPathToken{key: key, wildcard: key == "*"})
+			if err := appendToken(jsonPathToken{
+				key:      key,
+				wildcard: key == "*",
+			}); err != nil {
+				return nil, err
+			}
 		case '[':
+			if index+1 < len(value) && value[index+1] == '"' {
+				key, next, err := parseQuotedJSONPathKey(value, index)
+				if err != nil {
+					return nil, err
+				}
+				if err := appendToken(jsonPathToken{key: key}); err != nil {
+					return nil, err
+				}
+				index = next
+				continue
+			}
 			end := strings.IndexByte(value[index:], ']')
 			if end < 0 {
 				return nil, invalidInput("A JSON ignore path is invalid.", "Close every array selector with ].")
@@ -470,13 +604,24 @@ func parseJSONPath(raw string) (jsonPath, error) {
 			end += index
 			selector := strings.TrimSpace(value[index+1 : end])
 			if selector == "*" {
-				tokens = append(tokens, jsonPathToken{isIndex: true, wildcard: true})
+				if err := appendToken(jsonPathToken{
+					isIndex:  true,
+					wildcard: true,
+				}); err != nil {
+					return nil, err
+				}
 			} else {
-				arrayIndex, err := strconv.Atoi(selector)
-				if err != nil || arrayIndex < 0 {
+				arrayIndex, err := strconv.ParseUint(selector, 10, 31)
+				if err != nil ||
+					arrayIndex > maxEnvironmentJSONPathIndex {
 					return nil, invalidInput("A JSON array ignore path is invalid.", "Use a numeric index or [*].")
 				}
-				tokens = append(tokens, jsonPathToken{index: arrayIndex, isIndex: true})
+				if err := appendToken(jsonPathToken{
+					index:   int(arrayIndex),
+					isIndex: true,
+				}); err != nil {
+					return nil, err
+				}
 			}
 			index = end + 1
 		default:
@@ -484,6 +629,46 @@ func parseJSONPath(raw string) (jsonPath, error) {
 		}
 	}
 	return tokens, nil
+}
+
+func parseQuotedJSONPathKey(
+	value string,
+	start int,
+) (string, int, error) {
+	quoteStart := start + 1
+	index := quoteStart + 1
+	escaped := false
+	for index < len(value) {
+		switch {
+		case escaped:
+			escaped = false
+		case value[index] == '\\':
+			escaped = true
+		case value[index] == '"':
+			encoded := value[quoteStart : index+1]
+			var key string
+			err := json.Unmarshal([]byte(encoded), &key)
+			if err != nil {
+				return "", 0, invalidInput(
+					"A quoted JSON ignore key is invalid.",
+					"Use JSON string escaping inside brackets.",
+				)
+			}
+			index++
+			if index >= len(value) || value[index] != ']' {
+				return "", 0, invalidInput(
+					"A quoted JSON ignore key is invalid.",
+					"Close quoted keys with ].",
+				)
+			}
+			return key, index + 1, nil
+		}
+		index++
+	}
+	return "", 0, invalidInput(
+		"A quoted JSON ignore key is invalid.",
+		"Close every quoted key and bracket.",
+	)
 }
 
 func ignoredJSONPath(actual jsonPath, ignored []jsonPath) bool {
@@ -520,8 +705,14 @@ func diffJSONValues(
 	ignored []jsonPath,
 	differences *[]JSONDifference,
 	truncated *bool,
+	depth int,
+	budget *jsonDiffBudget,
 ) {
 	if *truncated || ignoredJSONPath(path, ignored) {
+		return
+	}
+	if !budget.consume(depth) {
+		*truncated = true
 		return
 	}
 	displayPath := formatJSONPath(path)
@@ -530,7 +721,12 @@ func diffJSONValues(
 			addJSONDifference(
 				differences,
 				truncated,
-				JSONDifference{Path: displayPath, Kind: "value_mismatch", Baseline: baseline, Candidate: candidate},
+				JSONDifference{
+					Path:      displayPath,
+					Kind:      JSONDifferenceValueMismatch,
+					Baseline:  reportedJSONDifferenceValue(baseline),
+					Candidate: reportedJSONDifferenceValue(candidate),
+				},
 			)
 		}
 		return
@@ -539,7 +735,7 @@ func diffJSONValues(
 		addJSONDifference(
 			differences,
 			truncated,
-			JSONDifference{Path: displayPath, Kind: "type_mismatch", Baseline: jsonType(baseline), Candidate: jsonType(candidate)},
+			JSONDifference{Path: displayPath, Kind: JSONDifferenceTypeMismatch, Baseline: jsonType(baseline), Candidate: jsonType(candidate)},
 		)
 		return
 	}
@@ -569,16 +765,37 @@ func diffJSONValues(
 				addJSONDifference(
 					differences,
 					truncated,
-					JSONDifference{Path: formatJSONPath(childPath), Kind: "extra_in_candidate", Candidate: candidateChild},
+					JSONDifference{
+						Path: formatJSONPath(childPath),
+						Kind: JSONDifferenceExtraInCandidate,
+						Candidate: reportedJSONDifferenceValue(
+							candidateChild,
+						),
+					},
 				)
 			} else if !candidateOK {
 				addJSONDifference(
 					differences,
 					truncated,
-					JSONDifference{Path: formatJSONPath(childPath), Kind: "missing_in_candidate", Baseline: baselineChild},
+					JSONDifference{
+						Path: formatJSONPath(childPath),
+						Kind: JSONDifferenceMissingInCandidate,
+						Baseline: reportedJSONDifferenceValue(
+							baselineChild,
+						),
+					},
 				)
 			} else {
-				diffJSONValues(baselineChild, candidateChild, childPath, ignored, differences, truncated)
+				diffJSONValues(
+					baselineChild,
+					candidateChild,
+					childPath,
+					ignored,
+					differences,
+					truncated,
+					depth+1,
+					budget,
+				)
 			}
 			if *truncated {
 				return
@@ -599,29 +816,98 @@ func diffJSONValues(
 				addJSONDifference(
 					differences,
 					truncated,
-					JSONDifference{Path: formatJSONPath(childPath), Kind: "extra_in_candidate", Candidate: candidateValue[index]},
+					JSONDifference{
+						Path: formatJSONPath(childPath),
+						Kind: JSONDifferenceExtraInCandidate,
+						Candidate: reportedJSONDifferenceValue(
+							candidateValue[index],
+						),
+					},
 				)
 			} else if index >= len(candidateValue) {
 				addJSONDifference(
 					differences,
 					truncated,
-					JSONDifference{Path: formatJSONPath(childPath), Kind: "missing_in_candidate", Baseline: baselineValue[index]},
+					JSONDifference{
+						Path: formatJSONPath(childPath),
+						Kind: JSONDifferenceMissingInCandidate,
+						Baseline: reportedJSONDifferenceValue(
+							baselineValue[index],
+						),
+					},
 				)
 			} else {
-				diffJSONValues(baselineValue[index], candidateValue[index], childPath, ignored, differences, truncated)
+				diffJSONValues(
+					baselineValue[index],
+					candidateValue[index],
+					childPath,
+					ignored,
+					differences,
+					truncated,
+					depth+1,
+					budget,
+				)
 			}
 			if *truncated {
 				return
 			}
 		}
 	default:
+		if baselineNumber, ok := baseline.(json.Number); ok {
+			candidateNumber := candidate.(json.Number)
+			if jsonnumber.Equal(
+				baselineNumber,
+				candidateNumber,
+				jsonnumber.Limits{},
+			) {
+				return
+			}
+		}
 		if !reflect.DeepEqual(baseline, candidate) {
 			addJSONDifference(
 				differences,
 				truncated,
-				JSONDifference{Path: displayPath, Kind: "value_mismatch", Baseline: baseline, Candidate: candidate},
+				JSONDifference{
+					Path:      displayPath,
+					Kind:      JSONDifferenceValueMismatch,
+					Baseline:  reportedJSONDifferenceValue(baseline),
+					Candidate: reportedJSONDifferenceValue(candidate),
+				},
 			)
 		}
+	}
+}
+
+type jsonDiffBudget struct {
+	nodes int
+}
+
+func (budget *jsonDiffBudget) consume(depth int) bool {
+	if budget == nil ||
+		depth > maxEnvironmentJSONDiffDepth ||
+		budget.nodes >= maxEnvironmentJSONDiffNodes {
+		return false
+	}
+	budget.nodes++
+	return true
+}
+
+func reportedJSONDifferenceValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return fmt.Sprintf("<object: %d keys>", len(typed))
+	case []any:
+		return fmt.Sprintf("<array: %d items>", len(typed))
+	case string:
+		return truncateUTF8(typed, maxEnvironmentJSONValueBytes)
+	case json.Number:
+		encoded := typed.String()
+		if len(encoded) > maxEnvironmentJSONValueBytes {
+			return truncateUTF8(encoded, maxEnvironmentJSONValueBytes)
+		}
+		return typed
+	default:
+		return value
 	}
 }
 
@@ -648,11 +934,35 @@ func formatJSONPath(path jsonPath) string {
 			builder.WriteString(strconv.Itoa(token.index))
 			builder.WriteByte(']')
 		} else {
-			builder.WriteByte('.')
-			builder.WriteString(token.key)
+			if validDotJSONPathKey(token.key) {
+				builder.WriteByte('.')
+				builder.WriteString(token.key)
+			} else {
+				builder.WriteByte('[')
+				builder.WriteString(strconv.Quote(token.key))
+				builder.WriteByte(']')
+			}
 		}
 	}
 	return builder.String()
+}
+
+func validDotJSONPathKey(key string) bool {
+	if key == "" {
+		return false
+	}
+	for index, character := range key {
+		if character >= 'a' && character <= 'z' ||
+			character >= 'A' && character <= 'Z' ||
+			character == '_' {
+			continue
+		}
+		if index > 0 && character >= '0' && character <= '9' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func jsonType(value any) string {

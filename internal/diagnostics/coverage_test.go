@@ -1,6 +1,9 @@
 package diagnostics
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func TestAnalyzeEndpointCoverageMatchesTemplatesAndAggregatesUnknownCalls(t *testing.T) {
 	t.Parallel()
@@ -81,5 +84,63 @@ func TestAnalyzeEndpointCoverageRejectsUnsafeComparisonWork(t *testing.T) {
 	_, err := AnalyzeEndpointCoverage(known, observed)
 	if ErrorCode(err) != CodeLimitExceeded {
 		t.Fatalf("error code = %q, want %q (error: %v)", ErrorCode(err), CodeLimitExceeded, err)
+	}
+}
+
+func TestAnalyzeEndpointCoverageUsesDeterministicTieBreak(t *testing.T) {
+	t.Parallel()
+	first := KnownEndpoint{Method: "GET", Path: "/a/{value}"}
+	second := KnownEndpoint{Method: "GET", Path: "/{value}/b"}
+	for _, known := range [][]KnownEndpoint{
+		{first, second},
+		{second, first},
+	} {
+		report, err := AnalyzeEndpointCoverage(
+			known,
+			[]ObservedCall{{Method: "GET", Path: "/a/b"}},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, endpoint := range report.Endpoints {
+			if endpoint.Path == first.Path && endpoint.HitCount != 1 {
+				t.Fatalf("preferred endpoint = %#v", report.Endpoints)
+			}
+			if endpoint.Path == second.Path && endpoint.HitCount != 0 {
+				t.Fatalf("non-preferred endpoint = %#v", report.Endpoints)
+			}
+		}
+	}
+}
+
+func TestAnalyzeEndpointCoverageBoundsCountsAndObservedPaths(t *testing.T) {
+	t.Parallel()
+	observed := make([]ObservedCall, maxObservedPathsPerEndpoint+1)
+	for index := range observed {
+		observed[index] = ObservedCall{
+			Method: "GET",
+			Path:   fmt.Sprintf("/items/%d", index),
+		}
+	}
+	report, err := AnalyzeEndpointCoverage(
+		[]KnownEndpoint{{Method: "GET", Path: "/items/{id}"}},
+		observed,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoint := report.Endpoints[0]
+	if len(endpoint.ObservedPaths) != maxObservedPathsPerEndpoint ||
+		!endpoint.ObservedPathsTruncated {
+		t.Fatalf("observed-path budget = %#v", endpoint)
+	}
+
+	const maxInt = int(^uint(0) >> 1)
+	_, err = AnalyzeEndpointCoverage(nil, []ObservedCall{
+		{Method: "GET", Path: "/unknown", Count: maxInt},
+		{Method: "GET", Path: "/unknown", Count: 1},
+	})
+	if ErrorCode(err) != CodeLimitExceeded {
+		t.Fatalf("overflow error = %v", err)
 	}
 }

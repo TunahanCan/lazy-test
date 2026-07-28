@@ -24,6 +24,9 @@ var (
 	// ErrLimitExceeded is returned when a configured response or event limit is
 	// reached before the remote payload can be consumed safely.
 	ErrLimitExceeded = errors.New("protocol payload limit exceeded")
+	// ErrUnexpectedContentType classifies a successful HTTP response that cannot
+	// be interpreted as an SSE stream.
+	ErrUnexpectedContentType = errors.New("unexpected SSE content type")
 )
 
 // HTTPStatusError reports a non-successful HTTP response from an SSE endpoint.
@@ -39,6 +42,27 @@ func (e *HTTPStatusError) Error() string {
 		return fmt.Sprintf("unexpected HTTP status: %s", e.Status)
 	}
 	return fmt.Sprintf("unexpected HTTP status: %s: %s", e.Status, e.Body)
+}
+
+// ContentTypeError retains the received media type while exposing a stable
+// sentinel through errors.Is.
+type ContentTypeError struct {
+	ContentType string
+}
+
+func (e *ContentTypeError) Error() string {
+	if e == nil || e.ContentType == "" {
+		return ErrUnexpectedContentType.Error() + ": response must use text/event-stream"
+	}
+	return fmt.Sprintf(
+		"%s %q: response must use text/event-stream",
+		ErrUnexpectedContentType,
+		e.ContentType,
+	)
+}
+
+func (e *ContentTypeError) Unwrap() error {
+	return ErrUnexpectedContentType
 }
 
 func boundedContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc, error) {
@@ -69,6 +93,13 @@ func validatedHeaders(input map[string]string) (http.Header, error) {
 		if name == "" {
 			return nil, fmt.Errorf("%w: header name cannot be empty", ErrInvalidRequest)
 		}
+		if name != rawName {
+			return nil, fmt.Errorf(
+				"%w: header name %q contains surrounding whitespace",
+				ErrInvalidRequest,
+				rawName,
+			)
+		}
 		if strings.ContainsAny(name, "\r\n:") {
 			return nil, fmt.Errorf(
 				"%w: invalid header name %q",
@@ -85,6 +116,14 @@ func validatedHeaders(input map[string]string) (http.Header, error) {
 				)
 			}
 		}
+		canonicalName := textproto.CanonicalMIMEHeaderKey(name)
+		if _, exists := headers[canonicalName]; exists {
+			return nil, fmt.Errorf(
+				"%w: duplicate header name %q",
+				ErrInvalidRequest,
+				rawName,
+			)
+		}
 		if strings.ContainsAny(value, "\r\n") {
 			return nil, fmt.Errorf(
 				"%w: header %q contains a line break",
@@ -92,7 +131,7 @@ func validatedHeaders(input map[string]string) (http.Header, error) {
 				rawName,
 			)
 		}
-		headers.Set(textproto.CanonicalMIMEHeaderKey(name), value)
+		headers.Set(canonicalName, value)
 	}
 	return headers, nil
 }

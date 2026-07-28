@@ -56,7 +56,10 @@ type Input struct {
 type Result struct {
 	Assertion Assertion `json:"assertion"`
 	Passed    bool      `json:"passed"`
-	Actual    any       `json:"actual,omitempty"`
-	Message   string    `json:"message,omitempty"`
-	Error     string    `json:"error,omitempty"`
+	// Exists distinguishes a present JSON null from a missing path. It is true
+	// for targets such as status/body that always have an addressable value.
+	Exists  bool   `json:"exists"`
+	Actual  any    `json:"actual,omitempty"`
+	Message string `json:"message,omitempty"`
+	Error   string `json:"error,omitempty"`
 }

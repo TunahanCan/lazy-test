@@ -33,6 +33,14 @@ func (function doerFunc) Do(request *http.Request) (*http.Response, error) {
 	return function(request)
 }
 
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (function roundTripperFunc) RoundTrip(
+	request *http.Request,
+) (*http.Response, error) {
+	return function(request)
+}
+
 type trackedBody struct {
 	reader io.Reader
 	closed atomic.Bool
@@ -71,6 +79,19 @@ func TestInspectorOwnsOnlyItsDefaultTransport(t *testing.T) {
 	}
 	injected.CloseIdleConnections()
 	(*Inspector)(nil).CloseIdleConnections()
+}
+
+func TestCloneHTTPTransportFallsBackForCustomDefault(t *testing.T) {
+	t.Parallel()
+
+	transport := cloneHTTPTransport(roundTripperFunc(func(
+		*http.Request,
+	) (*http.Response, error) {
+		return nil, errors.New("not called")
+	}))
+	if transport == nil || transport.Proxy == nil {
+		t.Fatalf("fallback transport = %#v", transport)
+	}
 }
 
 func TestInspectReportsDNSFinalHopAndJSONMilliseconds(t *testing.T) {
@@ -229,6 +250,45 @@ func TestInspectFollowsRelativeRedirectChain(t *testing.T) {
 	if got := strings.Join(methods, ","); got !=
 		"HEAD /start,HEAD /middle,HEAD /final?ready=1" {
 		t.Fatalf("server requests = %q", got)
+	}
+}
+
+func TestInspectDisablesRedirectsOnInjectedHTTPClient(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(
+		responseWriter http.ResponseWriter,
+		request *http.Request,
+	) {
+		if request.URL.Path == "/start" {
+			http.Redirect(
+				responseWriter,
+				request,
+				"/final",
+				http.StatusTemporaryRedirect,
+			)
+			return
+		}
+		responseWriter.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client := server.Client()
+	report, err := Inspect(
+		context.Background(),
+		server.URL+"/start",
+		Options{HTTPClient: client},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Hops) != 2 ||
+		report.Hops[0].StatusCode != http.StatusTemporaryRedirect ||
+		report.Hops[1].StatusCode != http.StatusNoContent {
+		t.Fatalf("hops = %#v, want manually observed redirect chain", report.Hops)
+	}
+	if client.CheckRedirect != nil {
+		t.Fatal("injected client was mutated")
 	}
 }
 
@@ -931,6 +991,33 @@ func TestInspectEnforcesResponseHeaderLimit(t *testing.T) {
 	if len(report.Hops) != 1 ||
 		report.Hops[0].StatusCode != http.StatusOK {
 		t.Fatalf("partial hops = %#v", report.Hops)
+	}
+}
+
+func TestInspectCountsRepeatedResponseHeaderNames(t *testing.T) {
+	t.Parallel()
+
+	body := &trackedBody{reader: strings.NewReader("")}
+	_, err := Inspect(
+		context.Background(),
+		"https://repeated-header.test/",
+		Options{
+			MaxResponseHeaderBytes: 19,
+			Resolver:               fixedResolver(),
+			HTTPClient: doerFunc(func(*http.Request) (*http.Response, error) {
+				result := response(http.StatusOK, "", body, 0)
+				result.Header = http.Header{
+					"X": {"aaaaa", "bbbbb"},
+				}
+				return result, nil
+			}),
+		},
+	)
+	if !errors.Is(err, ErrResponseHeadersTooLarge) {
+		t.Fatalf("error = %v, want repeated-name header limit", err)
+	}
+	if !body.closed.Load() {
+		t.Fatal("response body was not closed after header rejection")
 	}
 }
 

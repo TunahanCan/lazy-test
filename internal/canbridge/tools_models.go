@@ -257,10 +257,11 @@ type CoverageInput struct {
 }
 
 type EndpointCoverage struct {
-	Method        string   `json:"method"`
-	Path          string   `json:"path"`
-	HitCount      int      `json:"hitCount"`
-	ObservedPaths []string `json:"observedPaths,omitempty"`
+	Method                 string   `json:"method"`
+	Path                   string   `json:"path"`
+	HitCount               int      `json:"hitCount"`
+	ObservedPaths          []string `json:"observedPaths,omitempty"`
+	ObservedPathsTruncated bool     `json:"observedPathsTruncated"`
 }
 
 type CoverageResult struct {

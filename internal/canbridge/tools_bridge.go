@@ -22,7 +22,7 @@ func (b *Bridge) UpdateMockRoutes(routes []MockRoute) MockServerSnapshot {
 	defer b.mockMu.Unlock()
 	server := b.currentMockServer()
 	if err := server.ReplaceRoutes(toMockRoutes(routes)); err != nil {
-		return mockFailure(server, "mock_routes_invalid", "Mock route’ları uygulanamadı", err)
+		return mockFailure(server, UserErrorMockRoutesInvalid, "Mock route’ları uygulanamadı", err)
 	}
 	return mockSnapshot(server, "")
 }
@@ -32,15 +32,15 @@ func (b *Bridge) StartMockServer(input MockStartInput) MockServerSnapshot {
 	defer b.mockMu.Unlock()
 	current := b.currentMockServer()
 	if current.Status().Running {
-		return mockFailure(current, "mock_already_running", "Mock server zaten çalışıyor", errors.New("önce çalışan server’ı durdurun"))
+		return mockFailure(current, UserErrorMockAlreadyRunning, "Mock server zaten çalışıyor", errors.New("önce çalışan server’ı durdurun"))
 	}
 	routes := current.Routes()
 	server := mockserver.New(mockserver.Options{EnableCORS: input.EnableCORS})
 	if err := server.ReplaceRoutes(routes); err != nil {
-		return mockFailure(current, "mock_routes_invalid", "Mock route’ları uygulanamadı", err)
+		return mockFailure(current, UserErrorMockRoutesInvalid, "Mock route’ları uygulanamadı", err)
 	}
 	if _, err := server.Start(input.Port); err != nil {
-		return mockFailure(current, "mock_start_failed", "Mock server başlatılamadı", err)
+		return mockFailure(current, UserErrorMockStartFailed, "Mock server başlatılamadı", err)
 	}
 	b.mu.Lock()
 	b.mock = server
@@ -55,7 +55,7 @@ func (b *Bridge) StopMockServer() MockServerSnapshot {
 	ctx, cancel := context.WithTimeout(b.operationContext(), 3*time.Second)
 	defer cancel()
 	if err := server.Stop(ctx); err != nil {
-		return mockFailure(server, "mock_stop_failed", "Mock server durdurulamadı", err)
+		return mockFailure(server, UserErrorMockStopFailed, "Mock server durdurulamadı", err)
 	}
 	return mockSnapshot(server, "")
 }
@@ -73,7 +73,7 @@ func (b *Bridge) ImportMockOpenAPI() MockServerSnapshot {
 	if ctx == nil {
 		out := b.snapshotMockServer("")
 		out.Error = &UserError{
-			Code:    "runtime_unavailable",
+			Code:    UserErrorRuntimeUnavailable,
 			Title:   "OpenAPI dosyası seçilemedi",
 			Message: "Desktop runtime henüz hazır değil.",
 		}
@@ -86,7 +86,7 @@ func (b *Bridge) ImportMockOpenAPI() MockServerSnapshot {
 	if err != nil {
 		out := b.snapshotMockServer("")
 		out.Error = &UserError{
-			Code: "file_dialog_failed", Title: "OpenAPI dosyası seçilemedi",
+			Code: UserErrorFileDialogFailed, Title: "OpenAPI dosyası seçilemedi",
 			Message: "Sistem dosya seçicisi tamamlanamadı.", Technical: err.Error(),
 		}
 		return out
@@ -96,17 +96,25 @@ func (b *Bridge) ImportMockOpenAPI() MockServerSnapshot {
 		snapshot.Canceled = true
 		return snapshot
 	}
-	routes, err := mockserver.ImportOpenAPI(path)
+	routes, err := mockserver.ImportOpenAPIContext(ctx, path)
 	if err != nil {
 		b.mockMu.Lock()
 		defer b.mockMu.Unlock()
-		return mockFailure(b.currentMockServer(), "invalid_openapi", "Mock route’ları üretilemedi", err)
+		return mockFailure(b.currentMockServer(), UserErrorInvalidOpenAPI, "Mock route’ları üretilemedi", err)
 	}
 	b.mockMu.Lock()
 	defer b.mockMu.Unlock()
 	server := b.currentMockServer()
+	if !b.runtimeContextIsCurrent(ctx) {
+		return mockFailure(
+			server,
+			UserErrorOperationCanceled,
+			"Mock route içe aktarma iptal edildi",
+			context.Canceled,
+		)
+	}
 	if err := server.ReplaceRoutes(routes); err != nil {
-		return mockFailure(server, "mock_routes_invalid", "Mock route’ları uygulanamadı", err)
+		return mockFailure(server, UserErrorMockRoutesInvalid, "Mock route’ları uygulanamadı", err)
 	}
 	return mockSnapshot(server, path)
 }
@@ -117,7 +125,7 @@ func (b *Bridge) RunSSE(input SSEInput) SSEResult {
 		return SSEResult{
 			Headers: map[string][]string{},
 			Events:  []SSEEvent{},
-			Error:   toolError("sse_failed", "SSE akışı başlatılamadı", err),
+			Error:   toolError(UserErrorSSEFailed, "SSE akışı başlatılamadı", err),
 		}
 	}
 	defer finish()
@@ -146,7 +154,7 @@ func mapSSEResult(result protocols.SSEResult, err error) SSEResult {
 		})
 	}
 	if err != nil {
-		out.Error = toolError("sse_failed", "SSE akışı tamamlanamadı", err)
+		out.Error = toolError(UserErrorSSEFailed, "SSE akışı tamamlanamadı", err)
 	}
 	return out
 }
@@ -243,7 +251,7 @@ func (b *Bridge) CompareEnvironments(input EnvironmentCompareInput) EnvironmentC
 		differences := make([]EnvironmentJSONDifference, 0, len(comparison.JSONDifferences))
 		for _, difference := range comparison.JSONDifferences {
 			differences = append(differences, EnvironmentJSONDifference{
-				Path: difference.Path, Kind: difference.Kind,
+				Path: difference.Path, Kind: string(difference.Kind),
 				Baseline: difference.Baseline, Candidate: difference.Candidate,
 			})
 		}
@@ -254,7 +262,7 @@ func (b *Bridge) CompareEnvironments(input EnvironmentCompareInput) EnvironmentC
 			HeaderDifferences:          comparison.HeaderDifferences,
 			HeaderDifferencesTruncated: comparison.HeaderDifferencesTruncated,
 			BodyEqual:                  comparison.BodyEqual,
-			BodyMode:                   comparison.BodyMode,
+			BodyMode:                   string(comparison.BodyMode),
 			JSONDifferences:            differences,
 			JSONDifferencesTruncated:   comparison.JSONDifferencesTruncated,
 			Error:                      comparison.Error,
@@ -320,7 +328,7 @@ func (b *Bridge) AnalyzeEndpointCoverage(input CoverageInput) CoverageResult {
 			return CoverageResult{
 				Endpoints: []EndpointCoverage{},
 				Error: &UserError{
-					Code:    "coverage_spec_missing",
+					Code:    UserErrorCoverageSpecMissing,
 					Title:   "Coverage kaynağı bulunamadı",
 					Message: "Bu oturumda içe aktarılmış OpenAPI endpoint’i yok.",
 					Hint:    "Önce OpenAPI dosyası içe aktarın veya endpoint listesini elle girin.",
@@ -357,6 +365,7 @@ func (b *Bridge) AnalyzeEndpointCoverage(input CoverageInput) CoverageResult {
 		out.Endpoints = append(out.Endpoints, EndpointCoverage{
 			Method: endpoint.Method, Path: endpoint.Path,
 			HitCount: endpoint.HitCount, ObservedPaths: endpoint.ObservedPaths,
+			ObservedPathsTruncated: endpoint.ObservedPathsTruncated,
 		})
 	}
 	for _, call := range report.UnknownObserved {
@@ -368,22 +377,39 @@ func (b *Bridge) AnalyzeEndpointCoverage(input CoverageInput) CoverageResult {
 }
 
 func (b *Bridge) recordObservedCall(method, path string) {
-	method = strings.ToUpper(strings.TrimSpace(method))
-	path = strings.TrimSpace(path)
-	if method == "" {
+	method, path, ok := normalizedObservedCall(method, path)
+	if !ok {
 		return
 	}
-	if path == "" {
-		path = "/"
+	b.mu.Lock()
+	b.recordObservedCallLocked(method, path)
+	b.mu.Unlock()
+}
+
+func (b *Bridge) recordObservedCallForContext(
+	ctx context.Context,
+	method string,
+	path string,
+) {
+	method, path, ok := normalizedObservedCall(method, path)
+	if !ok || ctx == nil || ctx.Err() != nil {
+		return
 	}
 	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.lifecycleCtx != ctx {
+		return
+	}
+	b.recordObservedCallLocked(method, path)
+}
+
+func (b *Bridge) recordObservedCallLocked(method, path string) {
 	if b.observed == nil {
 		b.observed = make(map[string]int)
 	}
 	key := method + "\x00" + path
 	if count, exists := b.observed[key]; exists {
 		b.observed[key] = count + 1
-		b.mu.Unlock()
 		return
 	}
 	if len(b.observedOrder) < maxObservedCoverageEntries {
@@ -395,7 +421,21 @@ func (b *Bridge) recordObservedCall(method, path string) {
 		b.observedNext = (b.observedNext + 1) % maxObservedCoverageEntries
 	}
 	b.observed[key] = 1
-	b.mu.Unlock()
+}
+
+func normalizedObservedCall(
+	method string,
+	path string,
+) (string, string, bool) {
+	method = strings.ToUpper(strings.TrimSpace(method))
+	path = strings.TrimSpace(path)
+	if method == "" {
+		return "", "", false
+	}
+	if path == "" {
+		path = "/"
+	}
+	return method, path, true
 }
 
 func (b *Bridge) ResetEndpointCoverage() {
@@ -505,7 +545,12 @@ func mockSnapshot(server *mockserver.Server, importedPath string) MockServerSnap
 	return out
 }
 
-func mockFailure(server *mockserver.Server, code, title string, err error) MockServerSnapshot {
+func mockFailure(
+	server *mockserver.Server,
+	code UserErrorCode,
+	title string,
+	err error,
+) MockServerSnapshot {
 	out := mockSnapshot(server, "")
 	out.Error = &UserError{
 		Code: code, Title: title, Message: err.Error(),
@@ -521,23 +566,23 @@ func durationFromMS(value int) time.Duration {
 	return time.Duration(value) * time.Millisecond
 }
 
-func toolError(code, title string, err error) *UserError {
+func toolError(code UserErrorCode, title string, err error) *UserError {
 	userError := &UserError{
 		Code: code, Title: title, Message: "Bağlantı veya protokol işlemi başarısız oldu.",
 		Hint:      "Adres, timeout, TLS ve kimlik doğrulama bilgilerini kontrol edin.",
 		Technical: err.Error(),
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
-		userError.Code = "tool_timeout"
+		userError.Code = UserErrorToolTimeout
 		userError.Message = "Hedef belirtilen sürede yanıt vermedi."
 		userError.Technical = ""
 	} else if errors.Is(err, context.Canceled) {
-		userError.Code = "tool_canceled"
+		userError.Code = UserErrorToolCanceled
 		userError.Message = "İşlem iptal edildi."
 		userError.Technical = ""
 	} else if errors.Is(err, errInvalidToolOperation) ||
 		errors.Is(err, protocols.ErrInvalidRequest) {
-		userError.Code = "invalid_input"
+		userError.Code = UserErrorInvalidInput
 		userError.Message = classifiedErrorDetail(
 			err,
 			errInvalidToolOperation,
@@ -562,9 +607,9 @@ func classifiedErrorDetail(err error, sentinels ...error) string {
 }
 
 func diagnosticError(title string, err error) *UserError {
-	code := diagnostics.ErrorCode(err)
+	code := UserErrorCode(diagnostics.ErrorCode(err))
 	if code == "" {
-		code = "diagnostic_failed"
+		code = UserErrorDiagnosticFailed
 	}
 	return &UserError{
 		Code: code, Title: title, Message: err.Error(),

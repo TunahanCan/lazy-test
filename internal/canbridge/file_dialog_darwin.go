@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"os/exec"
-	"strings"
 )
 
 const chooseFileAppleScript = `
@@ -22,20 +21,19 @@ end run
 `
 
 func openSystemFile(ctx context.Context, options fileDialogOptions) (string, error) {
-	output, err := exec.CommandContext(
+	path, err := runFileDialogCommand(ctx, exec.CommandContext(
 		ctx,
 		"osascript",
 		"-e",
 		chooseFileAppleScript,
 		options.Title,
-	).Output()
+	))
 	if err != nil {
 		if errors.Is(ctx.Err(), context.Canceled) {
 			return "", ctx.Err()
 		}
 		return "", err
 	}
-	path := strings.TrimSpace(string(output))
 	if path == "" {
 		return "", errFileDialogCanceled
 	}

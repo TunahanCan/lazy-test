@@ -180,6 +180,11 @@ JSON çıktı üretir. Exit code sözleşmesi:
 | `1` | Domain çalışması veya kalite kapısı başarısız |
 | `2` | Komut/flag kullanımı hatalı |
 
+Dosya/stdin okuma context ile iptal edilir. Unix platformlarında
+(`linux`, `darwin` ve BSD ailesi dahil) peer bekleyen named-pipe/FIFO open
+işlemi non-blocking bir read-write descriptor ile uyandırılır; cancellation
+arkada kalıcı `os.Open` goroutine'i bırakmaz.
+
 ## 4. Repository topolojisi
 
 ```text
@@ -208,6 +213,8 @@ validex/
 │   ├── core/                          # OpenAPI ve contract drift
 │   ├── diagnostics/                   # backend/JVM analizleri
 │   ├── httpexec/                      # ortak bounded HTTP wire executor
+│   ├── httpmedia/                     # ortak media-type policy value object'leri
+│   ├── jsonnumber/                    # bounded ve exact JSON sayı policy'si
 │   ├── mockserver/                    # loopback mock HTTP server
 │   ├── nativewebview/                 # dar Go/CGO/native pencere sınırı
 │   ├── netinspector/                  # DNS ve redirect analizi
@@ -236,7 +243,7 @@ flowchart TD
     Canbridge["internal/canbridge"]
     CLIAdapter["internal/cli"]
     Native["internal/nativewebview"]
-    HTTPExec["internal/httpexec"]
+    HTTPPolicy["httpexec · httpmedia · jsonnumber"]
     Core["core · mockserver · protocols · diagnostics"]
     Automation["runner · assertions · netinspector · openapilint"]
 
@@ -245,8 +252,8 @@ flowchart TD
     Canbridge --> Native
     Canbridge --> Core
     Canbridge --> Automation
-    Canbridge --> HTTPExec
-    Automation --> HTTPExec
+    Canbridge --> HTTPPolicy
+    Automation --> HTTPPolicy
     CLIRoot --> CLIAdapter
     CLIAdapter --> Automation
 ```
@@ -267,6 +274,8 @@ Oklar compile-time veya runtime kullanım yönünü gösterir. Temel kurallar:
 | --- | --- |
 | `internal/canbridge` | Desktop lifecycle, IPC, bootstrap, interactive request orkestrasyonu, dosya seçici, collection persistence ve domain adaptasyonu |
 | `internal/httpexec` | Sıralı/tekrarlı header modeli, özel wire header'ları, redirect policy, bounded response ve content decoding kullanan ortak HTTP executor |
+| `internal/httpmedia` | Parametrelerden arındırılmış media type, JSON/XML structured suffix ve wildcard/suffix range eşleştirme policy'si |
+| `internal/jsonnumber` | Byte ve exponent bütçeli, `big.Rat` tabanlı exact JSON/Go sayı dönüşümü |
 | `internal/nativewebview` | Native pencere oluşturma, navigate/eval/bind/dispatch ve minimum pencere API'si |
 | `internal/core` | Sınırlı OpenAPI yükleme, endpoint çıkarma ve JSON response contract drift |
 | `internal/mockserver` | `127.0.0.1` üzerinde deterministic mock route ve bounded hit geçmişi |
@@ -377,6 +386,12 @@ Bu sıra içindeki `Bridge.Shutdown` lifecycle state machine nedeniyle tek
 seferlik state geçişidir. Aynı Bridge test veya native runtime restart
 senaryosunda yeniden başlatılırsa sonraki `Startup`, stopped session'ın
 context/revision sahipliğini yeniden kullanmaz.
+
+Uzun I/O işi state lock'u dışında yürüyebilir; fakat sonucu state'e yazmak
+ayrı bir commit aşamasıdır. OpenAPI cache, mock route replacement ve başarılı
+request coverage kaydı, işi başlatan cancelable session context'inin halen
+güncel olduğunu lock altında doğrular. Eski session'da başlayıp restart
+sonrasında tamamlanan iş yeni session state'ine yazamaz.
 
 ## 7. Frontend mimarisi
 
@@ -637,6 +652,10 @@ JSON-encoded argument array
 
 Kontroller:
 
+- native C callback'i null terminator ararken en fazla 128 MiB tarar ve Go
+  string'ini `GoStringN` ile bu mutlak sınır içinde oluşturur;
+- dispatcher dış JSON envelope'u decode öncesinde 128 MiB, browser logger
+  envelope'u 128 KiB ile sınırlıdır;
 - capability constant-time karşılaştırılır;
 - callback ID ve metot adı uzunluğu doğrulanır;
 - encoded argument boyutu 32 MiB ile sınırlıdır;
@@ -646,8 +665,8 @@ Kontroller:
 - panic, bridge metot adıyla kontrollü transport hatasına dönüştürülür.
 
 `internal/canbridge/invoke.go` içindeki Command Registry, metot adını,
-argument decoder/handler'ını, execution policy'yi ve varsa typed busy
-result'ını tek descriptor'da tutar. `registerBridgeMethod0` argumentsız,
+argument decoder/handler'ını, execution policy'yi, IPC admission lane'ini ve
+varsa typed busy result'ını tek descriptor'da tutar. `registerBridgeMethod0` argumentsız,
 `registerBridgeMethod1` tek argument'lı concrete `Bridge` metotlarını
 reflection kullanmadan generic adapter'a bağlar. Başlangıçta catalog:
 
@@ -656,6 +675,7 @@ reflection kullanmadan generic adapter'a bağlar. Başlangıçta catalog:
 - handler'ı olmayan descriptor'ları;
 - concurrent metoda eklenmiş anlamsız busy result'ı;
 - serial metoda eklenmemiş busy result'ı;
+- bilinmeyen admission lane'i ve serial metoda eklenmiş kullanılmayan lane'i;
 - bilinmeyen execution policy'yi
 
 reddeder. Aynı catalog sıralı `bridgeMethodNames` reklam listesini ve O(1)
@@ -696,7 +716,10 @@ code · title · message · hint · technical
 ```
 
 Frontend karar vermek için serbest hata metnini parse etmemeli; stabil `code`
-ve tipli result alanlarını kullanmalıdır.
+ve tipli result alanlarını kullanmalıdır. Go tarafında `code`,
+`UserErrorCode` string-backed tipi ve merkezi sabitlerle tanımlıdır; collection
+library'nin kendi stabil kodları da aynı tipe aittir. Başka bir domain'in typed
+hata kodu bridge'e adapte edilirken açık type dönüşümü gerekir.
 
 ### 8.5 Scheduling
 
@@ -716,6 +739,9 @@ ve tipli result alanlarını kullanmalıdır.
 - Queue en fazla 128 bekleyen çağrı ve 64 MiB encoded argument tutar.
 - Queue dolduğunda kullanıcıya tipli `collection_library_busy` sonucu döner.
 - Request iptali ile tool iptali ayrı operation registry'leridir.
+- Native dosya seçici process-global, context-aware tek-slot gate ile
+  serialdir; gate arkasında bekleyen eski session çağrısı cancellation ile
+  kuyruktan ayrılabilir. Platform helper stdout'u 64 KiB ile sınırlıdır.
 
 Cancellation fast lane bir öncelik kuyruğu değildir; yalnız iptal
 komutlarının normal lane kaynaklarını paylaşmamasını sağlar. Yeni bir bridge
@@ -762,10 +788,95 @@ Request motoru:
 - status, protokol, uzak adres, TLS, trace ID, header, cookie, raw body ve
   ölçülmüş bağlantı fazlarını döndürür.
 
+`ResponseEnvelope.bodyEncoding`, `body` ve `rawBody` alanlarının wire
+temsilini açıklar. Açıkça textual bir media type taşıyan veya media type
+bildirmeyen, geçerli UTF-8 olan, binary control byte içermeyen ve JSON-escaped
+sunumu 48 MiB body bütçesine sığan cevaplar `utf8` olarak taşınır. Diğer
+cevaplar byte kaybını, JSON replacement character üretimini ve escape
+amplification nedeniyle IPC limitinin aşılmasını önlemek için iki alanda da
+Base64 olarak taşınır. Textual media type kararı ortak `internal/httpmedia`
+policy'sindedir. UI Base64 durumunu etiketler. Contract kontrolü her zaman
+`rawBody` ile birlikte encoding'i gönderir ve Go tarafı şema
+karşılaştırmasından önce özgün byte dizisini geri çözer. Eski frontend
+sürümleriyle uyumluluk için contract input'unda boş encoding `utf8` kabul
+edilir; yeni response envelope her zaman açık encoding döndürür.
+
+UTF-8 sunum kapısından geçen response body'leri için presentation,
+transport'tan ayrılmış sıralı bir Strategy catalog'udur.
+`responseBodyFormatter` yalnız “bu cevabı tanıyor muyum?” ve “güvenli bütçe
+içinde formatlayabildim mi?” kararlarını verir; formatter seçilememesi veya
+seçilen formatter'ın reddetmesi request'i başarısız yapmaz. Catalog şu sırayla
+çalışır:
+
+1. JSON strategy, `internal/httpmedia.IsJSON` ile tanınan media type'ları veya
+   media type'tan bağımsız olarak geçerli JSON byte'larını kabul eder.
+   Parse edip yeniden marshal etmek yerine `json.Indent` kullandığı için
+   property sırası, duplicate key'ler, sayı lexeme'leri ve string escape'leri
+   korunur. Allocation öncesi preflight, kaynak/çıktı için 32 MiB ve nesting
+   için 128 seviye sınırı uygular.
+2. XML strategy, `internal/httpmedia.IsXML` ile `application/xml`, `text/xml`,
+   `image/svg+xml` ve structured `+xml` subtype'larını tanır; Content-Type
+   güvenilir değilse baştaki XML markup'ını dar bir içerik sinyali olarak da
+   kullanabilir. Go formatter sınıflandırmasını bu ortak policy'den alır;
+   `strings.Contains("xml")` gibi geniş ve hataya açık bir kural eklemez.
+
+XML formatter parse edilmiş token'ları yeniden encode etmez. Standart
+`encoding/xml` decoder'ı yapısal geçerliliği kontrol ederken input offset'leri
+kaydedilir; renderer yalnız özgün response byte'larındaki lexical span'leri
+kopyalayıp aralarına indentation ekler. Böylece namespace prefix ve
+declaration'ları, attribute sırası ve quote biçimi, entity referansları, CDATA,
+comment, processing instruction, directive ve self-closing tag yazımı
+değişmez. XML inspection/çıktı 32 MiB, nesting 128 ve token sayısı 250.000 ile
+sınırlıdır.
+
+Whitespace'in veri olduğu durumlarda formatter muhafazakâr davranır. Bir
+element hem non-whitespace text hem child/markup içeriyorsa veya child'lar
+arasında satır sonu içermeyen inline whitespace taşıyorsa mixed content kabul
+edilir;
+herhangi bir element `xml:space="preserve"` taşıyorsa veya belge malformed,
+çok derin, çok geniş ya da formatted çıktı bütçesini aşacak durumdaysa tüm XML
+olduğu gibi bırakılır. JSON için de invalid input, depth veya expansion bütçesi
+aşımı aynı non-failing fallback'i kullanır. Bu fallback'lerde `body`,
+`rawBody` ile aynı metindir.
+
+Formatter yalnız `body` alanının okunabilir görünümünü üretir. `rawBody`,
+content decoding sonrasındaki özgün byte dizisini hiçbir formatter'a
+uğratmadan korur: UTF-8 sunumda doğrudan metin, binary/Base64 sunumda strict
+decode ile aynı byte'lara dönen Base64 değeridir. Base64 yolunda `body` ve
+`rawBody` bilinçli olarak aynıdır. Raw sekmesi, copy-raw ve OpenAPI contract
+adapter'i `rawBody` üzerinden çalışır; formatted `body` hiçbir zaman contract
+girdisi veya kayıpsız kaynak kabul edilmez.
+
+Frontend'in sorumluluğu tekrar formatlamak değil, seçilmiş `body` veya
+`rawBody` metnini görsel syntax token'larına ayırmaktır.
+`features/requests/model/responsePresentation.ts`:
+
+- encoding ve media type'tan `json`, `xml`, `text` veya `base64` view kind'ını
+  türetir; non-structured media type'ta bounded geçerli-JSON kontrolü uygular.
+  Backend'in `body` alanını `rawBody`'den farklı biçimlendirdiği durumlarda ya
+  da Content-Type boş/`text/plain` olduğunda dar XML başlangıç kontrolüyle
+  sonucu tamamlar;
+- JSON key/string/number/literal ve XML tag/attribute/comment/CDATA/declaration
+  sınıflarını lexical olarak ayırır; token text'lerinin birleşimi kaynak
+  metinle byte-for-byte aynı kalır;
+- syntax highlighting'i en fazla 256 KiB UTF-8 metin ve 20.000 token için
+  uygular; byte/token bütçesi aşılırsa veya anlamlı token sonucu üretilemezse
+  tek escaped plain token'a düşer;
+- `text` ve `base64` görünümünü tokenize etmez; copy ve contract akışlarına
+  presentation token'ı sızdırmaz.
+
+Renderer her token text'ini mevcut escaped `TrustedHTMLFragment` sınırından
+geçirir ve yalnız sınıfa göre renk uygular. Response içeriğini HTML olarak
+yorumlamak, token'lardan yeni bir body üretmek veya büyük cevaplarda DOM node
+sayısını limitsiz büyütmek frontend presentation katmanının sözleşmesine
+aykırıdır.
+
 Bu akışta `canbridge` variable, request ID/cancellation, timeline, history ve
 `UserError` adaptasyonunun sahibidir. Çözümlenmiş method/URL/body ile etkin
 header listesi `internal/httpexec.Executor`'a verilir. Ortak executor:
 
+- Bridge ömrü boyunca paylaşılır; aynı oturumdaki request'ler connection
+  pool'u yeniden kullanır ve Shutdown idle bağlantıları kapatır;
 - aynı canonical header adına ait tekrarlı değerlerin sırasını korur;
 - `Host`, `Content-Length`, `Transfer-Encoding` ve `Trailer` alanlarını
   `net/http` özel alanlarına güvenli biçimde adapte eder;
@@ -788,7 +899,8 @@ Desktop import akışı:
 1. Platform dosya seçici YAML/JSON path'i döndürür.
 2. `internal/core` en fazla 16 MiB dosyayı parse ve validate eder.
 3. Uzak `$ref` çözümlemesi açılmaz.
-4. En fazla 10.000 operasyon çıkarılır.
+4. En fazla 10.000 operasyon, path ve method'a göre deterministik sırada
+   çıkarılır.
 5. Bridge frontend'e metadata ve endpoint listesini döndürür.
 6. Parsed operasyonlar `specID` anahtarıyla process belleğinde tutulur.
 7. Cache en fazla sekiz spec saklar; eski kayıtlar sırayla çıkarılır.
@@ -796,11 +908,22 @@ Desktop import akışı:
    contract drift kontrolü yapabilir.
 
 Drift motoru JSON response için missing, extra, type mismatch ve enum violation
-bulguları üretir. Traversal depth, node sayısı, finding sayısı ve retained byte
-boyutu ayrı ayrı sınırlıdır.
+bulguları üretir. Property yolları güvenli identifier'larda `$.name`, nokta,
+tırnak veya başka özel karakterlerde `$["..."]` biçiminde kaçırılır. Tip
+isimleri Go reflection terimleri değil `object`, `array`, `number`, `string`,
+`boolean` ve `null` JSON sözlüğünü kullanır. `RunEndpointDrift*`, route
+kimliğine sahip çağıranlar için Method/Path'i korur; yalnız
+`openapi3.Operation` alan eski API bu bilgiyi uydurmaz. Body, numeric exponent,
+traversal depth, node, finding ve retained byte bütçeleri birbirinden
+bağımsızdır.
 
 CLI lint akışı OpenAPI import/cache akışından bağımsızdır. Lint sonucu
 deterministik code, severity, JSON Pointer path, message ve hint alanları taşır.
+`openapilint` içindeki sıralı Rule Catalog her operation kuralının ID ve
+strategy'sini bir descriptor'da tutar. Engine traversal, cancellation,
+sayım ve toplam issue byte bütçesini; rule strategy yalnız tek kalite kararını
+sahiplenir. Böylece yeni bir kural ana traversal switch'ini büyütmeden
+eklenebilir.
 
 ### 9.3 Mock Server
 
@@ -813,6 +936,12 @@ Mock server `internal/mockserver.Server` tarafından sahiplenilir:
 - route listesi server çalışırken güncellenebilir;
 - CORS yalnız açık kullanıcı tercihiyle etkinleşir;
 - son 500 hit varsayılan olarak ring buffer'da tutulur;
+- hit kapasitesi 10.000'e clamp edilir; route tablosu 2.000 kayıt, route başına
+  1 MiB body ve toplam 32 MiB body ile sınırlıdır;
+- response header adları compile aşamasında canonicalize edilir; büyük,
+  case-insensitive duplicate, hop-by-hop ve server tarafından yönetilen
+  header'lar reddedilir;
+- eşit specificity'li eşleşmeler path ve route ID ile deterministik çözülür;
 - route delay en fazla 10 dakikadır;
 - stop işlemi context ile graceful çalışır.
 
@@ -839,6 +968,11 @@ Bridge lock sırası gerektiğinde `mockMu` → `Bridge.mu` şeklindedir.
 mutex'leriyle korur; Bridge-level lock bunun yerine geçmez, birden fazla
 server instance'ı arasındaki application state geçişini korur.
 
+OpenAPI mock import'u endpoint listesinin kopyasını sıralar; çağıranın
+slice'ını değiştirmez. Yalnız `null` kabul eden schema `null` örneği üretir.
+Route sayısı, tekil/aggregate body ve schema sample node/byte limitleri route
+tablosu değiştirilmeden önce uygulanır.
+
 ### 9.4 SSE
 
 SSE için harici protokol paketi kullanılmaz. `internal/protocols.ReadSSE`:
@@ -850,6 +984,10 @@ SSE için harici protokol paketi kullanılmaz. `internal/protocols.ReadSSE`:
 - TLS minimum sürümünü 1.2 yapar;
 - en fazla beş redirect izler ve şema/host değişikliğini reddeder;
 - `event`, `id`, çok satırlı `data` ve `retry` alanlarını parse eder;
+- başarılı cevabın `Content-Type` değerini `text/event-stream` olarak
+  doğrular ve farklı media type'ı typed error ile bildirir;
+- newline içermeyen büyük tek satırı bütçenin tamamını belleğe almadan
+  artımlı okur;
 - context, timeout, event sayısı ve byte limitleriyle durur;
 - iptal öncesi tamamlanmış event'leri sonuçta korur.
 
@@ -878,6 +1016,23 @@ URL, response ve collection limitleriyle yürür. Actuator incelemesi varsayıla
 olarak read-only endpoint'leri çağırır; diagnostics redirect politikaları
 origin değişimini sınırlar.
 
+Environment comparison her hedef için caller client'ın ayrı bir kopyasını
+oluşturur ve `CookieJar` paylaşmaz. Baseline response bir kez hazırlanır;
+canonical header ve decoded JSON her aday için yeniden hesaplanmaz. Ignore
+JSONPath'leri UTF-8, byte, segment ve index bütçelidir; özel property adları
+`$["a.b"]` biçiminde kaçırılır. JSON diff traversal'ı depth/node/finding
+bütçesi taşır, büyük composite veya scalar değerleri rapora bütünüyle
+kopyalamak yerine bounded özet üretir ve JSON sayıları exact karşılaştırır.
+`BodyMode`, JSON difference kind ve diagnostics hata kodları string-backed
+typed constant'lardır; JSON wire değerleri string kalır.
+
+Endpoint coverage sayaç eklemelerini overflow kontrolüyle yapar. Eşit route
+specificity durumunda lexical path ile deterministik seçim yapar ve endpoint
+başına 100 farklı observed path sonrasında
+`observedPathsTruncated=true` üretir. Log search, kaynak metni `Split` ve
+global newline kopyasıyla çoğaltmadan satır cursor'ıyla tarar;
+`scannedLines` gerçekten incelenen satır sayısını bildirir.
+
 ### 9.6 Automation ve CLI paylaşımı
 
 Desktop Automation workspace ve CLI şu domain paketlerini paylaşır:
@@ -890,6 +1045,19 @@ Desktop Automation workspace ve CLI şu domain paketlerini paylaşır:
 Runner bir request başarısız olduğunda raporu korur ve sonraki request'lere
 devam eder; parent context iptali tüm çalışmayı durdurur. CLI yalnız input/output
 adaptasyonudur, domain kararlarını yeniden uygulamaz.
+
+`assertions` iki ayrı Strategy Registry kullanır: target descriptor'ı değerin
+nasıl okunacağını, path doğrulamasını ve kabul ettiği operator'ları; operator
+descriptor'ı karşılaştırmayı ve varsa expected-value doğrulamasını sahiplenir.
+Registry başlangıçta boş ad, eksik reader/comparator, bilinmeyen operator ve
+geçersiz expected-value policy için doğrulanır. Composite equality depth/node
+bütçelidir; `Result.exists`, mevcut JSON `null` ile eksik path'i ayırır.
+
+`internal/cli` root dispatch ve usage metnini sıralı Command Catalog'dan
+üretir. Komut adı, synopsis ve handler aynı descriptor'dadır; duplicate,
+reserved/bozuk ad ve eksik handler başlangıçta reddedilir. OpenAPI lint context
+API'si çağıranın goroutine'inde çalıştığı için CLI iptalinde orphan worker
+oluşturmaz.
 
 Runner collection wire sözleşmesinin iki sürümü okunabilir:
 
@@ -904,6 +1072,24 @@ JSON'una çevirir; runtime variable'ları definition içine gömmez ve ayrı
 `CollectionRunInput.variables` alanında tutar. Persist edilen frontend
 collection schema'sı ile runner wire schema'sı iki farklı sözleşmedir; native
 collection repository iç dokümanı yorumlamaya devam etmez.
+
+`Collection.MarshalJSON` kaynağı v1 olsa bile her zaman kanonik numeric v2
+wire modeli üretir; kaynak `Collection.Version` bellekte değiştirilmez.
+`EncodeCollection`, validation ve encoded byte bütçesini birlikte uygulayan
+açık persistence sınırıdır. Canonical modelin `encoding/json` boyutunu
+allocation yapmadan ve limitte erken durarak hesaplar; ancak çıktı bütçeye
+sığıyorsa bounded staging buffer'ı hedef writer'a yazar. Böylece reddedilen
+programatik collection büyük bir marshal allocation'ı veya kısmi dosya
+bırakmaz. Cycle, aşırı nesting, non-finite sayı ve output'u önceden
+hesaplanamayan custom marshaler değerleri reddedilir. Kaynak header object/array
+uyumluluğu yalnız decode anti-corruption sınırında kontrol edilir; encode
+canonical `[]Header` semantik modeline göre çalışır.
+
+`CollectionVersion` ile runner failure code'ları string-backed typed
+constant'lardır; version'ın dış JSON gösterimi geriye uyumlu numeric kalır.
+Request wire decoder'ı embedded alias anti-corruption adapter'ı kullandığı için
+modele yeni alan eklendiğinde manuel alan kopyalama listesinde unutulmaz;
+unknown alanlar yine strict biçimde reddedilir.
 
 Runner shared executor'a açık `FollowRedirects` policy'si verir; interactive
 Request ise `StopAtFirstResponse` kullanır. Bu fark örtük client varsayılanı
@@ -991,6 +1177,8 @@ temizlemez; bu alanlara düz metin secret yazılmamalıdır.
 - Uygulamanın root lifecycle context'i vardır.
 - Bridge lifecycle geçişleri `created/running/stopped` typed state'i ve
   `lifecycleMu` ile serialdir; shutdown sonrası restart yeni context'ler kurar.
+- Runtime dışı I/O sonuçları state'e ancak aynı lifecycle context'i halen
+  güncelse commit edilir.
 - Her aktif HTTP request kendi request ID ve cancel fonksiyonuna sahiptir.
 - SSE, collection runner ve network inspector ayrı tool operation ID kullanır.
 - Actuator/environment işlemleri application context ile; thread/log/coverage
@@ -1027,7 +1215,7 @@ sahiplenir:
 
 | Bileşen | Oluşturma | Kapanış sözleşmesi |
 | --- | --- | --- |
-| Desktop interactive request | `httpexec.NewExecutor` normal ve HTTP/1 default transport clone'larını oluşturur | Request çağrısı sonunda `Executor.CloseIdleConnections` defer edilir |
+| Desktop interactive request | `Bridge`, `httpexec.NewExecutor` ile normal ve HTTP/1 default transport clone'larını bir kez oluşturur | `Bridge.Shutdown`, tekrar çağrılması güvenli `Executor.CloseIdleConnections` ile idle pool'ları kapatır; restart aynı executor'ı temiz pool ile kullanabilir |
 | SSE | `internal/protocols` kendi transport'unu clone eder | SSE çağrısı sonunda kapatılır |
 | Runner | `runner.NewHTTPSender(nil)` ortak executor ve owned transport clone'larını hazırlar | Sahip çağıran `HTTPSender.CloseIdleConnections` kullanır; CLI ve Automation bridge bunu defer eder |
 | Network inspector | `netinspector.New` HTTP client verilmediyse transport oluşturur | Paket-level `netinspector.Inspect` otomatik kapatır; doğrudan `New` kullanan sahip `Inspector.CloseIdleConnections` çağırır |
@@ -1084,20 +1272,26 @@ WebView genel amaçlı güvenlik sandbox'ı olarak değerlendirilmemelidir.
 
 | Alan | Varsayılan / hard sınır |
 | --- | --- |
+| Native binding / dispatcher dış envelope | 128 MiB hard |
+| Browser log binding envelope | 128 KiB hard |
+| Native file-picker helper stdout | 64 KiB hard |
 | IPC tek çağrı encoded arguments | 32 MiB hard |
 | IPC normal concurrent lane | 64 in-flight çağrı, toplam 64 MiB accepted arguments |
 | IPC cancellation fast lane | 8 in-flight çağrı, toplam 1 MiB accepted arguments |
 | IPC marshaled response envelope | 64 MiB hard |
 | Desktop HTTP request body | 16 MiB hard |
-| Desktop HTTP response body | 16 MiB hard |
+| Desktop HTTP response body | 16 MiB decoded byte; UTF-8/Base64 sunum çiftine 48 MiB encoded JSON bütçesi |
 | Desktop HTTP timeout | 1 ms–5 dakika |
 | OpenAPI import | 16 MiB, 10.000 endpoint, 8 cached spec |
 | Collection dosyası | 15 MiB |
 | Collection IPC queue | 128 bekleyen çağrı, 64 MiB |
 | SSE | 100 event / 8 MiB varsayılan; 10.000 / 64 MiB hard |
 | CLI runner | 8 MiB collection, 100 request varsayılan |
-| OpenAPI lint | 16 MiB, 200 bulgu varsayılan, 1.000 hard |
-| Mock hit geçmişi | 500 varsayılan |
+| OpenAPI lint | 16 MiB document, 200 bulgu varsayılan / 1.000 hard, 4 MiB issue text varsayılan / 16 MiB hard |
+| Contract drift | 16 MiB body, 10.000 traversal node, 4 MiB finding text |
+| Mock route tablosu | 2.000 route, route başına 1 MiB / toplam 32 MiB body |
+| Mock hit geçmişi | 500 varsayılan, 10.000 hard |
+| Environment JSON diff | 128 path segment, 10.000 traversal node, 1.000 finding |
 | Thread dump ve log metni | İlgili araca göre 32 MiB hard |
 
 Bu tablo seçilmiş kullanıcı etkili limitleri özetler. Kesin ve eksiksiz
@@ -1236,8 +1430,9 @@ browser E2E işi içermez; belge bunları varmış gibi kabul etmez.
 3. Varsayılan concurrent veya collection-library serial execution policy'sini
    bilinçli seçin. Serial policy seçiliyorsa typed busy result factory'sini
    aynı descriptor'a ekleyin.
-4. Metot yalnız mevcut bir operasyonu iptal eden kısa bir komutsa
-   `admissionLaneForBridgeMethod` içinde cancellation fast lane'ine alın.
+4. Metot yalnız mevcut bir operasyonu iptal eden kısa bir komutsa aynı
+   descriptor'a `withBridgeAdmissionLane(ipcAdmissionCancellation)` ekleyin.
+   Ayrı lane switch'i oluşturmayın.
 5. Domain hatasını typed result, IPC/programlama hatasını rejection olarak
    modelleyin.
 6. Frontend `CanbridgeAPI`, `backend` facade ve DTO/normalizer katmanını aynı
@@ -1281,7 +1476,75 @@ konular için ayrı mimari karar gerekir:
 
 Bu karar alınmadıkça Protocols workspace yalnız SSE olarak kalır.
 
-### 16.6 Tasarım deseni kullanım rehberi
+### 16.6 Yeni assertion target/operator
+
+Assertion motorunda target ile operator iki bağımsız değişim eksenidir.
+
+Yeni target eklerken:
+
+1. `models.go` içinde string-backed `Target` sabitini tanımlayın.
+2. `registry.go` içinde değeri okuyan küçük bir reader yazın. Reader yalnız
+   input'tan `(actual, exists, error)` üretmeli; operator kararı vermemelidir.
+3. Path gerekiyorsa `validatePath` fonksiyonunu descriptor'a bağlayın.
+4. Desteklenen operator → `expectedValueKind` matrisini aynı target
+   descriptor'ında bildirin.
+5. Mevcut ve eksik değer, invalid path, body/regex/numeric limitleri ile wire
+   `exists` davranışını test edin.
+
+Yeni operator eklerken:
+
+1. `models.go` içinde string-backed `Operator` sabitini tanımlayın.
+2. Comparator'ı `assertionOperators` catalog'una bir kez ekleyin.
+3. Regex gibi önceden derlenebilir/validate edilebilir expected değer varsa
+   `validateExpected` stratejisini aynı descriptor'a ekleyin.
+4. Operator'ı kabul eden target descriptor'larının matrisini açıkça
+   güncelleyin.
+5. `Validate` ile `Evaluate` arasında ikinci bir switch eklemeyin; registry
+   başlangıç doğrulaması eksik comparator ve bilinmeyen operator bağını
+   yakalar.
+
+### 16.7 Yeni CLI komutu
+
+1. `commands.go` içinde typed `commandName` sabitini ekleyin.
+2. Flag/I/O adaptörünü kendi dosyasında `commandHandler` imzasıyla yazın.
+3. Ad, usage synopsis ve handler'ı `cliCommands` içine tek descriptor olarak
+   kaydedin.
+4. Root usage veya dispatch için ayrı switch/list eklemeyin; catalog ikisini
+   de üretir.
+5. Usage exit code, `--help`, unknown command, cancellation ve JSON/human
+   output testlerini ekleyin.
+
+Komutun uzun işi varsa context-aware domain API'sini aynı goroutine'de çağırın.
+Yalnız iptal cevabı beklemek için arka planda durmaya devam eden “wrapper
+goroutine” oluşturmayın.
+
+### 16.8 Yeni OpenAPI lint kuralı
+
+1. Stabil `Code` ve internal `operationRuleID` sabitlerini ekleyin.
+2. Tek kalite kararını veren strategy fonksiyonunu yazın; traversal, sort,
+   cancellation veya truncation'ı rule içinde tekrar uygulamayın.
+3. Descriptor'ı `defaultOperationRules` içindeki bilinçli rapor sırasına bir
+   kez ekleyin.
+4. Rule'un olumlu/olumsuz örneklerini, code/severity/path/hint sözleşmesini ve
+   catalog duplicate/eksik strategy validation'ını test edin.
+5. Üretilen kullanıcı metninin alan ve aggregate issue byte bütçelerinden
+   geçtiğini koruyun.
+
+### 16.9 Ortak policy value package'i
+
+İki veya daha fazla domain aynı saf normalize/eşleştirme kuralına sahipse,
+transport/UI bağımlılığı olmayan küçük bir policy paketi kullanılabilir:
+
+- `httpmedia`, media type parse, textual/JSON/XML sınıflandırması ve
+  wildcard/suffix eşleştirmesinin tek sahibidir;
+- `jsonnumber`, exact sayı dönüşümü ile byte/exponent limitinin tek sahibidir.
+
+Yeni policy paketi mutable state, I/O veya feature DTO'su taşımamalı; çağıran
+paket kendi ürün limitini `Limits` benzeri explicit parametreyle vermelidir.
+Bir helper yalnız bir pakette kullanılıyorsa sırf ortak görünmesi için yeni
+pakete çıkarılmamalıdır.
+
+### 16.10 Tasarım deseni kullanım rehberi
 
 Desen seçimi “ileride lazım olabilir” tahminine değil, bugün görülen değişim
 eksenine dayanır. Validex'te kullanılan desenlerin sınırları:
@@ -1292,7 +1555,14 @@ eksenine dayanır. Validex'te kullanılan desenlerin sınırları:
 | Producer, shell presentation lifecycle'ını bilmemeli | Observer | `core/feedback.ts` → `native/chrome/feedback.ts` | Kalıcı form validation veya onay gerektiren karar |
 | Büyük controller'da markup ile orchestration birbirine karışıyor | Typed presentation function | `native/requests/presentation.ts` + `workspace.ts` | İki satırlık statik markup için yeni class hiyerarşisi |
 | Allowlist, decode, handler ve policy birlikte değişmeli | Typed Command Registry | `internal/canbridge/invoke.go` | Dinamik plugin discovery; registry yalnız compile-time metotları içerir |
+| Target ve operator bağımsız büyürken validation/execution ayrışıyor | Strategy Registry | `internal/assertions/registry.go` | Değişim ekseni olmayan tek karşılaştırma |
+| Aynı traversal üzerinde bağımsız kalite kuralları sıralı çalışıyor | Rule Catalog + engine | `internal/openapilint/rules.go` | Rule'un kendi traversal/limit motorunu kurması |
+| Eski ve yeni wire şekilleri tek canonical domain modeline çevrilmeli | Anti-corruption adapter | `internal/runner/wire.go` | Domain modelini iki wire sürümüne bölmek |
 | Tek kaynağın state geçişleri paralel komutlarla yarışıyor | Serialized command facade | Bridge `mockMu` ile mock komutları | Uzun, state'ten bağımsız parse/I/O işini gereksiz yere lock altında tutmak |
+| Process-global UI kaynağı tek seferde bir çağrı kabul ediyor | Context-aware serial gate | Native file picker | İptal edilemeyen mutex kuyruğu veya bağımsız kaynakları gereksiz serialize etmek |
+| Lock dışında biten I/O eski lifecycle state'ine yazabilir | Session-scoped commit guard | OpenAPI/mock/coverage commit aşamaları | Uzun parse/ağ işini state lock'u altında tutmak |
+| Aynı response birçok adayla karşılaştırılıyor | Prepared value + bounded comparator | Environment comparison | Tek adaylı küçük karşılaştırmada gereksiz cache katmanı |
+| Birden fazla domain aynı saf normalize/eşleştirme kuralını kopyalıyor | Policy value package | `httpmedia`, `jsonnumber` | Yalnız tek caller'ı olan yardımcı |
 | Persistence revision ve lifecycle transport'tan bağımsız sahiplenilmeli | Application service + Repository | `collectionLibraryService` + repository | Repository içine UI/IPC result kararı taşımak |
 | Constructor bazen kaynak yaratıyor, bazen dependency alıyor | Explicit ownership + cleanup | `HTTPSender` ve `Inspector` | Enjekte edilmiş caller-owned client'ı örtük kapatmak |
 
@@ -1329,6 +1599,8 @@ sınırı maddelerini atlamayın.
 - [ ] Seçilen desen somut tekrar, yarış veya lifecycle problemini çözüyor mu?
 - [ ] Aynı invariant ikinci bir switch, registry, store ya da facade'a
       kopyalanmadı mı?
+- [ ] Compile-time catalog/registry duplicate ad, eksik handler/strategy ve
+      geçersiz policy bağlarını başlangıçta reddediyor mu?
 - [ ] Application command yalnız paylaşılan use case'i, controller yalnız
       etkileşim/sunumu sahipleniyor mu?
 - [ ] Presenter backend/store okumadan typed input ile markup üretiyor mu?
@@ -1368,6 +1640,10 @@ sınırı maddelerini atlamayın.
 - [ ] Enjekte edilmiş caller-owned dependency örtük olarak kapatılmıyor mu?
 - [ ] Cancellation, saturation, panic ve bounded shutdown yolları test edildi
       mi?
+- [ ] Lock dışında biten işlem state'e yazmadan önce aynı session'ın halen
+      current olduğunu atomik olarak doğruluyor mu?
+- [ ] Map traversal'ı veya eşit öncelikli eşleşme kullanıcıya görünüyorsa
+      deterministic sort/tie-break tanımlı mı?
 
 ### 17.4 Persistence ve oturum geçişi
 
@@ -1401,6 +1677,10 @@ sınırı maddelerini atlamayın.
 | Loopback asset server | Güvenilir HTTP origin ve standart modül yükleme | Port, Host ve server lifecycle yönetilir |
 | Explicit JSON IPC | Küçük, test edilebilir ve tiplenebilir native API | DTO değişiklikleri iki tarafta birlikte yapılır |
 | Typed Command Registry | Allowlist, decoder, handler ve scheduling bilgisini tek kaynakta tutmak | Yeni bridge metodu typed adapter ve catalog validation ile kaydedilir |
+| Assertion Strategy Registry | Target okuma ile operator karşılaştırmasını bağımsız genişletmek | Destek matrisi descriptor'larda, validation ve execution aynı catalog'lardadır |
+| OpenAPI Rule Catalog | Lint traversal'ını bağımsız kalite kararlarından ayırmak | Rule sırası deterministik; engine cancellation ve çıktı bütçesini sahiplenir |
+| Runner anti-corruption serializer | Legacy input'u canonical v2 output'tan ayırmak | V1 okunabilir; her yeni persistence çıktısı sıralı header'lı numeric v2'dir |
+| Saf shared policy paketleri | Media type ve exact sayı kurallarının domainler arasında ayrışmasını önlemek | `httpmedia` ve `jsonnumber` I/O/DTO bağımlılığı taşımadan tekrar kullanılır |
 | Bounded IPC admission lane'leri | Normal iş yükünün goroutine/belleği sınırsız tüketmesini ve iptali bloke etmesini önlemek | Normal ve cancellation bütçeleri ayrı, collection persistence queue'su bağımsızdır |
 | Origin + random capability | Bridge'i beklenmeyen web içeriğine açmamak | Capability her process'te yeniden üretilir |
 | Application Command Facade | Aynı UI use case'inin chrome giriş noktalarında kopyalanmasını önlemek | Paylaşılan backend/store orkestrasyonu DOM controller'larından ayrılır |
@@ -1408,6 +1688,8 @@ sınırı maddelerini atlamayın.
 | Request presentation function'ları | Markup'ı event/async/lifecycle yüklü controller'dan ayırmak | Presenter typed snapshot alır; workspace state ve orchestration sahibi kalır |
 | Serialized mock command facade | Birden fazla mock server instance'ı arasındaki geçiş yarışlarını önlemek | Bridge mock komutları ve shutdown aynı `mockMu` sırasını izler |
 | Typed Bridge lifecycle state'i | Startup/Shutdown ve restart context sahipliğini yarışsız kılmak | Geçişler serialize, tekrarlanan shutdown idempotent ve restart yeni session'dır |
+| Session-scoped commit guard | Eski oturumda tamamlanan I/O'nun yeni state'e yazmasını önlemek | Parse/ağ işi lock dışında, state commit'i current-context kontrolüyle yapılır |
+| Explicit response body presentation | Binary veya escape-heavy HTTP cevabını JSON IPC'de byte kaybı ve amplification olmadan taşımak | Media type, byte içeriği ve encoded bütçe Strategy kararı verir; contract adapter özgün byte'ları geri çözer |
 | Go standart kütüphanesi SSE | Protokol bağımlılığını kaldırmak ve limitleri sahiplenmek | Yalnız ihtiyaç duyulan SSE yüzeyi desteklenir |
 | Native collection dosyası + CAS | Çakışmayı ve yarım yazmayı görünür kılmak | Lock, revision, atomic replace ve migration gerekir |
 | Explicit HTTP transport sahipliği | Idle connection kaynaklarını constructor/caller arasında belirsiz bırakmamak | Yalnız internally-created transport owner tarafından kapatılır |

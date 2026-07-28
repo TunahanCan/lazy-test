@@ -54,6 +54,9 @@ func New(options Options) *Server {
 	if options.HitLimit < 1 {
 		options.HitLimit = DefaultHitLimit
 	}
+	if options.HitLimit > MaxHitLimit {
+		options.HitLimit = MaxHitLimit
+	}
 	return &Server{
 		options: options,
 		hits:    newHitRing(options.HitLimit),
@@ -400,7 +403,13 @@ func moreSpecific(candidate, current *compiledRoute) bool {
 	if candidate.literalBytes != current.literalBytes {
 		return candidate.literalBytes > current.literalBytes
 	}
-	return len(candidate.paramNames) < len(current.paramNames)
+	if len(candidate.paramNames) != len(current.paramNames) {
+		return len(candidate.paramNames) < len(current.paramNames)
+	}
+	if candidate.route.Path != current.route.Path {
+		return candidate.route.Path < current.route.Path
+	}
+	return candidate.route.ID < current.route.ID
 }
 
 func responseAllowsBody(method string, status int) bool {
@@ -418,9 +427,17 @@ func (s *Server) recordHit(hit Hit, started time.Time) {
 }
 
 func compileRoutes(routes []Route) ([]compiledRoute, error) {
+	if len(routes) > MaxRoutes {
+		return nil, fmt.Errorf(
+			"route table has %d routes; maximum is %d",
+			len(routes),
+			MaxRoutes,
+		)
+	}
 	compiled := make([]compiledRoute, 0, len(routes))
 	ids := make(map[string]struct{}, len(routes))
 	signatures := make(map[string]string, len(routes))
+	var retainedBodyBytes int64
 
 	for index, original := range routes {
 		route := cloneRoute(original)
@@ -429,6 +446,13 @@ func compileRoutes(routes []Route) ([]compiledRoute, error) {
 
 		if route.ID == "" {
 			return nil, fmt.Errorf("route %d: id is required", index+1)
+		}
+		if len(route.ID) > MaxRouteIDBytes {
+			return nil, fmt.Errorf(
+				"route %d: id exceeds %d bytes",
+				index+1,
+				MaxRouteIDBytes,
+			)
 		}
 		if _, exists := ids[route.ID]; exists {
 			return nil, fmt.Errorf("route %q: duplicate route id", route.ID)
@@ -444,17 +468,65 @@ func compileRoutes(routes []Route) ([]compiledRoute, error) {
 		if route.DelayMS < 0 || route.DelayMS > MaxDelayMS {
 			return nil, fmt.Errorf("route %q: delayMs must be between 0 and %d", route.ID, MaxDelayMS)
 		}
+		if len(route.Body) > MaxRouteBodyBytes {
+			return nil, fmt.Errorf(
+				"route %q: body exceeds %d bytes",
+				route.ID,
+				MaxRouteBodyBytes,
+			)
+		}
+		retainedBodyBytes += int64(len(route.Body))
+		if retainedBodyBytes > MaxRouteTableBodyBytes {
+			return nil, fmt.Errorf(
+				"route table bodies exceed %d bytes",
+				MaxRouteTableBodyBytes,
+			)
+		}
 		if body := strings.TrimSpace(route.Body); body != "" && !json.Valid([]byte(body)) {
 			return nil, fmt.Errorf("route %q: body must be valid JSON", route.ID)
 		}
+		if len(route.Headers) > MaxRouteHeaders {
+			return nil, fmt.Errorf(
+				"route %q: headers exceed the %d entry limit",
+				route.ID,
+				MaxRouteHeaders,
+			)
+		}
+		canonicalHeaders := make(map[string]string, len(route.Headers))
+		headerBytes := 0
 		for name, value := range route.Headers {
 			if !validToken(name) {
 				return nil, fmt.Errorf("route %q: invalid header name %q", route.ID, name)
 			}
+			canonicalName := http.CanonicalHeaderKey(name)
+			if _, duplicate := canonicalHeaders[canonicalName]; duplicate {
+				return nil, fmt.Errorf(
+					"route %q: duplicate header name %q",
+					route.ID,
+					canonicalName,
+				)
+			}
+			if forbiddenMockResponseHeader(canonicalName) {
+				return nil, fmt.Errorf(
+					"route %q: response header %q is managed by the HTTP server",
+					route.ID,
+					canonicalName,
+				)
+			}
 			if strings.ContainsAny(value, "\r\n") {
 				return nil, fmt.Errorf("route %q: header %q contains a newline", route.ID, name)
 			}
+			headerBytes += len(canonicalName) + len(value)
+			if headerBytes > MaxRouteHeaderBytes {
+				return nil, fmt.Errorf(
+					"route %q: headers exceed %d bytes",
+					route.ID,
+					MaxRouteHeaderBytes,
+				)
+			}
+			canonicalHeaders[canonicalName] = value
 		}
+		route.Headers = canonicalHeaders
 
 		pathRE, params, err := compilePath(route.Path)
 		if err != nil {
@@ -511,6 +583,12 @@ func compilePath(path string) (*regexp.Regexp, []string, error) {
 	if !utf8.ValidString(path) {
 		return nil, nil, errors.New("path must be valid UTF-8")
 	}
+	if len(path) > MaxRoutePathBytes {
+		return nil, nil, fmt.Errorf(
+			"path exceeds %d bytes",
+			MaxRoutePathBytes,
+		)
+	}
 	if strings.ContainsAny(path, "?#") {
 		return nil, nil, errors.New("path must not contain a query or fragment")
 	}
@@ -554,6 +632,23 @@ func compilePath(path string) (*regexp.Regexp, []string, error) {
 	expression.WriteString("$")
 	compiled, err := regexp.Compile(expression.String())
 	return compiled, params, err
+}
+
+func forbiddenMockResponseHeader(name string) bool {
+	switch name {
+	case "Connection",
+		"Content-Length",
+		"Keep-Alive",
+		"Proxy-Authenticate",
+		"Proxy-Authorization",
+		"Te",
+		"Trailer",
+		"Transfer-Encoding",
+		"Upgrade":
+		return true
+	default:
+		return false
+	}
 }
 
 func validParameterName(value string) bool {
