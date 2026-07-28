@@ -131,6 +131,11 @@ function localizedError(error: UserError): UserError {
       message: "requests.error.responseTooLarge.message",
       hint: "requests.error.responseTooLarge.hint",
     },
+    response_headers_too_large: {
+      title: "requests.error.responseHeadersTooLarge.title",
+      message: "requests.error.responseHeadersTooLarge.message",
+      hint: "requests.error.responseHeadersTooLarge.hint",
+    },
   };
   const mapped = keys[error.code];
   if (!mapped) return error;

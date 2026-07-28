@@ -200,6 +200,7 @@ export interface DialogOptions {
   className?: string;
   trigger?: HTMLElement;
   initialFocus?: string;
+  describedBy?: string;
   closeOnBackdrop?: boolean;
 }
 
@@ -220,6 +221,9 @@ export function presentDialog(
       heading.id = `native-dialog-title-${dialogSequence}`;
     }
     dialog.setAttribute("aria-labelledby", heading.id);
+  }
+  if (options.describedBy) {
+    dialog.setAttribute("aria-describedby", options.describedBy);
   }
   document.body.append(dialog);
 

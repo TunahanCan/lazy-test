@@ -1,7 +1,13 @@
 package canbridge
 
 import (
+	"bufio"
+	"bytes"
+	"compress/flate"
+	"compress/gzip"
+	"compress/zlib"
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -31,6 +37,66 @@ func TestResolveVariablesTreatsMaskedValuesAsMissing(t *testing.T) {
 	})
 	if len(missing) != 1 || missing[0] != "token" {
 		t.Fatalf("expected masked token to be missing, got %#v", missing)
+	}
+}
+
+func TestSendRequestLiteralModePreservesImportedTemplateText(t *testing.T) {
+	type observedRequest struct {
+		query  string
+		header string
+		body   string
+	}
+	observed := make(chan observedRequest, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		observed <- observedRequest{
+			query:  request.URL.Query().Get("template"),
+			header: request.Header.Get("X-Template"),
+			body:   string(body),
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	result := NewBridge().SendRequest(RequestInput{
+		ID: "literal-template-text", Method: http.MethodPost,
+		URL:           server.URL + "?template={{name}}",
+		Body:          `{"template":"{{name}}"}`,
+		LiteralValues: true,
+		Variables:     map[string]string{"name": "must-not-replace"},
+		Headers: []KeyValue{
+			{Enabled: true, Key: "X-Template", Value: "{{name}}"},
+		},
+		TimeoutMS: 2_000,
+	})
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %#v", result.Error)
+	}
+	request := <-observed
+	if request.query != "{{name}}" ||
+		request.header != "{{name}}" ||
+		request.body != `{"template":"{{name}}"}` {
+		t.Fatalf("literal imported values changed: %#v", request)
+	}
+}
+
+func TestSendRequestPreservesExtensionMethodCase(t *testing.T) {
+	received := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		received <- request.Method
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	result := NewBridge().SendRequest(RequestInput{
+		ID: "extension-method-case", Method: "m-search", URL: server.URL,
+		TimeoutMS: 2_000,
+	})
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %#v", result.Error)
+	}
+	if method := <-received; method != "m-search" {
+		t.Fatalf("extension method = %q, want m-search", method)
 	}
 }
 
@@ -251,6 +317,599 @@ func TestSendRequestPreservesExplicitEnabledHeaders(t *testing.T) {
 	if got := headers.Get("X-Disabled"); got != "" {
 		t.Errorf("disabled header was sent: %q", got)
 	}
+}
+
+func TestSendRequestPreservesBrowserSessionHeadersAndHost(t *testing.T) {
+	type observedRequest struct {
+		host    string
+		headers http.Header
+	}
+	observed := make(chan observedRequest, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		observed <- observedRequest{
+			host:    request.Host,
+			headers: request.Header.Clone(),
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	result := NewBridge().SendRequest(RequestInput{
+		ID:     "browser-session-headers",
+		Method: http.MethodPost,
+		URL:    server.URL + "/session",
+		Headers: []KeyValue{
+			{Enabled: true, Key: "Cookie", Value: "session=abc123; theme=dark"},
+			{Enabled: true, Key: "Authorization", Value: "Bearer browser-token"},
+			{Enabled: true, Key: "Origin", Value: "https://app.example.test"},
+			{Enabled: true, Key: "Referer", Value: "https://app.example.test/dashboard"},
+			{Enabled: true, Key: "User-Agent", Value: "Browser UA/1.0"},
+			{Enabled: true, Key: "X-CSRF-Token", Value: "csrf-value"},
+			{Enabled: true, Key: "X-Repeated", Value: "first"},
+			{Enabled: true, Key: "X-Repeated", Value: "second"},
+			{Enabled: true, Key: "Host", Value: "api.example.test"},
+		},
+		Body:      "request body",
+		TimeoutMS: 2_000,
+	})
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %#v", result.Error)
+	}
+
+	request := <-observed
+	if request.host != "api.example.test" {
+		t.Fatalf("Host = %q, want api.example.test", request.host)
+	}
+	if got := request.headers.Get("Host"); got != "" {
+		t.Fatalf("Host leaked into ordinary header map: %q", got)
+	}
+	for name, want := range map[string]string{
+		"Cookie":        "session=abc123; theme=dark",
+		"Authorization": "Bearer browser-token",
+		"Origin":        "https://app.example.test",
+		"Referer":       "https://app.example.test/dashboard",
+		"User-Agent":    "Browser UA/1.0",
+		"X-CSRF-Token":  "csrf-value",
+	} {
+		if got := request.headers.Get(name); got != want {
+			t.Errorf("%s = %q, want %q", name, got, want)
+		}
+	}
+	repeated := request.headers.Values("X-Repeated")
+	if len(repeated) != 2 || repeated[0] != "first" || repeated[1] != "second" {
+		t.Fatalf("X-Repeated = %#v, want [first second]", repeated)
+	}
+}
+
+func TestSendRequestRejectsUnsafeHostHeaderBeforeNetwork(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	tests := map[string]string{
+		"empty":            "",
+		"colon only":       ":",
+		"empty brackets":   "[]",
+		"unclosed ipv6":    "[::1",
+		"invalid port":     "api.example.test:notaport",
+		"multiple hosts":   "good.test,bad.test",
+		"leading space":    " api.example.test",
+		"embedded space":   "api .example.test",
+		"tab":              "api.example.test\t443",
+		"slash":            "api.example.test/path",
+		"header injection": "api.example.test\r\nX-Injected: yes",
+		"control byte":     "api.example.test\x00",
+	}
+	for name, host := range tests {
+		t.Run(name, func(t *testing.T) {
+			result := NewBridge().SendRequest(RequestInput{
+				ID: "unsafe-host-" + name, Method: http.MethodGet, URL: server.URL,
+				Headers: []KeyValue{
+					{Enabled: true, Key: "Host", Value: host},
+				},
+				TimeoutMS: 2_000,
+			})
+			if result.Response != nil {
+				t.Fatalf("unsafe Host returned response: %#v", result.Response)
+			}
+			if result.Error == nil || result.Error.Code != "invalid_request" {
+				t.Fatalf("expected invalid_request, got %#v", result.Error)
+			}
+		})
+	}
+	if got := requests.Load(); got != 0 {
+		t.Fatalf("unsafe Host values reached server %d times", got)
+	}
+}
+
+func TestSendRequestValidatesMatchingContentLength(t *testing.T) {
+	type observedRequest struct {
+		contentLength int64
+		body          string
+	}
+	observed := make(chan observedRequest, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		observed <- observedRequest{
+			contentLength: request.ContentLength,
+			body:          string(body),
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	result := NewBridge().SendRequest(RequestInput{
+		ID: "explicit-content-length", Method: http.MethodPost, URL: server.URL,
+		Headers: []KeyValue{
+			{Enabled: true, Key: "Content-Length", Value: "7"},
+		},
+		Body: "payload", TimeoutMS: 2_000,
+	})
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %#v", result.Error)
+	}
+	request := <-observed
+	if request.contentLength != 7 || request.body != "payload" {
+		t.Fatalf("received ContentLength/body = %d/%q, want 7/payload", request.contentLength, request.body)
+	}
+}
+
+func TestSendRequestPreservesExplicitZeroContentLengthOnWire(t *testing.T) {
+	for _, method := range []string{http.MethodDelete, http.MethodOptions, "PROPFIND"} {
+		t.Run(method, func(t *testing.T) {
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatalf("listen: %v", err)
+			}
+			defer listener.Close()
+
+			rawRequest := make(chan string, 1)
+			serverErr := make(chan error, 1)
+			go func() {
+				connection, acceptErr := listener.Accept()
+				if acceptErr != nil {
+					serverErr <- acceptErr
+					return
+				}
+				defer connection.Close()
+				if deadlineErr := connection.SetDeadline(time.Now().Add(2 * time.Second)); deadlineErr != nil {
+					serverErr <- deadlineErr
+					return
+				}
+
+				reader := bufio.NewReader(connection)
+				var raw strings.Builder
+				for {
+					line, readErr := reader.ReadString('\n')
+					if readErr != nil {
+						serverErr <- readErr
+						return
+					}
+					raw.WriteString(line)
+					if line == "\r\n" {
+						break
+					}
+				}
+				rawRequest <- raw.String()
+				_, writeErr := io.WriteString(
+					connection,
+					"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+				)
+				if writeErr != nil {
+					serverErr <- writeErr
+				}
+			}()
+
+			result := NewBridge().SendRequest(RequestInput{
+				ID: "explicit-zero-content-length-" + method, Method: method,
+				URL: "http://" + listener.Addr().String(),
+				Headers: []KeyValue{
+					{Enabled: true, Key: "Content-Length", Value: "0"},
+				},
+				TimeoutMS: 2_000,
+			})
+			if result.Error != nil {
+				t.Fatalf("unexpected error: %#v", result.Error)
+			}
+
+			select {
+			case raw := <-rawRequest:
+				if !strings.Contains(raw, "\r\nContent-Length: 0\r\n") {
+					t.Fatalf("explicit Content-Length was not preserved on wire:\n%s", raw)
+				}
+			case err := <-serverErr:
+				t.Fatalf("raw HTTP server: %v", err)
+			case <-time.After(3 * time.Second):
+				t.Fatal("timed out waiting for raw request")
+			}
+		})
+	}
+}
+
+func TestSendRequestUsesChunkedTransferEncoding(t *testing.T) {
+	type observedRequest struct {
+		contentLength    int64
+		transferEncoding []string
+		body             string
+	}
+	observed := make(chan observedRequest, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		observed <- observedRequest{
+			contentLength:    request.ContentLength,
+			transferEncoding: append([]string(nil), request.TransferEncoding...),
+			body:             string(body),
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	result := NewBridge().SendRequest(RequestInput{
+		ID: "chunked-request", Method: http.MethodPost, URL: server.URL,
+		Headers: []KeyValue{
+			{Enabled: true, Key: "Transfer-Encoding", Value: "chunked"},
+		},
+		Body: "chunked body", TimeoutMS: 2_000,
+	})
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %#v", result.Error)
+	}
+	request := <-observed
+	if request.contentLength != -1 ||
+		len(request.transferEncoding) != 1 ||
+		request.transferEncoding[0] != "chunked" ||
+		request.body != "chunked body" {
+		t.Fatalf("unexpected chunked request: %#v", request)
+	}
+}
+
+func TestSendRequestRejectsAmbiguousFramingHeadersBeforeNetwork(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	tests := map[string][]KeyValue{
+		"mismatched content length": {
+			{Enabled: true, Key: "Content-Length", Value: "8"},
+		},
+		"signed content length": {
+			{Enabled: true, Key: "Content-Length", Value: "+7"},
+		},
+		"content length injection": {
+			{Enabled: true, Key: "Content-Length", Value: "7\r\nX-Injected: yes"},
+		},
+		"duplicate content length": {
+			{Enabled: true, Key: "Content-Length", Value: "7"},
+			{Enabled: true, Key: "Content-Length", Value: "7"},
+		},
+		"content length and transfer encoding": {
+			{Enabled: true, Key: "Content-Length", Value: "7"},
+			{Enabled: true, Key: "Transfer-Encoding", Value: "chunked"},
+		},
+		"unsupported transfer encoding": {
+			{Enabled: true, Key: "Transfer-Encoding", Value: "gzip"},
+		},
+		"transfer encoding injection": {
+			{Enabled: true, Key: "Transfer-Encoding", Value: "chunked\r\nX-Injected: yes"},
+		},
+		"duplicate transfer encoding": {
+			{Enabled: true, Key: "Transfer-Encoding", Value: "chunked"},
+			{Enabled: true, Key: "Transfer-Encoding", Value: "chunked"},
+		},
+		"unsupported trailer": {
+			{Enabled: true, Key: "Trailer", Value: "X-Checksum"},
+		},
+	}
+	for name, headers := range tests {
+		t.Run(name, func(t *testing.T) {
+			result := NewBridge().SendRequest(RequestInput{
+				ID: "invalid-framing-" + name, Method: http.MethodPost, URL: server.URL,
+				Headers: headers, Body: "payload", TimeoutMS: 2_000,
+			})
+			if result.Response != nil {
+				t.Fatalf("invalid framing returned response: %#v", result.Response)
+			}
+			if result.Error == nil || result.Error.Code != "invalid_request" {
+				t.Fatalf("expected invalid_request, got %#v", result.Error)
+			}
+		})
+	}
+	if got := requests.Load(); got != 0 {
+		t.Fatalf("invalid framing headers reached server %d times", got)
+	}
+}
+
+func TestSendRequestIncludesBodyForMethodsExceptHeadAndTrace(t *testing.T) {
+	for _, method := range []string{
+		http.MethodGet,
+		http.MethodPost,
+		http.MethodPut,
+		http.MethodPatch,
+		http.MethodDelete,
+		http.MethodOptions,
+		"PROPFIND",
+	} {
+		t.Run(method, func(t *testing.T) {
+			received := make(chan string, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				body, _ := io.ReadAll(request.Body)
+				received <- string(body)
+				w.WriteHeader(http.StatusNoContent)
+			}))
+			defer server.Close()
+
+			result := NewBridge().SendRequest(RequestInput{
+				ID: "body-" + method, Method: method, URL: server.URL,
+				Body: "method body", TimeoutMS: 2_000,
+			})
+			if result.Error != nil {
+				t.Fatalf("unexpected error: %#v", result.Error)
+			}
+			if got := <-received; got != "method body" {
+				t.Fatalf("received body = %q, want method body", got)
+			}
+		})
+	}
+}
+
+func TestSendRequestOmitsBodyForHeadAndTrace(t *testing.T) {
+	for _, method := range []string{http.MethodHead, http.MethodTrace} {
+		t.Run(method, func(t *testing.T) {
+			received := make(chan string, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				body, _ := io.ReadAll(request.Body)
+				received <- string(body)
+				w.WriteHeader(http.StatusNoContent)
+			}))
+			defer server.Close()
+
+			result := NewBridge().SendRequest(RequestInput{
+				ID: "bodyless-" + method, Method: method, URL: server.URL,
+				Body: "must not be sent", TimeoutMS: 2_000,
+			})
+			if result.Error != nil {
+				t.Fatalf("unexpected error: %#v", result.Error)
+			}
+			if got := <-received; got != "" {
+				t.Fatalf("received body = %q, want empty", got)
+			}
+		})
+	}
+}
+
+func TestSendRequestDecodesSupportedContentEncodings(t *testing.T) {
+	const body = "Validex compressed response"
+	deflated := zlibDeflateTestPayload(t, []byte(body))
+	tests := map[string]struct {
+		contentEncoding string
+		payload         []byte
+	}{
+		"gzip": {
+			contentEncoding: "gzip",
+			payload:         gzipTestPayload(t, []byte(body)),
+		},
+		"zlib wrapped deflate": {
+			contentEncoding: "deflate",
+			payload:         deflated,
+		},
+		"raw deflate": {
+			contentEncoding: "deflate",
+			payload:         rawDeflateTestPayload(t, []byte(body)),
+		},
+		"stacked encodings": {
+			contentEncoding: "deflate, gzip",
+			payload:         gzipTestPayload(t, deflated),
+		},
+	}
+
+	for name, testCase := range tests {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Encoding", testCase.contentEncoding)
+				_, _ = w.Write(testCase.payload)
+			}))
+			defer server.Close()
+
+			result := NewBridge().SendRequest(RequestInput{
+				ID: "compressed-" + name, Method: http.MethodGet, URL: server.URL,
+				Headers: []KeyValue{
+					{Enabled: true, Key: "Accept-Encoding", Value: "gzip, deflate"},
+				},
+				TimeoutMS: 2_000,
+			})
+			if result.Error != nil {
+				t.Fatalf("unexpected error: %#v", result.Error)
+			}
+			if result.Response == nil {
+				t.Fatal("response is nil")
+			}
+			if result.Response.RawBody != body || result.Response.Body != body {
+				t.Fatalf(
+					"decoded body = %q / %q, want %q",
+					result.Response.RawBody,
+					result.Response.Body,
+					body,
+				)
+			}
+			if result.Response.SizeBytes != int64(len(body)) {
+				t.Fatalf("SizeBytes = %d, want %d", result.Response.SizeBytes, len(body))
+			}
+		})
+	}
+}
+
+func TestSendRequestRejectsUnsupportedContentEncoding(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Encoding", "br")
+		_, _ = w.Write([]byte("brotli bytes"))
+	}))
+	defer server.Close()
+
+	result := NewBridge().SendRequest(RequestInput{
+		ID: "unsupported-encoding", Method: http.MethodGet, URL: server.URL,
+		Headers: []KeyValue{
+			{Enabled: true, Key: "Accept-Encoding", Value: "gzip, deflate, br"},
+		},
+		TimeoutMS: 2_000,
+	})
+	if result.Response != nil {
+		t.Fatalf("unsupported encoding returned a response: %#v", result.Response)
+	}
+	if result.Error == nil || result.Error.Code != "unsupported_content_encoding" {
+		t.Fatalf("expected unsupported_content_encoding, got %#v", result.Error)
+	}
+	if !strings.Contains(result.Error.Message, `"br"`) || result.Error.Technical != "" {
+		t.Fatalf("unexpected unsupported encoding error: %#v", result.Error)
+	}
+}
+
+func TestSendRequestRejectsExcessiveContentEncodingLayers(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Encoding", "gzip, gzip, gzip, gzip, gzip")
+		_, _ = w.Write([]byte("nested payload"))
+	}))
+	defer server.Close()
+
+	result := NewBridge().SendRequest(RequestInput{
+		ID: "too-many-content-encodings", Method: http.MethodGet, URL: server.URL,
+		TimeoutMS: 2_000,
+	})
+	if result.Response != nil {
+		t.Fatalf("excessive encodings returned a response: %#v", result.Response)
+	}
+	if result.Error == nil || result.Error.Code != "too_many_content_encodings" {
+		t.Fatalf("expected too_many_content_encodings, got %#v", result.Error)
+	}
+}
+
+func TestSendRequestReportsMalformedCompressedResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Encoding", "gzip")
+		_, _ = w.Write([]byte("not a gzip stream"))
+	}))
+	defer server.Close()
+
+	result := NewBridge().SendRequest(RequestInput{
+		ID: "malformed-gzip", Method: http.MethodGet, URL: server.URL,
+		TimeoutMS: 2_000,
+	})
+	if result.Response != nil {
+		t.Fatalf("malformed encoding returned a response: %#v", result.Response)
+	}
+	if result.Error == nil || result.Error.Code != "response_decode_failed" {
+		t.Fatalf("expected response_decode_failed, got %#v", result.Error)
+	}
+	if result.Error.Technical == "" {
+		t.Fatalf("decode failure omitted technical detail: %#v", result.Error)
+	}
+}
+
+func TestDecodeContentEncodedBodyEnforcesDecodedLimit(t *testing.T) {
+	payload := gzipTestPayload(t, bytes.Repeat([]byte("a"), 1_024))
+	decoded, tooLarge, failedEncoding, err := decodeContentEncodedBody(
+		context.Background(),
+		payload,
+		[]string{"gzip"},
+		32,
+	)
+	if err != nil {
+		t.Fatalf("decodeContentEncodedBody() error = %v", err)
+	}
+	if decoded != nil || !tooLarge || failedEncoding != "gzip" {
+		t.Fatalf(
+			"decodeContentEncodedBody() = %q, %v, %q; want nil, true, gzip",
+			decoded,
+			tooLarge,
+			failedEncoding,
+		)
+	}
+}
+
+func TestDecodeContentEncodedBodyHonorsContextCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	payload := gzipTestPayload(t, []byte("response"))
+
+	decoded, tooLarge, failedEncoding, err := decodeContentEncodedBody(
+		ctx,
+		payload,
+		[]string{"gzip"},
+		maxHTTPResponseBodyBytes,
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("decode error = %v, want context.Canceled", err)
+	}
+	if decoded != nil || tooLarge || failedEncoding != "gzip" {
+		t.Fatalf(
+			"decode result = %q, %v, %q; want nil, false, gzip",
+			decoded,
+			tooLarge,
+			failedEncoding,
+		)
+	}
+}
+
+func TestValidHostHeaderValueAcceptsCommonAuthorities(t *testing.T) {
+	for _, host := range []string{
+		"api.example.test",
+		"api.example.test:8443",
+		"127.0.0.1:8080",
+		"[::1]",
+		"[2001:db8::1]:443",
+		"[fe80::1%en0]:8080",
+	} {
+		if !validHostHeaderValue(host) {
+			t.Errorf("validHostHeaderValue(%q) = false", host)
+		}
+	}
+}
+
+func gzipTestPayload(t *testing.T, body []byte) []byte {
+	t.Helper()
+	var encoded bytes.Buffer
+	writer := gzip.NewWriter(&encoded)
+	if _, err := writer.Write(body); err != nil {
+		t.Fatalf("write gzip test payload: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close gzip test payload: %v", err)
+	}
+	return encoded.Bytes()
+}
+
+func zlibDeflateTestPayload(t *testing.T, body []byte) []byte {
+	t.Helper()
+	var encoded bytes.Buffer
+	writer := zlib.NewWriter(&encoded)
+	if _, err := writer.Write(body); err != nil {
+		t.Fatalf("write zlib test payload: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close zlib test payload: %v", err)
+	}
+	return encoded.Bytes()
+}
+
+func rawDeflateTestPayload(t *testing.T, body []byte) []byte {
+	t.Helper()
+	var encoded bytes.Buffer
+	writer, err := flate.NewWriter(&encoded, flate.DefaultCompression)
+	if err != nil {
+		t.Fatalf("create raw deflate test payload: %v", err)
+	}
+	if _, err := writer.Write(body); err != nil {
+		t.Fatalf("write raw deflate test payload: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close raw deflate test payload: %v", err)
+	}
+	return encoded.Bytes()
 }
 
 func TestSendRequestReturnsRichResponse(t *testing.T) {
@@ -638,6 +1297,32 @@ func assertTimelineInvariants(t *testing.T, timeline []TimelinePhase, total time
 	}
 	if sumMS > totalMS+0.000001 {
 		t.Errorf("timeline phases total %.6fms exceeds request total %.6fms", sumMS, totalMS)
+	}
+}
+
+func TestSendRequestReportsOversizedResponseHeaders(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.Header().Set(
+			"X-Oversized",
+			strings.Repeat("x", int(maxHTTPResponseHeaderBytes)+1_024),
+		)
+		response.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	result := NewBridge().SendRequest(RequestInput{
+		ID: "oversized-response-headers", Method: http.MethodGet,
+		URL: server.URL, TimeoutMS: 2_000,
+	})
+	if result.Response != nil {
+		t.Fatalf("oversized response headers returned a response: %#v", result.Response)
+	}
+	if result.Error == nil || result.Error.Code != "response_headers_too_large" {
+		t.Fatalf("expected response_headers_too_large, got %#v", result.Error)
+	}
+	if !strings.Contains(result.Error.Message, "1 MiB") ||
+		result.Error.Technical == "" {
+		t.Fatalf("unexpected oversized response header error: %#v", result.Error)
 	}
 }
 

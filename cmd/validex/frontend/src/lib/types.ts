@@ -29,6 +29,7 @@ export interface RequestInput {
   headers: Omit<KeyValue, "id">[];
   body: string;
   variables: Record<string, string>;
+  literalValues: boolean;
   timeoutMs: number;
   saveHistory: boolean;
 }
@@ -530,6 +531,8 @@ export interface RequestTab {
   id: string;
   savedRequestId?: string;
   collectionId?: string;
+  literalValues?: boolean;
+  sessionOnly?: boolean;
   name: string;
   method: HTTPMethod;
   url: string;

@@ -21,7 +21,11 @@ import {
 } from "../../i18n/messages.js";
 import { subscribeLocale, t } from "../../i18n/locale.js";
 import { backend } from "../../lib/backend.js";
-import { HTTP_METHODS, methodAllowsBody } from "../../lib/http.js";
+import {
+  HTTP_METHODS,
+  isStandardHTTPMethod,
+  methodAllowsBody,
+} from "../../lib/http.js";
 import { requestURLMatchesOpenAPIPath } from "../../lib/openapi.js";
 import {
   missingVariables,
@@ -42,6 +46,14 @@ import type {
   RequestTab,
   WorkspaceView,
 } from "../../lib/types.js";
+import {
+  CurlImportError,
+  looksLikeCurlBash,
+  parseCurlBash,
+  type CurlImportErrorCode,
+  type CurlImportWarning,
+  type ImportedCurlRequest,
+} from "../../features/requests/model/curlImport.js";
 import { requestNameFromURL } from "../../features/requests/model/requestName.js";
 import {
   collectionLibraryStore,
@@ -75,6 +87,52 @@ import { responsePanelMarkup } from "./response.js";
 const untitledNames = new Set(
   supportedLocales.map((locale) => messages[locale]["requests.untitled"]),
 );
+
+function curlImportErrorMessage(error: unknown): string {
+  if (!(error instanceof CurlImportError)) {
+    return t("requests.curlImport.error.unknown");
+  }
+  const keys: Record<CurlImportErrorCode, Parameters<typeof t>[0]> = {
+    empty: "requests.curlImport.error.empty",
+    too_large: "requests.curlImport.error.tooLarge",
+    too_many_tokens: "requests.curlImport.error.tooComplex",
+    unterminated_quote: "requests.curlImport.error.quote",
+    unsafe_shell: "requests.curlImport.error.unsafeShell",
+    not_curl: "requests.curlImport.error.notCurl",
+    missing_option_value: "requests.curlImport.error.missingValue",
+    unsupported_option: "requests.curlImport.error.unsupportedOption",
+    unsupported_binary: "requests.curlImport.error.binary",
+    unsupported_file: "requests.curlImport.error.file",
+    invalid_header: "requests.curlImport.error.header",
+    too_many_headers: "requests.curlImport.error.tooManyHeaders",
+    missing_url: "requests.curlImport.error.url",
+    multiple_urls: "requests.curlImport.error.multipleURLs",
+    unsupported_method: "requests.curlImport.error.method",
+    body_too_large: "requests.curlImport.error.bodyTooLarge",
+    invalid_form: "requests.curlImport.error.form",
+  };
+  return t(keys[error.code], {
+    detail:
+      error.code === "unsupported_option" ||
+      error.code === "missing_option_value" ||
+      error.code === "unsupported_method"
+        ? error.detail
+        : "",
+  });
+}
+
+function curlWarningLabel(warning: CurlImportWarning): string {
+  const keys: Record<CurlImportWarning, Parameters<typeof t>[0]> = {
+    accept_encoding: "requests.curlImport.warning.acceptEncoding",
+    compressed: "requests.curlImport.warning.compressed",
+    globoff: "requests.curlImport.warning.globoff",
+    http_version: "requests.curlImport.warning.httpVersion",
+    path_as_is: "requests.curlImport.warning.pathAsIs",
+    redirect_policy: "requests.curlImport.warning.redirect",
+    tls_policy: "requests.curlImport.warning.tls",
+  };
+  return t(keys[warning]);
+}
 
 function localizedRequestURLValidationMessage(
   value: string,
@@ -119,6 +177,42 @@ function variablesFor(
     environmentName: environment?.name ?? t("requests.workbench.workspace"),
     values: { ...(environment?.variables ?? {}), ...overrides },
     overridden: new Set(Object.keys(overrides)),
+  };
+}
+
+function requestVariableResolution(
+  tab: RequestTab,
+  draft: RequestDraft,
+  bootstrap: BootstrapData,
+): {
+  values: Record<string, string>;
+  unresolved: string[];
+  resolvedURL: string;
+  resolve: (value: string) => string;
+} {
+  if (tab.literalValues) {
+    return {
+      values: {},
+      unresolved: [],
+      resolvedURL: draft.url,
+      resolve: (value) => value,
+    };
+  }
+  const values = variablesFor(bootstrap).values;
+  return {
+    values,
+    unresolved: missingVariables(
+      [
+        draft.url,
+        methodAllowsBody(draft.method) ? draft.body : "",
+        ...draft.headers
+          .filter((header) => header.enabled)
+          .map((header) => header.value),
+      ].join("\n"),
+      values,
+    ),
+    resolvedURL: resolveVariableReferences(draft.url, values),
+    resolve: (value) => resolveVariableReferences(value, values),
   };
 }
 
@@ -262,6 +356,13 @@ function welcomeMarkup(importing: boolean): TrustedHTMLFragment {
             data-action="new-request"
           >
             ${icon("plus", 14)} ${t("requests.welcome.newRequest")}
+          </button>
+          <button
+            type="button"
+            class="button secondary"
+            data-action="import-curl"
+          >
+            ${icon("terminal", 14)} ${t("requests.curlImport.actionLong")}
           </button>
           <button
             type="button"
@@ -525,6 +626,7 @@ function paramsMarkup(url: string, disabled: boolean): TrustedHTMLFragment {
 function variablesMarkup(
   bootstrap: BootstrapData,
   disabled: boolean,
+  literalValues: boolean,
 ): TrustedHTMLFragment {
   const variables = variablesFor(bootstrap);
   const entries = Object.entries(variables.values);
@@ -551,6 +653,18 @@ function variablesMarkup(
         ${icon("info", 14)}
         ${t("requests.editor.variables.secretHint")}
       </p>
+      <label class="variable-resolution-mode">
+        <input
+          type="checkbox"
+          name="resolveVariables"
+          ${literalValues ? "" : "checked"}
+          ${disabled ? "disabled" : ""}
+        />
+        <span>
+          <strong>${t("requests.editor.variables.resolve")}</strong>
+          <small>${t("requests.editor.variables.resolveDescription")}</small>
+        </span>
+      </label>
       <div class="kv-editor">
         <div class="kv-header">
           <span>${t("requests.editor.column.key")}</span>
@@ -812,7 +926,11 @@ function editorMarkup(
                       </div>
                     </div>
                   `
-              : variablesMarkup(bootstrap, tab.running)}
+              : variablesMarkup(
+                  bootstrap,
+                  tab.running,
+                  Boolean(tab.literalValues),
+                )}
       </div>
     </div>
   `;
@@ -827,21 +945,11 @@ function workbenchMarkup(
   canceling: boolean,
   showURLValidation: boolean,
 ): TrustedHTMLFragment {
-  const variables = variablesFor(bootstrap).values;
-  const unresolved = missingVariables(
-    [
-      draft.url,
-      methodAllowsBody(draft.method) ? draft.body : "",
-      ...draft.headers
-        .filter((header) => header.enabled)
-        .map((header) => header.value),
-    ].join("\n"),
-    variables,
-  );
-  const resolvedURL = resolveVariableReferences(draft.url, variables);
+  const resolution = requestVariableResolution(tab, draft, bootstrap);
+  const unresolved = resolution.unresolved;
   const validationError =
     unresolved.length === 0
-      ? localizedRequestURLValidationMessage(resolvedURL)
+      ? localizedRequestURLValidationMessage(resolution.resolvedURL)
       : undefined;
   const visibleValidationError = showURLValidation
     ? validationError
@@ -871,10 +979,19 @@ function workbenchMarkup(
         >
           <select
             name="method"
-            class="method-select method-${draft.method.toLowerCase()}"
+            class="method-select method-${isStandardHTTPMethod(draft.method)
+              ? draft.method.toLowerCase()
+              : "custom"}"
             aria-label="${t("requests.editor.method.select")}"
             ${tab.running ? "disabled" : ""}
           >
+            ${isStandardHTTPMethod(draft.method)
+              ? ""
+              : html`
+                  <option value="${draft.method}" selected>
+                    ${draft.method}
+                  </option>
+                `}
             ${HTTP_METHODS.map(
               (method) => html`
                 <option value="${method}" ${method === draft.method ? "selected" : ""}>
@@ -933,6 +1050,16 @@ function workbenchMarkup(
                   ${icon("request", 14)} ${t("requests.workbench.send")}
                 </button>
               `}
+          <button
+            type="button"
+            class="button secondary request-import-button"
+            data-action="import-curl"
+            title="${t("requests.curlImport.actionLong")}"
+            ${tab.running ? "disabled" : ""}
+          >
+            ${icon("terminal", 14)}
+            <span>${t("requests.curlImport.action")}</span>
+          </button>
           <button
             type="button"
             class="button secondary"
@@ -1293,23 +1420,12 @@ export function mountRequestWorkspace(
     }
   };
 
-  const syncSendButton = (draft: RequestDraft) => {
-    const variables = variablesFor(bootstrap).values;
-    const unresolved = missingVariables(
-      [
-        draft.url,
-        methodAllowsBody(draft.method) ? draft.body : "",
-        ...draft.headers
-          .filter((header) => header.enabled)
-          .map((header) => header.value),
-      ].join("\n"),
-      variables,
-    );
+  const syncSendButton = (tab: RequestTab, draft: RequestDraft) => {
+    const resolution = requestVariableResolution(tab, draft, bootstrap);
+    const unresolved = resolution.unresolved;
     const validationError =
       unresolved.length === 0
-        ? localizedRequestURLValidationMessage(
-            resolveVariableReferences(draft.url, variables),
-          )
+        ? localizedRequestURLValidationMessage(resolution.resolvedURL)
         : undefined;
     const sendButton = root.querySelector<HTMLButtonElement>(
       '[data-request-form] .send-button[type="submit"]',
@@ -1406,19 +1522,15 @@ export function mountRequestWorkspace(
     if (requestTab.running) return;
     cancelingRequests.delete(requestTab.id);
     const sent = cloneRequestDraft(draft);
-    const variables = variablesFor(bootstrap).values;
-    const resolvedURL = resolveVariableReferences(sent.url, variables);
-    const urlError = localizedRequestURLValidationMessage(resolvedURL);
-    const unresolved = missingVariables(
-      [
-        sent.url,
-        methodAllowsBody(sent.method) ? sent.body : "",
-        ...sent.headers
-          .filter((header) => header.enabled)
-          .map((header) => header.value),
-      ].join("\n"),
-      variables,
+    const resolution = requestVariableResolution(
+      requestTab,
+      sent,
+      bootstrap,
     );
+    const urlError = localizedRequestURLValidationMessage(
+      resolution.resolvedURL,
+    );
+    const unresolved = resolution.unresolved;
     if (urlError || unresolved.length > 0) {
       urlValidationTouched.add(requestTab.id);
       announce(
@@ -1450,7 +1562,8 @@ export function mountRequestWorkspace(
         url: sent.url,
         headers: sent.headers.map(({ id: _id, ...header }) => header),
         body: sent.body,
-        variables,
+        variables: resolution.values,
+        literalValues: Boolean(requestTab.literalValues),
         timeoutMs: 30_000,
         saveHistory: true,
       });
@@ -1599,18 +1712,9 @@ export function mountRequestWorkspace(
     announce(copied ? successMessage : t("common.copyFailed"));
   };
 
-  const copyAsCurl = (draft: RequestDraft) => {
-    const variables = variablesFor(bootstrap).values;
-    const unresolved = missingVariables(
-      [
-        draft.url,
-        methodAllowsBody(draft.method) ? draft.body : "",
-        ...draft.headers
-          .filter((header) => header.enabled)
-          .map((header) => header.value),
-      ].join("\n"),
-      variables,
-    );
+  const copyAsCurl = (tab: RequestTab, draft: RequestDraft) => {
+    const resolution = requestVariableResolution(tab, draft, bootstrap);
+    const unresolved = resolution.unresolved;
     if (unresolved.length > 0) {
       announce(
         t("requests.workbench.missingVariables", {
@@ -1619,8 +1723,9 @@ export function mountRequestWorkspace(
       );
       return;
     }
-    const resolvedURL = resolveVariableReferences(draft.url, variables);
-    const urlError = localizedRequestURLValidationMessage(resolvedURL);
+    const urlError = localizedRequestURLValidationMessage(
+      resolution.resolvedURL,
+    );
     if (urlError) {
       announce(urlError);
       return;
@@ -1631,27 +1736,227 @@ export function mountRequestWorkspace(
       "--request",
       draft.method,
       "--url",
-      quote(resolvedURL),
+      quote(resolution.resolvedURL),
     ];
     for (const header of draft.headers) {
       if (!header.enabled || !header.key) continue;
       parts.push(
         "--header",
-        quote(
-          `${header.key}: ${resolveVariableReferences(
-            header.value,
-            variables,
-          )}`,
-        ),
+        quote(`${header.key}: ${resolution.resolve(header.value)}`),
       );
     }
     if (methodAllowsBody(draft.method) && draft.body) {
       parts.push(
         "--data-raw",
-        quote(resolveVariableReferences(draft.body, variables)),
+        quote(resolution.resolve(draft.body)),
       );
     }
     void copyToClipboard(parts.join(" "), t("common.copied"));
+  };
+
+  const importedCurlHeaders = (
+    request: ImportedCurlRequest,
+  ): KeyValue[] =>
+    request.headers.map((header) => ({
+      id: crypto.randomUUID(),
+      enabled: true,
+      key: header.key,
+      value: header.value,
+      description: t("requests.curlImport.headerDescription"),
+      source: "Manual",
+    }));
+
+  const setCurlImportNotice = (
+    request: ImportedCurlRequest,
+    headers: readonly KeyValue[],
+  ) => {
+    const sensitive = headers.filter((header) =>
+      isSecretKey(header.key),
+    ).length;
+    const messages = [
+      t("requests.curlImport.imported", {
+        count: headers.length,
+      }),
+    ];
+    if (sensitive > 0) {
+      messages.push(
+        t("requests.curlImport.importedSensitive", {
+          count: sensitive,
+        }),
+      );
+    }
+    if (request.warnings.length > 0) {
+      messages.push(
+        t("requests.curlImport.importedWarnings", {
+          warnings: request.warnings.map(curlWarningLabel).join(", "),
+        }),
+      );
+    }
+    importedNoticeTone = "info";
+    importedNotice = messages.join(" ");
+    announce(importedNotice);
+  };
+
+  const applyCurlImport = (request: ImportedCurlRequest) => {
+    const headers = importedCurlHeaders(request);
+    const requestSection =
+      request.body && methodAllowsBody(request.method)
+        ? "body"
+        : headers.length > 0
+          ? "headers"
+          : "params";
+    const derivedName =
+      requestNameFromURL(request.url) ?? t("requests.untitled");
+    setCurlImportNotice(request, headers);
+
+    workspaceStore.getState().openTab({
+      name: derivedName,
+      method: request.method,
+      url: request.url,
+      body: request.body,
+      headers,
+      literalValues: true,
+      sessionOnly: true,
+      dirty: true,
+      error: false,
+      requestSection,
+      responseSection: "body",
+    });
+  };
+
+  const openCurlImportDialog = (
+    initialSource = "",
+    trigger?: HTMLElement,
+    initialError?: string,
+    initialRequest?: ImportedCurlRequest,
+  ) => {
+    const dialog = presentDialog(
+      html`
+        <form
+          class="save-request-dialog curl-import-dialog"
+          data-curl-import-form
+          novalidate
+          aria-labelledby="curl-import-title"
+        >
+          <div class="dialog-header">
+            <div>
+              <h2 id="curl-import-title">
+                ${t("requests.curlImport.title")}
+              </h2>
+              <p id="curl-import-description">
+                ${t("requests.curlImport.description")}
+              </p>
+            </div>
+            <button
+              type="button"
+              class="icon-button"
+              data-dialog-close="cancel"
+              aria-label="${t("requests.curlImport.cancel")}"
+              title="${t("requests.curlImport.cancel")}"
+            >
+              ${icon("close", 16)}
+            </button>
+          </div>
+          <div class="curl-import-field">
+            <label for="curl-import-source">
+              ${t("requests.curlImport.field")}
+            </label>
+            <textarea
+              id="curl-import-source"
+              class="curl-import-source"
+              name="curlSource"
+              required
+              spellcheck="false"
+              autocapitalize="off"
+              autocomplete="off"
+              placeholder="${t("requests.curlImport.placeholder")}"
+              aria-describedby="curl-import-help curl-import-security"
+              aria-errormessage="curl-import-error"
+              ${initialError ? 'aria-invalid="true"' : ""}
+            >${initialSource}</textarea>
+            <small id="curl-import-help">
+              ${t("requests.curlImport.help")}
+            </small>
+          </div>
+          <p class="dialog-supporting-text" id="curl-import-security">
+            ${icon("warning", 14)}
+            <span>${t("requests.curlImport.security")}</span>
+          </p>
+          <p
+            id="curl-import-error"
+            class="dialog-field-error"
+            data-curl-import-error
+            role="alert"
+            ${initialError ? "" : "hidden"}
+          >
+            ${icon("error", 14)}
+            <span>${initialError ?? ""}</span>
+          </p>
+          <div class="dialog-actions">
+            <button
+              type="button"
+              class="button secondary"
+              data-dialog-close="cancel"
+            >
+              ${t("requests.curlImport.cancel")}
+            </button>
+            <button type="submit" class="button primary">
+              ${icon("terminal", 14)}
+              ${t("requests.curlImport.confirm")}
+            </button>
+          </div>
+        </form>
+      `,
+      {
+        className: "curl-import-shell",
+        trigger,
+        initialFocus: '[name="curlSource"]',
+        describedBy: "curl-import-description",
+      },
+    );
+    requestDialogs.add(dialog);
+    const dialogLifecycle = new Lifecycle();
+    void dialog.closed.then(() => {
+      dialogLifecycle.dispose();
+      requestDialogs.delete(dialog);
+    });
+    const form = requiredElement<HTMLFormElement>(
+      dialog.element,
+      "[data-curl-import-form]",
+    );
+    const textarea = requiredElement<HTMLTextAreaElement>(
+      form,
+      '[name="curlSource"]',
+    );
+    const errorBox = requiredElement<HTMLElement>(
+      form,
+      "[data-curl-import-error]",
+    );
+    let preparedRequest = initialRequest;
+    const showError = (message: string) => {
+      const text = errorBox.querySelector<HTMLElement>("span");
+      if (text) text.textContent = message;
+      errorBox.hidden = false;
+      textarea.setAttribute("aria-invalid", "true");
+      textarea.focus();
+    };
+    dialogLifecycle.listen(textarea, "input", () => {
+      preparedRequest = undefined;
+      textarea.removeAttribute("aria-invalid");
+      errorBox.hidden = true;
+    });
+    dialogLifecycle.listen(form, "submit", (event) => {
+      event.preventDefault();
+      try {
+        const request =
+          preparedRequest ?? parseCurlBash(textarea.value);
+        applyCurlImport(request);
+        dialog.close("import");
+        focusSelectorAfterRender('[name="url"]');
+      } catch (error) {
+        showError(curlImportErrorMessage(error));
+      }
+    });
   };
 
   const persistSavedRequest = async (
@@ -1662,11 +1967,16 @@ export function mountRequestWorkspace(
     forceNew: boolean,
   ) => {
     const library = collectionLibraryStore.getState();
+    const snapshot = {
+      name,
+      ...draft,
+      literalValues: Boolean(tab.literalValues),
+    };
     const requestID = forceNew
-      ? library.saveRequest(collectionID, { name, ...draft })
+      ? library.saveRequest(collectionID, snapshot)
       : library.upsertRequest(
           collectionID,
-          { name, ...draft },
+          snapshot,
           tab.savedRequestId,
         );
     if (!requestID) {
@@ -1678,6 +1988,8 @@ export function mountRequestWorkspace(
       collectionId: collectionID,
       name,
       ...draft,
+      literalValues: Boolean(tab.literalValues),
+      sessionOnly: false,
       dirty: true,
     });
     const durable = await waitForCollectionLibraryPersistence();
@@ -2020,6 +2332,38 @@ export function mountRequestWorkspace(
     }
   };
 
+  lifecycle.listen(root, "paste", (event) => {
+    const target = event.target;
+    if (
+      !(
+        target instanceof HTMLInputElement &&
+        target.name === "url" &&
+        !target.disabled
+      )
+    ) {
+      return;
+    }
+    const source = event.clipboardData?.getData("text/plain") ?? "";
+    if (!looksLikeCurlBash(source)) return;
+    const tab = activeTab();
+    if (!tab || tab.running) return;
+    event.preventDefault();
+    captureDraft();
+    flushPendingDrafts();
+    try {
+      const request = parseCurlBash(source);
+      openCurlImportDialog(source, target, undefined, request);
+    } catch (error) {
+      openCurlImportDialog(
+        error instanceof CurlImportError && error.code === "too_large"
+          ? ""
+          : source,
+        target,
+        curlImportErrorMessage(error),
+      );
+    }
+  });
+
   lifecycle.listen(root, "input", (event) => {
     const tab = activeTab();
     if (!tab || tab.running) return;
@@ -2085,7 +2429,7 @@ export function mountRequestWorkspace(
         }
       }
     }
-    syncSendButton(draft);
+    syncSendButton(tab, draft);
   });
 
   lifecycle.listen(root, "change", (event) => {
@@ -2098,6 +2442,27 @@ export function mountRequestWorkspace(
       if (draft.method !== tab.method) {
         updateDraftInStore(tab, draft, ["method"], true);
       }
+    } else if (
+      target instanceof HTMLInputElement &&
+      target.name === "resolveVariables"
+    ) {
+      const literalValues = !target.checked;
+      draft.literalValues = literalValues;
+      workspaceStore.getState().updateTab(tab.id, {
+        literalValues,
+        dirty: true,
+        response: undefined,
+        error: false,
+        userError: undefined,
+      });
+      announce(
+        t(
+          literalValues
+            ? "requests.editor.variables.literalEnabled"
+            : "requests.editor.variables.resolutionEnabled",
+        ),
+      );
+      render();
     } else if (
       target instanceof HTMLInputElement &&
       target.dataset.headerField
@@ -2267,6 +2632,10 @@ export function mountRequestWorkspace(
       workspaceStore
         .getState()
         .setActiveView(target.dataset.view as WorkspaceView);
+    } else if (action === "import-curl") {
+      captureDraft();
+      flushPendingDrafts();
+      openCurlImportDialog("", target);
     } else if (action === "import-openapi") {
       void importOpenAPI();
     } else if (action === "dismiss-import-notice") {
@@ -2317,9 +2686,14 @@ export function mountRequestWorkspace(
           label: t("requests.workbench.moreSendOptions"),
           entries: [
             {
+              label: t("requests.curlImport.actionLong"),
+              icon: "terminal",
+              action: () => openCurlImportDialog("", target),
+            },
+            {
               label: t("requests.workbench.copyAsCurl"),
               icon: "copy",
-              action: () => copyAsCurl(currentDraft),
+              action: () => copyAsCurl(currentTab, currentDraft),
             },
             {
               label: t("requests.workbench.saveAs"),

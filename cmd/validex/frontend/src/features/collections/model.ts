@@ -18,6 +18,7 @@ export interface RequestCollection {
 export interface SavedRequest {
   id: string;
   collectionId: string;
+  literalValues?: boolean;
   name: string;
   method: HTTPMethod;
   url: string;
@@ -30,7 +31,7 @@ export interface SavedRequest {
 
 export type SavedRequestSnapshot = Pick<
   RequestTab,
-  "name" | "method" | "url" | "headers" | "body"
+  "name" | "method" | "url" | "headers" | "body" | "literalValues"
 >;
 
 export type OpenRequestSnapshot = SavedRequestSnapshot &
@@ -60,6 +61,7 @@ export function createOpenRequestSnapshot(
   return {
     savedRequestId: request.id,
     collectionId: request.collectionId,
+    literalValues: request.literalValues,
     name: request.name,
     method: request.method,
     url: request.url,

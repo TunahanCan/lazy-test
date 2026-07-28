@@ -4,6 +4,9 @@ package canbridge
 
 import (
 	"bytes"
+	"compress/flate"
+	"compress/gzip"
+	"compress/zlib"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -16,6 +19,7 @@ import (
 	neturl "net/url"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,11 +31,13 @@ import (
 var variablePattern = regexp.MustCompile(`\{\{\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*\}\}`)
 
 const (
-	maxHTTPResponseBodyBytes   = int64(16 << 20)
-	minHTTPRequestTimeoutMS    = 1
-	maxHTTPRequestTimeoutMS    = 300_000
-	maxCachedOpenAPISpecs      = 8
-	maxObservedCoverageEntries = 10_000
+	maxHTTPResponseBodyBytes     = int64(16 << 20)
+	maxHTTPResponseHeaderBytes   = int64(1 << 20)
+	maxHTTPContentEncodingLayers = 4
+	minHTTPRequestTimeoutMS      = 1
+	maxHTTPRequestTimeoutMS      = 300_000
+	maxCachedOpenAPISpecs        = 8
+	maxObservedCoverageEntries   = 10_000
 )
 
 type toolOperation struct {
@@ -183,9 +189,13 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 	}
 	started := time.Now()
 
-	resolvedURL, missing := resolveVariables(input.URL, input.Variables)
-	if len(missing) > 0 {
-		return failed("missing_variables", "Eksik değişken var", "Request gönderilmedi çünkü URL içindeki bazı değişkenlerin değeri yok.", "Environment veya context panelinden şu değerleri tanımlayın: "+strings.Join(missing, ", "), "")
+	resolvedURL := input.URL
+	if !input.LiteralValues {
+		var missing []string
+		resolvedURL, missing = resolveVariables(input.URL, input.Variables)
+		if len(missing) > 0 {
+			return failed("missing_variables", "Eksik değişken var", "Request gönderilmedi çünkü URL içindeki bazı değişkenlerin değeri yok.", "Environment veya context panelinden şu değerleri tanımlayın: "+strings.Join(missing, ", "), "")
+		}
 	}
 	parsedURL, err := neturl.Parse(resolvedURL)
 	if err != nil || parsedURL.Host == "" || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
@@ -232,26 +242,125 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 
 	var body io.Reader
 	if input.Body != "" && methodAllowsBody(input.Method) {
-		resolvedBody, bodyMissing := resolveVariables(input.Body, input.Variables)
-		if len(bodyMissing) > 0 {
-			return failed("missing_variables", "Body içinde eksik değişken var", "Request body çözümlenemedi.", "Şu değişkenleri tanımlayın: "+strings.Join(bodyMissing, ", "), "")
+		resolvedBody := input.Body
+		if !input.LiteralValues {
+			var bodyMissing []string
+			resolvedBody, bodyMissing = resolveVariables(input.Body, input.Variables)
+			if len(bodyMissing) > 0 {
+				return failed("missing_variables", "Body içinde eksik değişken var", "Request body çözümlenemedi.", "Şu değişkenleri tanımlayın: "+strings.Join(bodyMissing, ", "), "")
+			}
 		}
 		body = bytes.NewBufferString(resolvedBody)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, strings.ToUpper(strings.TrimSpace(input.Method)), resolvedURL, body)
+	req, err := http.NewRequestWithContext(
+		ctx,
+		strings.TrimSpace(input.Method),
+		resolvedURL,
+		body,
+	)
 	if err != nil {
 		return failed("invalid_request", "Request oluşturulamadı", "Method veya URL geçerli görünmüyor.", "URL’yi ve method seçimini kontrol edin.", err.Error())
 	}
+	bodyContentLength := req.ContentLength
+	hostSet := false
+	contentLengthSet := false
+	transferEncodingSet := false
+	forceHTTP1 := false
 	for _, header := range input.Headers {
 		if !header.Enabled || strings.TrimSpace(header.Key) == "" {
 			continue
 		}
-		value, headerMissing := resolveVariables(header.Value, input.Variables)
-		if len(headerMissing) > 0 {
-			return failed("missing_variables", "Header içinde eksik değişken var", header.Key+" header değeri çözümlenemedi.", "Şu değişkenleri tanımlayın: "+strings.Join(headerMissing, ", "), "")
+		value := header.Value
+		if !input.LiteralValues {
+			var headerMissing []string
+			value, headerMissing = resolveVariables(header.Value, input.Variables)
+			if len(headerMissing) > 0 {
+				return failed("missing_variables", "Header içinde eksik değişken var", header.Key+" header değeri çözümlenemedi.", "Şu değişkenleri tanımlayın: "+strings.Join(headerMissing, ", "), "")
+			}
 		}
-		req.Header.Add(header.Key, value)
+		switch {
+		case strings.EqualFold(header.Key, "Host"):
+			if hostSet {
+				return invalidRequestHeader("Host", "Bir request birden fazla Host header içeremez.")
+			}
+			if !validHostHeaderValue(value) {
+				return invalidRequestHeader("Host", "Host değeri geçersiz veya güvenli olmayan karakterler içeriyor.")
+			}
+			// net/http represents Host separately from Header. Leaving it in the
+			// header map silently ignores a browser-exported Host override.
+			req.Host = value
+			hostSet = true
+		case strings.EqualFold(header.Key, "Content-Length"):
+			if contentLengthSet {
+				return invalidRequestHeader("Content-Length", "Bir request birden fazla Content-Length header içeremez.")
+			}
+			if transferEncodingSet {
+				return invalidRequestHeader("Content-Length", "Content-Length ve Transfer-Encoding aynı request’te birlikte kullanılamaz.")
+			}
+			normalizedValue, valueValid := normalizedSpecialHeaderValue(value)
+			parsedLength, parseErr := strconv.ParseUint(normalizedValue, 10, 63)
+			if !valueValid || parseErr != nil {
+				return invalidRequestHeader("Content-Length", "Content-Length negatif olmayan bir tam sayı olmalıdır.")
+			}
+			declaredLength := int64(parsedLength)
+			if declaredLength != bodyContentLength {
+				return invalidRequestHeader(
+					"Content-Length",
+					fmt.Sprintf("Content-Length %d ancak çözümlenmiş request body %d byte.", declaredLength, bodyContentLength),
+				)
+			}
+			normalizedMethod := strings.ToUpper(strings.TrimSpace(input.Method))
+			if declaredLength == 0 &&
+				(normalizedMethod == http.MethodGet || normalizedMethod == http.MethodHead) {
+				return invalidRequestHeader(
+					"Content-Length",
+					"Bu method için açık Content-Length: 0 net/http tarafından wire’a yazılamaz; header’ı kaldırın.",
+				)
+			}
+			if declaredLength == 0 &&
+				normalizedMethod != http.MethodPost &&
+				normalizedMethod != http.MethodPut &&
+				normalizedMethod != http.MethodPatch {
+				// net/http normally omits an explicit zero Content-Length for
+				// DELETE, OPTIONS, TRACE and extension methods. Identity is an
+				// internal transfer-writer signal (it is not emitted as a
+				// Transfer-Encoding header) that preserves the imported wire
+				// framing on HTTP/1.1.
+				req.Body = http.NoBody
+				req.TransferEncoding = []string{"identity"}
+				forceHTTP1 = true
+			}
+			contentLengthSet = true
+		case strings.EqualFold(header.Key, "Transfer-Encoding"):
+			if transferEncodingSet {
+				return invalidRequestHeader("Transfer-Encoding", "Bir request birden fazla Transfer-Encoding header içeremez.")
+			}
+			if contentLengthSet {
+				return invalidRequestHeader("Transfer-Encoding", "Transfer-Encoding ve Content-Length aynı request’te birlikte kullanılamaz.")
+			}
+			normalizedValue, valueValid := normalizedSpecialHeaderValue(value)
+			if !valueValid || !strings.EqualFold(normalizedValue, "chunked") {
+				return invalidRequestHeader("Transfer-Encoding", "Yalnız chunked Transfer-Encoding destekleniyor.")
+			}
+			if !methodAllowsBody(input.Method) {
+				return invalidRequestHeader("Transfer-Encoding", "HEAD ve TRACE requestleri chunked body taşıyamaz.")
+			}
+			if req.Body == nil {
+				req.Body = io.NopCloser(strings.NewReader(""))
+			}
+			req.TransferEncoding = []string{"chunked"}
+			req.ContentLength = -1
+			transferEncodingSet = true
+			forceHTTP1 = true
+		case strings.EqualFold(header.Key, "Trailer"):
+			return invalidRequestHeader(
+				"Trailer",
+				"Trailer alanları düz bir header listesi olarak güvenilir biçimde gönderilemez.",
+			)
+		default:
+			req.Header.Add(header.Key, value)
+		}
 	}
 	if _, explicitlySet := req.Header["User-Agent"]; !explicitlySet {
 		// net/http otherwise adds Go's default User-Agent even though the user did
@@ -261,6 +370,15 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.DisableCompression = true
+	transport.MaxResponseHeaderBytes = maxHTTPResponseHeaderBytes
+	if forceHTTP1 {
+		// HTTP/2 has neither chunked transfer coding nor a way to preserve
+		// explicit Content-Length: 0 on every method. Keep these explicitly
+		// imported framing choices on HTTP/1.1 so their wire semantics are not
+		// silently changed.
+		transport.ForceAttemptHTTP2 = false
+		transport.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
+	}
 	defer transport.CloseIdleConnections()
 	client := &http.Client{
 		Timeout:   requestTimeout,
@@ -272,6 +390,9 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 	trace.mark(&trace.requestReady)
 	resp, err := client.Do(req)
 	if err != nil {
+		if responseHeaderLimitExceeded(err) {
+			return responseHeadersTooLarge(err)
+		}
 		if errors.Is(err, context.Canceled) {
 			return failed("request_canceled", "Request iptal edildi", "İstek kullanıcı tarafından durduruldu.", "URL ve form değerleri sekmede korunuyor.", "")
 		}
@@ -286,12 +407,52 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 	}
 	defer resp.Body.Close()
 
+	contentEncodings, unsupportedEncoding, tooManyEncodings :=
+		supportedContentEncodings(resp.Header)
+	responseHasBody := responseCanHaveBody(
+		input.Method,
+		resp.StatusCode,
+		resp.ContentLength,
+	)
+	if responseHasBody && tooManyEncodings {
+		return tooManyContentEncodings()
+	}
+	if responseHasBody && unsupportedEncoding != "" {
+		return unsupportedContentEncoding(unsupportedEncoding)
+	}
+	if !responseHasBody {
+		contentEncodings = nil
+	}
 	if resp.ContentLength > maxHTTPResponseBodyBytes {
 		return responseTooLarge()
 	}
-	raw, tooLarge, readErr := readHTTPResponseBody(resp.Body, maxHTTPResponseBodyBytes)
+	encoded, tooLarge, readErr := readHTTPResponseBody(resp.Body, maxHTTPResponseBodyBytes)
 	if readErr != nil {
+		if errors.Is(readErr, context.Canceled) {
+			return failed("request_canceled", "Request iptal edildi", "İstek kullanıcı tarafından durduruldu.", "URL ve form değerleri sekmede korunuyor.", "")
+		}
+		if errors.Is(readErr, context.DeadlineExceeded) {
+			return failed("request_timeout", "Request zaman aşımına uğradı", fmt.Sprintf("%d ms içinde yanıt alınamadı.", input.TimeoutMS), "Timeout değerini artırın veya hedef servisin erişilebilirliğini kontrol edin.", readErr.Error())
+		}
 		return failed("response_read_failed", "Response okunamadı", "Sunucu yanıt verdi ancak response body tamamlanamadı.", "Bağlantıyı kontrol edip request’i yeniden gönderin.", readErr.Error())
+	}
+	if tooLarge {
+		return responseTooLarge()
+	}
+	raw, tooLarge, failedEncoding, decodeErr := decodeContentEncodedBody(
+		ctx,
+		encoded,
+		contentEncodings,
+		maxHTTPResponseBodyBytes,
+	)
+	if decodeErr != nil {
+		if errors.Is(decodeErr, context.Canceled) {
+			return failed("request_canceled", "Request iptal edildi", "İstek kullanıcı tarafından durduruldu.", "URL ve form değerleri sekmede korunuyor.", "")
+		}
+		if errors.Is(decodeErr, context.DeadlineExceeded) {
+			return failed("request_timeout", "Request zaman aşımına uğradı", fmt.Sprintf("%d ms içinde yanıt alınamadı.", input.TimeoutMS), "Timeout değerini artırın veya hedef servisin erişilebilirliğini kontrol edin.", decodeErr.Error())
+		}
+		return responseDecodeFailed(failedEncoding, decodeErr)
 	}
 	if tooLarge {
 		return responseTooLarge()
@@ -582,6 +743,121 @@ func readHTTPResponseBody(body io.Reader, limit int64) ([]byte, bool, error) {
 	return raw, false, nil
 }
 
+func supportedContentEncodings(header http.Header) ([]string, string, bool) {
+	var encodings []string
+	encodingCount := 0
+	for _, value := range header.Values("Content-Encoding") {
+		for _, rawEncoding := range strings.Split(value, ",") {
+			encoding := strings.ToLower(strings.TrimSpace(rawEncoding))
+			if encoding == "" {
+				continue
+			}
+			encodingCount++
+			if encodingCount > maxHTTPContentEncodingLayers {
+				return nil, "", true
+			}
+			switch encoding {
+			case "identity":
+				continue
+			case "gzip", "x-gzip", "deflate":
+				encodings = append(encodings, encoding)
+			default:
+				return nil, encoding, false
+			}
+		}
+	}
+	return encodings, "", false
+}
+
+func decodeContentEncodedBody(
+	ctx context.Context,
+	encoded []byte,
+	encodings []string,
+	limit int64,
+) ([]byte, bool, string, error) {
+	decoded := encoded
+	if len(decoded) == 0 {
+		return decoded, false, "", nil
+	}
+	for index := len(encodings) - 1; index >= 0; index-- {
+		encoding := encodings[index]
+		if err := ctx.Err(); err != nil {
+			return nil, false, encoding, err
+		}
+		next, tooLarge, err := decodeContentEncodingLayer(
+			ctx,
+			decoded,
+			encoding,
+			limit,
+		)
+		if err != nil {
+			return nil, false, encoding, err
+		}
+		if tooLarge {
+			return nil, true, encoding, nil
+		}
+		decoded = next
+	}
+	return decoded, false, "", nil
+}
+
+func decodeContentEncodingLayer(
+	ctx context.Context,
+	encoded []byte,
+	encoding string,
+	limit int64,
+) ([]byte, bool, error) {
+	var (
+		reader io.ReadCloser
+		err    error
+	)
+	switch encoding {
+	case "gzip", "x-gzip":
+		reader, err = gzip.NewReader(bytes.NewReader(encoded))
+	case "deflate":
+		reader, err = zlib.NewReader(bytes.NewReader(encoded))
+		if err != nil {
+			// Although RFC 9110 defines deflate as a zlib-wrapped stream, some
+			// browser-facing servers still emit raw DEFLATE.
+			reader = flate.NewReader(bytes.NewReader(encoded))
+			err = nil
+		}
+	default:
+		return nil, false, fmt.Errorf("unsupported content encoding %q", encoding)
+	}
+	if err != nil {
+		return nil, false, err
+	}
+
+	decoded, tooLarge, readErr := readHTTPResponseBody(
+		&contextCheckingReader{ctx: ctx, reader: reader},
+		limit,
+	)
+	closeErr := reader.Close()
+	if readErr != nil {
+		return nil, false, readErr
+	}
+	if tooLarge {
+		return nil, true, nil
+	}
+	if closeErr != nil {
+		return nil, false, closeErr
+	}
+	return decoded, false, nil
+}
+
+type contextCheckingReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (reader *contextCheckingReader) Read(buffer []byte) (int, error) {
+	if err := reader.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return reader.reader.Read(buffer)
+}
+
 func responseTooLarge() SendResult {
 	return failed(
 		"response_too_large",
@@ -591,6 +867,79 @@ func responseTooLarge() SendResult {
 			maxHTTPResponseBodyBytes>>20,
 		),
 		"Daha küçük bir veri kümesi isteyin veya endpoint’e sayfalama/filtre ekleyin.",
+		"",
+	)
+}
+
+func responseHeadersTooLarge(err error) SendResult {
+	return failed(
+		"response_headers_too_large",
+		"Response header’ları sınırı aştı",
+		fmt.Sprintf(
+			"Sunucunun response header’ları %d MiB güvenlik sınırını aştığı için request durduruldu.",
+			maxHTTPResponseHeaderBytes>>20,
+		),
+		"Sunucunun büyük header değerlerini küçültün veya gereksiz response header’larını kaldırın.",
+		err.Error(),
+	)
+}
+
+func responseHeaderLimitExceeded(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "server response headers exceeded") ||
+		strings.Contains(message, "header list too large") ||
+		(strings.Contains(message, "read limit of ") &&
+			strings.Contains(message, " bytes exhausted"))
+}
+
+func unsupportedContentEncoding(encoding string) SendResult {
+	return failed(
+		"unsupported_content_encoding",
+		"Response sıkıştırması desteklenmiyor",
+		fmt.Sprintf(
+			"Sunucu yanıtı %q Content-Encoding ile gönderdi; Validex yalnız gzip ve deflate yanıtlarını açabilir.",
+			encoding,
+		),
+		"Accept-Encoding header’ından bu formatı kaldırın ve gzip veya deflate isteyin.",
+		"",
+	)
+}
+
+func tooManyContentEncodings() SendResult {
+	return failed(
+		"too_many_content_encodings",
+		"Response sıkıştırması çok karmaşık",
+		fmt.Sprintf(
+			"Sunucu %d katmandan fazla Content-Encoding bildirdi.",
+			maxHTTPContentEncodingLayers,
+		),
+		"Sunucuyu daha az sıkıştırma katmanı kullanacak şekilde yapılandırın.",
+		"",
+	)
+}
+
+func responseDecodeFailed(encoding string, err error) SendResult {
+	return failed(
+		"response_decode_failed",
+		"Response açılamadı",
+		fmt.Sprintf(
+			"Sunucu %q ile sıkıştırılmış bir yanıt verdi ancak body çözülemedi.",
+			encoding,
+		),
+		"Sunucunun Content-Encoding header’ı ile gönderdiği body formatının eşleştiğini kontrol edin.",
+		err.Error(),
+	)
+}
+
+func invalidRequestHeader(name, message string) SendResult {
+	return failed(
+		"invalid_request",
+		name+" header geçerli değil",
+		message,
+		"Header değerini düzeltin veya header’ı kaldırıp Validex’in güvenli varsayılanını kullanın.",
 		"",
 	)
 }
@@ -643,11 +992,123 @@ func isMaskedSecretValue(value string) bool {
 
 func methodAllowsBody(method string) bool {
 	switch strings.ToUpper(strings.TrimSpace(method)) {
-	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
-		return true
+	case "", http.MethodHead, http.MethodTrace:
+		return false
 	default:
+		return true
+	}
+}
+
+func validHostHeaderValue(host string) bool {
+	if host == "" || strings.TrimSpace(host) != host {
 		return false
 	}
+	hostName := host
+	port := ""
+	if strings.HasPrefix(host, "[") {
+		closingBracket := strings.IndexByte(host, ']')
+		if closingBracket <= 1 {
+			return false
+		}
+		literal := host[1:closingBracket]
+		rest := host[closingBracket+1:]
+		if rest != "" {
+			if !strings.HasPrefix(rest, ":") || len(rest) == 1 {
+				return false
+			}
+			port = rest[1:]
+		}
+		address := literal
+		if zone := strings.LastIndexByte(address, '%'); zone >= 0 {
+			if zone == len(address)-1 || !validHostZone(address[zone+1:]) {
+				return false
+			}
+			address = address[:zone]
+		}
+		if parsed := net.ParseIP(address); parsed == nil || !strings.Contains(address, ":") {
+			return false
+		}
+	} else {
+		if strings.ContainsAny(host, "[]") || strings.Count(host, ":") > 1 {
+			return false
+		}
+		if separator := strings.LastIndexByte(host, ':'); separator >= 0 {
+			if separator == 0 || separator == len(host)-1 {
+				return false
+			}
+			hostName = host[:separator]
+			port = host[separator+1:]
+		}
+		if !validRegisteredHost(hostName) {
+			return false
+		}
+	}
+	if port != "" {
+		parsedPort, err := strconv.ParseUint(port, 10, 16)
+		if err != nil || parsedPort > 65_535 {
+			return false
+		}
+	}
+	return true
+}
+
+func validRegisteredHost(host string) bool {
+	if host == "" || strings.HasPrefix(host, ".") || strings.Contains(host, "..") {
+		return false
+	}
+	for index := 0; index < len(host); index++ {
+		character := host[index]
+		if character >= 'a' && character <= 'z' ||
+			character >= 'A' && character <= 'Z' ||
+			character >= '0' && character <= '9' ||
+			character == '-' ||
+			character == '.' ||
+			character == '_' ||
+			character == '~' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func validHostZone(zone string) bool {
+	for index := 0; index < len(zone); index++ {
+		character := zone[index]
+		if character >= 'a' && character <= 'z' ||
+			character >= 'A' && character <= 'Z' ||
+			character >= '0' && character <= '9' ||
+			character == '-' ||
+			character == '.' ||
+			character == '_' ||
+			character == '~' {
+			continue
+		}
+		return false
+	}
+	return zone != ""
+}
+
+func responseCanHaveBody(method string, statusCode int, contentLength int64) bool {
+	if strings.EqualFold(strings.TrimSpace(method), http.MethodHead) ||
+		contentLength == 0 ||
+		statusCode >= 100 && statusCode <= 199 ||
+		statusCode == http.StatusNoContent ||
+		statusCode == http.StatusResetContent ||
+		statusCode == http.StatusNotModified {
+		return false
+	}
+	return true
+}
+
+func normalizedSpecialHeaderValue(value string) (string, bool) {
+	for index := 0; index < len(value); index++ {
+		character := value[index]
+		if character < ' ' && character != '\t' || character == 0x7f {
+			return "", false
+		}
+	}
+	return strings.Trim(value, " \t"), true
 }
 
 const (

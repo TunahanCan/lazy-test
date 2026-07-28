@@ -65,9 +65,19 @@ const toolMounts: Record<ToolView, () => Promise<ToolMount>> = {
 
 function savedLinks() {
   return collectionLibraryStore.getState().requests.map(
-    ({ id, collectionId, name, method, url, headers, body }) => ({
+    ({
       id,
       collectionId,
+      literalValues,
+      name,
+      method,
+      url,
+      headers,
+      body,
+    }) => ({
+      id,
+      collectionId,
+      literalValues,
       name,
       method,
       url,

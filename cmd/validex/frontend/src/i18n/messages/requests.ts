@@ -74,6 +74,76 @@ export const requestMessages = defineMessages(
     "requests.workbench.enterValidURL": "Enter a valid HTTP or HTTPS URL",
     "requests.workbench.moreSendOptions": "More send options",
     "requests.workbench.copyAsCurl": "Copy as cURL",
+    "requests.curlImport.action": "Import",
+    "requests.curlImport.actionLong": "Paste cURL / Bash",
+    "requests.curlImport.title": "Import a browser request",
+    "requests.curlImport.description":
+      "Paste the “Copy as cURL (bash)” output from your browser’s network panel. Validex creates a new editable request without executing the shell command.",
+    "requests.curlImport.field": "cURL / Bash command",
+    "requests.curlImport.placeholder":
+      "curl 'https://api.example.com/orders' \\\n  -H 'accept: application/json' \\\n  -H 'cookie: session=…'",
+    "requests.curlImport.help":
+      "Supports Chrome, Edge, Firefox, and Safari-style Bash quoting, repeated headers, cookies, authentication, JSON, and request bodies.",
+    "requests.curlImport.security":
+      "The imported browser request stays in this session until you explicitly save it. Sensitive Cookie, Authorization, CSRF, and session header values are never stored.",
+    "requests.curlImport.cancel": "Cancel",
+    "requests.curlImport.confirm": "Import as new request",
+    "requests.curlImport.headerDescription":
+      "Imported from browser cURL",
+    "requests.curlImport.imported":
+      "Browser request imported · {count} headers.",
+    "requests.curlImport.importedSensitive":
+      "Sensitive header values kept only in this tab: {count}.",
+    "requests.curlImport.importedWarnings":
+      "Adjusted for Validex: {warnings}.",
+    "requests.curlImport.error.unknown":
+      "The cURL command could not be imported.",
+    "requests.curlImport.error.empty": "Paste a cURL command first.",
+    "requests.curlImport.error.tooLarge":
+      "The copied command exceeds the 16 MiB import limit.",
+    "requests.curlImport.error.tooComplex":
+      "The command contains too many shell tokens.",
+    "requests.curlImport.error.quote":
+      "A quoted value is not closed. Copy the complete command again.",
+    "requests.curlImport.error.unsafeShell":
+      "Shell pipes, redirects, substitutions, and chained commands are not imported.",
+    "requests.curlImport.error.notCurl":
+      "The pasted text does not begin with a cURL command.",
+    "requests.curlImport.error.missingValue":
+      "The cURL option “{detail}” is missing its value.",
+    "requests.curlImport.error.unsupportedOption":
+      "The cURL option “{detail}” is not supported yet.",
+    "requests.curlImport.error.binary":
+      "This request contains binary body bytes that cannot be represented safely in the text editor. Import was stopped without changing the payload.",
+    "requests.curlImport.error.file":
+      "File references cannot be imported from another application. Paste literal body or form data instead.",
+    "requests.curlImport.error.header":
+      "One of the copied headers is not valid.",
+    "requests.curlImport.error.tooManyHeaders":
+      "The command exceeds the 512-header safety limit.",
+    "requests.curlImport.error.url":
+      "The cURL command does not contain a request URL.",
+    "requests.curlImport.error.multipleURLs":
+      "Import one request URL at a time.",
+    "requests.curlImport.error.method":
+      "The HTTP method “{detail}” is not supported by the request editor.",
+    "requests.curlImport.error.bodyTooLarge":
+      "The request body exceeds the 16 MiB import limit.",
+    "requests.curlImport.error.form":
+      "The multipart form definition could not be imported.",
+    "requests.curlImport.warning.acceptEncoding":
+      "unsupported response encodings were removed",
+    "requests.curlImport.warning.compressed":
+      "compression was limited to gzip and deflate",
+    "requests.curlImport.warning.globoff": "URL globbing is not performed",
+    "requests.curlImport.warning.httpVersion":
+      "the HTTP version is selected automatically",
+    "requests.curlImport.warning.pathAsIs":
+      "the URL path uses Validex’s normal URL handling",
+    "requests.curlImport.warning.redirect":
+      "redirects remain visible instead of being followed",
+    "requests.curlImport.warning.tls":
+      "TLS certificate verification remains enabled",
     "requests.workbench.save": "Save",
     "requests.workbench.saving": "Saving…",
     "requests.workbench.saved": "Saved",
@@ -109,7 +179,7 @@ export const requestMessages = defineMessages(
     "requests.workbench.templateVariables": "Template variables",
     "requests.workbench.workspace": "Workspace",
     "requests.workbench.bodyUnavailable":
-      "{method} requests do not send a body. Choose POST, PUT, PATCH, or DELETE to use a body.",
+      "{method} requests cannot include a body. Choose GET, POST, PUT, PATCH, DELETE, or OPTIONS.",
     "requests.workbench.resize": "Resize request and response areas",
     "requests.workbench.resizeInstructions":
       "Use the arrow keys to resize. Home sets the minimum and End sets the maximum.",
@@ -200,6 +270,12 @@ export const requestMessages = defineMessages(
       "The response body exceeded the safety limit, so the download was stopped.",
     "requests.error.responseTooLarge.hint":
       "Request a smaller data set or add pagination or filters to the endpoint.",
+    "requests.error.responseHeadersTooLarge.title":
+      "Response headers exceed limit",
+    "requests.error.responseHeadersTooLarge.message":
+      "The response headers exceeded the 1 MiB safety limit, so the request was stopped.",
+    "requests.error.responseHeadersTooLarge.hint":
+      "Reduce oversized header values or remove unnecessary response headers on the server.",
 
     "requests.editor.method.select": "Select HTTP method",
     "requests.editor.method.search": "Search method",
@@ -254,6 +330,14 @@ export const requestMessages = defineMessages(
     "requests.editor.variables.scope": "{name} environment",
     "requests.editor.variables.secretHint":
       "Secret values stay hidden on screen. Reference them as {{variable}}.",
+    "requests.editor.variables.resolve":
+      "Resolve {{variables}} when sending",
+    "requests.editor.variables.resolveDescription":
+      "Turn this off to send braces literally. Browser cURL imports start in literal mode for exact request fidelity.",
+    "requests.editor.variables.literalEnabled":
+      "Variable resolution is off; {{expressions}} will be sent literally.",
+    "requests.editor.variables.resolutionEnabled":
+      "Variable resolution is on.",
     "requests.editor.variables.showSecret": "Show {key}",
     "requests.editor.variables.hideSecret": "Hide {key}",
     "requests.editor.type.secret": "Secret",
@@ -489,6 +573,76 @@ export const requestMessages = defineMessages(
       "Geçerli bir HTTP veya HTTPS URL’si girin",
     "requests.workbench.moreSendOptions": "Diğer gönderme seçenekleri",
     "requests.workbench.copyAsCurl": "cURL olarak kopyala",
+    "requests.curlImport.action": "İçe aktar",
+    "requests.curlImport.actionLong": "cURL / Bash yapıştır",
+    "requests.curlImport.title": "Tarayıcı isteğini içe aktar",
+    "requests.curlImport.description":
+      "Tarayıcının ağ panelindeki “Copy as cURL (bash)” çıktısını yapıştırın. Validex shell komutunu çalıştırmadan düzenlenebilir yeni bir istek oluşturur.",
+    "requests.curlImport.field": "cURL / Bash komutu",
+    "requests.curlImport.placeholder":
+      "curl 'https://api.example.com/orders' \\\n  -H 'accept: application/json' \\\n  -H 'cookie: session=…'",
+    "requests.curlImport.help":
+      "Chrome, Edge, Firefox ve Safari tarzı Bash tırnaklarını; tekrarlanan header, cookie, kimlik doğrulama, JSON ve request body’lerini destekler.",
+    "requests.curlImport.security":
+      "İçe aktarılan tarayıcı isteği siz açıkça kaydedene kadar yalnızca bu oturumda tutulur. Hassas Cookie, Authorization, CSRF ve oturum header değerleri hiçbir zaman kaydedilmez.",
+    "requests.curlImport.cancel": "İptal",
+    "requests.curlImport.confirm": "Yeni istek olarak içe aktar",
+    "requests.curlImport.headerDescription":
+      "Tarayıcı cURL’ünden içe aktarıldı",
+    "requests.curlImport.imported":
+      "Tarayıcı isteği içe aktarıldı · {count} header.",
+    "requests.curlImport.importedSensitive":
+      "Yalnızca bu sekmede tutulan hassas header değeri: {count}.",
+    "requests.curlImport.importedWarnings":
+      "Validex için uyarlananlar: {warnings}.",
+    "requests.curlImport.error.unknown":
+      "cURL komutu içe aktarılamadı.",
+    "requests.curlImport.error.empty": "Önce bir cURL komutu yapıştırın.",
+    "requests.curlImport.error.tooLarge":
+      "Kopyalanan komut 16 MiB içe aktarma sınırını aşıyor.",
+    "requests.curlImport.error.tooComplex":
+      "Komut çok fazla shell parçası içeriyor.",
+    "requests.curlImport.error.quote":
+      "Tırnak içine alınan bir değer kapanmamış. Komutun tamamını yeniden kopyalayın.",
+    "requests.curlImport.error.unsafeShell":
+      "Shell pipe, yönlendirme, substitution ve zincirlenmiş komutlar içe aktarılmaz.",
+    "requests.curlImport.error.notCurl":
+      "Yapıştırılan metin bir cURL komutuyla başlamıyor.",
+    "requests.curlImport.error.missingValue":
+      "“{detail}” cURL seçeneğinin değeri eksik.",
+    "requests.curlImport.error.unsupportedOption":
+      "“{detail}” cURL seçeneği henüz desteklenmiyor.",
+    "requests.curlImport.error.binary":
+      "Bu istek, metin editöründe güvenle temsil edilemeyen binary body byte’ları içeriyor. Payload değiştirilmeden içe aktarma durduruldu.",
+    "requests.curlImport.error.file":
+      "Başka bir uygulamadaki dosya referansı içe aktarılamaz. Body veya form verisini doğrudan yapıştırın.",
+    "requests.curlImport.error.header":
+      "Kopyalanan header’lardan biri geçerli değil.",
+    "requests.curlImport.error.tooManyHeaders":
+      "Komut 512 header güvenlik sınırını aşıyor.",
+    "requests.curlImport.error.url":
+      "cURL komutunda request URL’si bulunamadı.",
+    "requests.curlImport.error.multipleURLs":
+      "Her seferinde tek bir request URL’si içe aktarın.",
+    "requests.curlImport.error.method":
+      "“{detail}” HTTP metodu request editörü tarafından desteklenmiyor.",
+    "requests.curlImport.error.bodyTooLarge":
+      "Request body 16 MiB içe aktarma sınırını aşıyor.",
+    "requests.curlImport.error.form":
+      "Multipart form tanımı içe aktarılamadı.",
+    "requests.curlImport.warning.acceptEncoding":
+      "desteklenmeyen response encoding’leri kaldırıldı",
+    "requests.curlImport.warning.compressed":
+      "sıkıştırma gzip ve deflate ile sınırlandı",
+    "requests.curlImport.warning.globoff": "URL glob işlemi uygulanmaz",
+    "requests.curlImport.warning.httpVersion":
+      "HTTP sürümü otomatik seçilir",
+    "requests.curlImport.warning.pathAsIs":
+      "URL path’i Validex’in normal URL işleme davranışını kullanır",
+    "requests.curlImport.warning.redirect":
+      "redirect’ler takip edilmek yerine görünür bırakılır",
+    "requests.curlImport.warning.tls":
+      "TLS sertifika doğrulaması açık kalır",
     "requests.workbench.save": "Kaydet",
     "requests.workbench.saving": "Kaydediliyor…",
     "requests.workbench.saved": "Kaydedildi",
@@ -524,7 +678,7 @@ export const requestMessages = defineMessages(
     "requests.workbench.templateVariables": "Şablon değişkenleri",
     "requests.workbench.workspace": "Çalışma alanı",
     "requests.workbench.bodyUnavailable":
-      "{method} istekleri body göndermez. Body kullanmak için POST, PUT, PATCH veya DELETE seçin.",
+      "{method} istekleri body içeremez. GET, POST, PUT, PATCH, DELETE veya OPTIONS seçin.",
     "requests.workbench.resize": "İstek ve yanıt alanlarını yeniden boyutlandır",
     "requests.workbench.resizeInstructions":
       "Yeniden boyutlandırmak için ok tuşlarını kullanın. Home en küçük, End en büyük boyutu ayarlar.",
@@ -617,6 +771,12 @@ export const requestMessages = defineMessages(
       "Yanıt body’si güvenlik sınırını aştığı için indirme durduruldu.",
     "requests.error.responseTooLarge.hint":
       "Daha küçük bir veri kümesi isteyin veya endpoint’e sayfalama ya da filtre ekleyin.",
+    "requests.error.responseHeadersTooLarge.title":
+      "Response header’ları sınırı aştı",
+    "requests.error.responseHeadersTooLarge.message":
+      "Response header’ları 1 MiB güvenlik sınırını aştığı için istek durduruldu.",
+    "requests.error.responseHeadersTooLarge.hint":
+      "Sunucudaki büyük header değerlerini küçültün veya gereksiz response header’larını kaldırın.",
 
     "requests.editor.method.select": "HTTP metodu seç",
     "requests.editor.method.search": "Metotta ara",
@@ -672,6 +832,14 @@ export const requestMessages = defineMessages(
     "requests.editor.variables.scope": "{name} ortamı",
     "requests.editor.variables.secretHint":
       "Gizli değerler ekranda saklanır. Bunlara {{variable}} biçiminde referans verin.",
+    "requests.editor.variables.resolve":
+      "Gönderirken {{değişkenleri}} çözümle",
+    "requests.editor.variables.resolveDescription":
+      "Süslü parantezleri olduğu gibi göndermek için kapatın. Tarayıcı cURL içe aktarımları tam istek doğruluğu için literal modda başlar.",
+    "requests.editor.variables.literalEnabled":
+      "Değişken çözümleme kapalı; {{ifadeler}} olduğu gibi gönderilecek.",
+    "requests.editor.variables.resolutionEnabled":
+      "Değişken çözümleme açık.",
     "requests.editor.variables.showSecret": "{key} değerini göster",
     "requests.editor.variables.hideSecret": "{key} değerini gizle",
     "requests.editor.type.secret": "Gizli",

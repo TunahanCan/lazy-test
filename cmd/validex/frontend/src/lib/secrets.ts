@@ -6,8 +6,12 @@ const secretParts = new Set([
   "password",
   "passwd",
   "cookie",
+  "csrf",
+  "session",
+  "sid",
   "credential",
   "credentials",
+  "xsrf",
 ]);
 
 const secretSuffixes = [
@@ -18,9 +22,14 @@ const secretSuffixes = [
   "passwd",
   "apikey",
   "cookie",
+  "csrf",
+  "session",
+  "sessionid",
+  "sid",
   "credential",
   "credentials",
   "privatekey",
+  "xsrf",
 ];
 
 export function isSecretKey(key: string): boolean {

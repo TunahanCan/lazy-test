@@ -39,6 +39,8 @@ function sanitizePersistedWorkspace(rawWorkspace: string): string | undefined {
     }
 
     const state = persisted.state;
+    const tabs = persistedTabs(state.tabs);
+    const recentlyClosed = persistedTabs(state.recentlyClosed);
     return JSON.stringify({
       ...persisted,
       state: {
@@ -46,12 +48,9 @@ function sanitizePersistedWorkspace(rawWorkspace: string): string | undefined {
         environmentVariables: withoutSecretVariables(
           state.environmentVariables ?? {},
         ),
-        tabs: Array.isArray(state.tabs)
-          ? state.tabs.map(persistedTab)
-          : state.tabs,
-        recentlyClosed: Array.isArray(state.recentlyClosed)
-          ? state.recentlyClosed.map(persistedTab)
-          : state.recentlyClosed,
+        tabs,
+        activeTabID: persistedActiveTabID(state.activeTabID, tabs),
+        recentlyClosed,
       },
     });
   } catch {
@@ -140,7 +139,7 @@ function persistedTab(tab: RequestTab): RequestTab {
   ].includes(tab.responseSection)
     ? tab.responseSection
     : "body";
-  return {
+  const persisted: RequestTab = {
     ...tab,
     running: false,
     error: false,
@@ -158,6 +157,30 @@ function persistedTab(tab: RequestTab): RequestTab {
         return { ...header, enabled: false, value: "" };
       }),
   };
+  delete persisted.sessionOnly;
+  return persisted;
+}
+
+function persistedTabs(value: unknown): RequestTab[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(
+      (tab): tab is RequestTab =>
+        typeof tab === "object" &&
+        tab !== null &&
+        (tab as Partial<RequestTab>).sessionOnly !== true,
+    )
+    .map(persistedTab);
+}
+
+function persistedActiveTabID(
+  activeTabID: unknown,
+  tabs: readonly RequestTab[],
+): string {
+  return typeof activeTabID === "string" &&
+    tabs.some((tab) => tab.id === activeTabID)
+    ? activeTabID
+    : (tabs[0]?.id ?? "");
 }
 
 export function createRequestTab(
@@ -191,6 +214,7 @@ export interface ImportedSpecWorkspace {
 export interface SavedRequestLink {
   id: string;
   collectionId: string;
+  literalValues?: boolean;
   name: string;
   method: HTTPMethod;
   url: string;
@@ -249,6 +273,29 @@ export interface WorkspaceState {
   reconcileSavedRequestLinks: (links: SavedRequestLink[]) => void;
 }
 
+export function createPersistedWorkspaceState(state: WorkspaceState) {
+  const tabs = persistedTabs(state.tabs);
+  const recentlyClosed = persistedTabs(state.recentlyClosed);
+  return {
+    workspaceID: state.workspaceID,
+    activeEnvironmentID: state.activeEnvironmentID,
+    environmentVariables: withoutSecretVariables(
+      state.environmentVariables,
+    ),
+    tabs,
+    activeTabID: persistedActiveTabID(state.activeTabID, tabs),
+    recentlyClosed,
+    leftVisible: state.leftVisible,
+    rightVisible: state.rightVisible,
+    leftWidth: state.leftWidth,
+    rightWidth: state.rightWidth,
+    responseSize: state.responseSize,
+    responsePlacement: state.responsePlacement,
+    activeView: state.activeView,
+    theme: state.theme,
+  };
+}
+
 function reconcileTabWithSavedRequests(
   tab: RequestTab,
   links: ReadonlyMap<string, SavedRequestLink>,
@@ -264,12 +311,19 @@ function reconcileTabWithSavedRequests(
     };
   }
   const linkedFields = tab.dirty
-    ? { name: link.name, method: tab.method, url: tab.url, body: tab.body }
+    ? {
+        name: link.name,
+        method: tab.method,
+        url: tab.url,
+        body: tab.body,
+        literalValues: tab.literalValues,
+      }
     : {
         name: link.name,
         method: link.method,
         url: link.url,
         body: link.body,
+        literalValues: link.literalValues,
       };
   const headersChanged =
     !tab.dirty &&
@@ -279,6 +333,7 @@ function reconcileTabWithSavedRequests(
     (tab.method !== link.method ||
       tab.url !== link.url ||
       tab.body !== link.body ||
+      Boolean(tab.literalValues) !== Boolean(link.literalValues) ||
       headersChanged);
   if (
     tab.collectionId === link.collectionId &&
@@ -286,6 +341,7 @@ function reconcileTabWithSavedRequests(
     tab.method === linkedFields.method &&
     tab.url === linkedFields.url &&
     tab.body === linkedFields.body &&
+    Boolean(tab.literalValues) === Boolean(linkedFields.literalValues) &&
     !headersChanged
   ) {
     return tab;
@@ -597,9 +653,7 @@ export const workspaceStore = createPersistedStore<WorkspaceState>(
       const resetBlankStarter =
         persistedVersion < 4 && isUntouchedStarterRequest(state.tabs);
       const resetToWelcome = resetLegacyDemo || resetBlankStarter;
-      const tabs = resetToWelcome
-        ? []
-        : (state.tabs ?? []).map(persistedTab);
+      const tabs = resetToWelcome ? [] : persistedTabs(state.tabs);
       return {
         ...state,
         workspaceID: "validex-workspace",
@@ -612,8 +666,8 @@ export const workspaceStore = createPersistedStore<WorkspaceState>(
         tabs,
         activeTabID: resetToWelcome
           ? ""
-          : (state.activeTabID ?? tabs[0]?.id ?? ""),
-        recentlyClosed: (state.recentlyClosed ?? []).map(persistedTab),
+          : persistedActiveTabID(state.activeTabID, tabs),
+        recentlyClosed: persistedTabs(state.recentlyClosed),
         activeView:
           state.activeView === "mock" ||
           state.activeView === "json" ||
@@ -632,23 +686,6 @@ export const workspaceStore = createPersistedStore<WorkspaceState>(
         latestImportedSpec: undefined,
       } as WorkspaceState;
     },
-    partialize: (state) => ({
-      workspaceID: state.workspaceID,
-      activeEnvironmentID: state.activeEnvironmentID,
-      environmentVariables: withoutSecretVariables(
-        state.environmentVariables,
-      ),
-      tabs: state.tabs.map(persistedTab),
-      activeTabID: state.activeTabID,
-      recentlyClosed: state.recentlyClosed.map(persistedTab),
-      leftVisible: state.leftVisible,
-      rightVisible: state.rightVisible,
-      leftWidth: state.leftWidth,
-      rightWidth: state.rightWidth,
-      responseSize: state.responseSize,
-      responsePlacement: state.responsePlacement,
-      activeView: state.activeView,
-      theme: state.theme,
-    }),
+    partialize: createPersistedWorkspaceState,
   },
 );

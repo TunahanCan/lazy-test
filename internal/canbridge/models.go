@@ -10,15 +10,16 @@ type KeyValue struct {
 }
 
 type RequestInput struct {
-	ID          string            `json:"id"`
-	Name        string            `json:"name"`
-	Method      string            `json:"method"`
-	URL         string            `json:"url"`
-	Headers     []KeyValue        `json:"headers"`
-	Body        string            `json:"body"`
-	Variables   map[string]string `json:"variables"`
-	TimeoutMS   int               `json:"timeoutMs"`
-	SaveHistory bool              `json:"saveHistory"`
+	ID            string            `json:"id"`
+	Name          string            `json:"name"`
+	Method        string            `json:"method"`
+	URL           string            `json:"url"`
+	Headers       []KeyValue        `json:"headers"`
+	Body          string            `json:"body"`
+	Variables     map[string]string `json:"variables"`
+	LiteralValues bool              `json:"literalValues"`
+	TimeoutMS     int               `json:"timeoutMs"`
+	SaveHistory   bool              `json:"saveHistory"`
 }
 
 type TimelinePhase struct {

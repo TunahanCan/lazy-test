@@ -1,4 +1,4 @@
-import { HTTP_METHODS } from "./http.js";
+import { isValidHTTPMethod } from "./http.js";
 import { isMaskedSecretValue } from "./secrets.js";
 import type { HTTPMethod, RequestTab } from "./types.js";
 
@@ -38,8 +38,6 @@ export function requestURLValidationMessage(value: string): string | undefined {
   return undefined;
 }
 
-const requestMethods = new Set<HTTPMethod>(HTTP_METHODS);
-
 const headerSources = new Set([
   "Manual",
   "OpenAPI",
@@ -75,10 +73,7 @@ function requestValidationIssues(value: unknown): ValidationIssue[] {
   }
 
   const issues: ValidationIssue[] = [];
-  if (
-    typeof value.method !== "string" ||
-    !requestMethods.has(value.method as HTTPMethod)
-  ) {
+  if (!isValidHTTPMethod(value.method)) {
     issues.push({ field: "method", message: "HTTP metodu geçersiz." });
   }
   if (typeof value.url !== "string") {

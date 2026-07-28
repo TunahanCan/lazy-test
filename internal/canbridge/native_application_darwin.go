@@ -22,6 +22,149 @@ static char *canbridge_copy_native_error(const char *message) {
 	return copy;
 }
 
+static NSMenuItem *canbridge_add_menu_item(
+	NSMenu *menu,
+	NSString *title,
+	SEL action,
+	NSString *key
+) {
+	NSMenuItem *item = [[NSMenuItem alloc]
+		initWithTitle:title
+		action:action
+		keyEquivalent:key == nil ? @"" : key];
+	[item setTarget:nil];
+	if (key != nil && [key length] > 0) {
+		[item setKeyEquivalentModifierMask:NSEventModifierFlagCommand];
+	}
+	[menu addItem:item];
+	[item release];
+	return item;
+}
+
+static void canbridge_install_native_menus(
+	NSApplication *application,
+	NSString *application_name
+) {
+	if (application == nil || application_name == nil ||
+		[application mainMenu] != nil) {
+		return;
+	}
+
+	NSMenu *main_menu = [[NSMenu alloc] initWithTitle:@""];
+
+	NSMenuItem *application_menu_item = [[NSMenuItem alloc]
+		initWithTitle:application_name
+		action:nil
+		keyEquivalent:@""];
+	NSMenu *application_menu = [[NSMenu alloc]
+		initWithTitle:application_name];
+	canbridge_add_menu_item(
+		application_menu,
+		[NSString stringWithFormat:@"About %@", application_name],
+		@selector(orderFrontStandardAboutPanel:),
+		@""
+	);
+	[application_menu addItem:[NSMenuItem separatorItem]];
+	NSMenuItem *services_item = [[NSMenuItem alloc]
+		initWithTitle:@"Services"
+		action:nil
+		keyEquivalent:@""];
+	NSMenu *services_menu = [[NSMenu alloc] initWithTitle:@"Services"];
+	[services_item setSubmenu:services_menu];
+	[application_menu addItem:services_item];
+	[application setServicesMenu:services_menu];
+	[services_menu release];
+	[services_item release];
+	[application_menu addItem:[NSMenuItem separatorItem]];
+	canbridge_add_menu_item(
+		application_menu,
+		[NSString stringWithFormat:@"Hide %@", application_name],
+		@selector(hide:),
+		@"h"
+	);
+	NSMenuItem *hide_others = canbridge_add_menu_item(
+		application_menu,
+		@"Hide Others",
+		@selector(hideOtherApplications:),
+		@"h"
+	);
+	[hide_others setKeyEquivalentModifierMask:
+		NSEventModifierFlagCommand | NSEventModifierFlagOption];
+	canbridge_add_menu_item(
+		application_menu,
+		@"Show All",
+		@selector(unhideAllApplications:),
+		@""
+	);
+	[application_menu addItem:[NSMenuItem separatorItem]];
+	canbridge_add_menu_item(
+		application_menu,
+		[NSString stringWithFormat:@"Quit %@", application_name],
+		@selector(terminate:),
+		@"q"
+	);
+	[application_menu_item setSubmenu:application_menu];
+	[main_menu addItem:application_menu_item];
+	[application_menu release];
+	[application_menu_item release];
+
+	NSMenuItem *edit_menu_item = [[NSMenuItem alloc]
+		initWithTitle:@"Edit"
+		action:nil
+		keyEquivalent:@""];
+	NSMenu *edit_menu = [[NSMenu alloc] initWithTitle:@"Edit"];
+	canbridge_add_menu_item(edit_menu, @"Undo", @selector(undo:), @"z");
+	NSMenuItem *redo = canbridge_add_menu_item(
+		edit_menu,
+		@"Redo",
+		@selector(redo:),
+		@"z"
+	);
+	[redo setKeyEquivalentModifierMask:
+		NSEventModifierFlagCommand | NSEventModifierFlagShift];
+	[edit_menu addItem:[NSMenuItem separatorItem]];
+	canbridge_add_menu_item(edit_menu, @"Cut", @selector(cut:), @"x");
+	canbridge_add_menu_item(edit_menu, @"Copy", @selector(copy:), @"c");
+	canbridge_add_menu_item(edit_menu, @"Paste", @selector(paste:), @"v");
+	[edit_menu addItem:[NSMenuItem separatorItem]];
+	canbridge_add_menu_item(
+		edit_menu,
+		@"Select All",
+		@selector(selectAll:),
+		@"a"
+	);
+	[edit_menu_item setSubmenu:edit_menu];
+	[main_menu addItem:edit_menu_item];
+	[edit_menu release];
+	[edit_menu_item release];
+
+	NSMenuItem *window_menu_item = [[NSMenuItem alloc]
+		initWithTitle:@"Window"
+		action:nil
+		keyEquivalent:@""];
+	NSMenu *window_menu = [[NSMenu alloc] initWithTitle:@"Window"];
+	canbridge_add_menu_item(
+		window_menu,
+		@"Minimize",
+		@selector(performMiniaturize:),
+		@"m"
+	);
+	canbridge_add_menu_item(
+		window_menu,
+		@"Zoom",
+		@selector(performZoom:),
+		@""
+	);
+	[window_menu_item setSubmenu:window_menu];
+	[main_menu addItem:window_menu_item];
+	[application setWindowsMenu:window_menu];
+	[window_menu release];
+	[window_menu_item release];
+
+	[application setMainMenu:main_menu];
+	[main_menu release];
+}
+
 static void canbridge_prepare_native_application(
 	const char *app_id,
 	const char *title
@@ -38,6 +181,10 @@ static void canbridge_prepare_native_application(
 			[[NSUserDefaults standardUserDefaults]
 				setObject:application_name
 				forKey:@"NSApplicationName"];
+			canbridge_install_native_menus(
+				[NSApplication sharedApplication],
+				application_name
+			);
 		}
 	}
 }

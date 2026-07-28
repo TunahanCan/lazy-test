@@ -13,7 +13,7 @@ import {
   type SavedRequest,
   type SavedRequestSnapshot,
 } from "../features/collections/model.js";
-import { HTTP_METHODS } from "../lib/http.js";
+import { isValidHTTPMethod } from "../lib/http.js";
 import { isSafeSecretReference, isSecretKey } from "../lib/secrets.js";
 import type { HTTPMethod, KeyValue } from "../lib/types.js";
 import {
@@ -74,7 +74,7 @@ function persistExpandedCollectionIds(ids: readonly string[]) {
   }
 }
 
-interface CollectionLibraryData {
+export interface CollectionLibraryData {
   collections: RequestCollection[];
   requests: SavedRequest[];
   expandedCollectionIds: string[];
@@ -101,8 +101,6 @@ export interface CollectionLibraryState extends CollectionLibraryData {
     requestId: string,
   ) => OpenRequestSnapshot | undefined;
 }
-
-const httpMethods = new Set<string>(HTTP_METHODS);
 
 function now(): string {
   return new Date().toISOString();
@@ -139,6 +137,7 @@ function createSavedRequest(
   return {
     id,
     collectionId,
+    literalValues: snapshot.literalValues === true ? true : undefined,
     name: snapshot.name,
     method: snapshot.method,
     url: snapshot.url,
@@ -165,6 +164,7 @@ function persistedRequest(request: SavedRequest): SavedRequest {
   return {
     id: request.id,
     collectionId: request.collectionId,
+    literalValues: request.literalValues === true ? true : undefined,
     name: request.name,
     method: request.method,
     url: request.url,
@@ -274,8 +274,7 @@ function hydratedRequest(
     typeof value.collectionId !== "string" ||
     !collectionIds.has(value.collectionId) ||
     !name ||
-    typeof value.method !== "string" ||
-    !httpMethods.has(value.method) ||
+    !isValidHTTPMethod(value.method) ||
     typeof value.url !== "string" ||
     !Array.isArray(value.headers) ||
     typeof value.body !== "string" ||
@@ -294,6 +293,7 @@ function hydratedRequest(
   return {
     id: value.id,
     collectionId: value.collectionId,
+    literalValues: value.literalValues === true ? true : undefined,
     name,
     method: value.method as HTTPMethod,
     url: value.url,
@@ -305,7 +305,7 @@ function hydratedRequest(
   };
 }
 
-function hydrateLibraryData(value: unknown): CollectionLibraryData {
+export function hydrateLibraryData(value: unknown): CollectionLibraryData {
   const persisted = isRecord(value) ? value : {};
   const collections = Array.isArray(persisted.collections)
     ? uniqueByID(
@@ -511,6 +511,8 @@ const baseCollectionLibraryStore = createStore<CollectionLibraryState>(
         const updated: SavedRequest = {
           ...existing,
           collectionId,
+          literalValues:
+            snapshot.literalValues === true ? true : undefined,
           name,
           method: snapshot.method,
           url: snapshot.url,
@@ -631,8 +633,8 @@ export interface CollectionLibraryStore
   };
 }
 
-function collectionLibraryDocument(
-  state: CollectionLibraryState,
+export function collectionLibraryDocument(
+  state: Pick<CollectionLibraryState, "collections" | "requests">,
 ): string {
   return JSON.stringify({
     state: {

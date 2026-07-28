@@ -8,6 +8,7 @@ export interface RequestDraft {
   url: string;
   body: string;
   headers: KeyValue[];
+  literalValues?: boolean;
 }
 
 export type RequestDraftField = keyof RequestDraft;
@@ -20,6 +21,7 @@ export function cloneRequestDraft(
     url: source.url,
     body: source.body,
     headers: source.headers.map((header) => ({ ...header })),
+    literalValues: source.literalValues,
   };
 }
 
@@ -31,7 +33,8 @@ export function requestDraftMatchesTab(
     draft.method === tab.method &&
     draft.url === tab.url &&
     draft.body === tab.body &&
-    JSON.stringify(draft.headers) === JSON.stringify(tab.headers)
+    JSON.stringify(draft.headers) === JSON.stringify(tab.headers) &&
+    Boolean(draft.literalValues) === Boolean(tab.literalValues)
   );
 }
 
@@ -55,6 +58,12 @@ export function requestDraftPatchForFields(
     JSON.stringify(draft.headers) !== JSON.stringify(tab.headers)
   ) {
     patch.headers = draft.headers.map((header) => ({ ...header }));
+  }
+  if (
+    fields.has("literalValues") &&
+    Boolean(draft.literalValues) !== Boolean(tab.literalValues)
+  ) {
+    patch.literalValues = Boolean(draft.literalValues);
   }
   return Object.keys(patch).length > 0 ? patch : undefined;
 }

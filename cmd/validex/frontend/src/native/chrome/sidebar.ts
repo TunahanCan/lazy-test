@@ -267,6 +267,7 @@ export function mountSidebar(
           ({
             id,
             collectionId,
+            literalValues,
             name,
             method,
             url,
@@ -275,6 +276,7 @@ export function mountSidebar(
           }) => ({
             id,
             collectionId,
+            literalValues,
             name,
             method,
             url,

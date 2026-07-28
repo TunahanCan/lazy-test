@@ -6007,7 +6007,7 @@ label.diagnostics-field {
 .request-url-row {
   display: grid;
   min-width: 0;
-  grid-template-columns: 104px minmax(180px, 1fr) auto auto 34px;
+  grid-template-columns: 104px minmax(180px, 1fr) auto auto auto 34px;
   align-items: center;
   gap: 8px;
   padding: 9px 12px;
@@ -6016,9 +6016,67 @@ label.diagnostics-field {
 }
 
 .response-horizontal .request-url-row {
-  grid-template-columns: 82px minmax(120px, 1fr) auto auto 34px;
+  grid-template-columns: 82px minmax(0, 1fr) auto auto auto 34px;
   gap: 6px;
   padding-inline: 6px;
+}
+
+@container request-form (max-width: 720px) {
+  .request-url-row {
+    grid-template-columns: 82px minmax(0, 1fr) 42px 42px 42px 34px;
+    gap: 5px;
+    padding-inline: 6px;
+  }
+
+  .request-url-row > .button {
+    width: 42px;
+    min-width: 42px;
+    padding-inline: 0;
+    overflow: hidden;
+    font-size: 0;
+  }
+
+  .request-url-row > .button svg {
+    margin: 0;
+  }
+}
+
+@container request-form (max-width: 520px) {
+  .request-workbench .request-composer > .request-url-row {
+    grid-template-rows: 40px 40px;
+    grid-template-columns:
+      72px minmax(0, 1fr) repeat(3, 42px) 34px;
+  }
+
+  .request-url-row > .method-select {
+    grid-row: 1;
+    grid-column: 1;
+  }
+
+  .request-url-row > .request-url-input {
+    grid-row: 1;
+    grid-column: 2 / -1;
+  }
+
+  .request-url-row > .send-button {
+    grid-row: 2;
+    grid-column: 3;
+  }
+
+  .request-url-row > .request-import-button {
+    grid-row: 2;
+    grid-column: 4;
+  }
+
+  .request-url-row > [data-action="save-request"] {
+    grid-row: 2;
+    grid-column: 5;
+  }
+
+  .request-url-row > [data-action="request-menu"] {
+    grid-row: 2;
+    grid-column: 6;
+  }
 }
 
 .request-url-input {
@@ -6356,6 +6414,61 @@ label.diagnostics-field {
 
 .save-request-dialog > .dialog-actions {
   margin-top: 3px;
+}
+
+.native-dialog.curl-import-shell {
+  width: min(760px, calc(100vw - 32px));
+  overflow: auto;
+}
+
+.curl-import-dialog {
+  width: 100%;
+}
+
+.curl-import-field {
+  display: grid;
+  gap: 6px;
+}
+
+.curl-import-field > label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.curl-import-field > textarea {
+  width: 100%;
+  min-height: 260px;
+  max-height: min(52vh, 520px);
+  padding: 13px 14px;
+  resize: vertical;
+  border-radius: 12px;
+  background: var(--surface-muted);
+  color: var(--text);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  font-weight: 450;
+  line-height: 1.55;
+  tab-size: 2;
+}
+
+.curl-import-field > textarea:focus {
+  border-color: var(--focus);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px
+    color-mix(in srgb, var(--focus) 16%, transparent);
+  outline: none;
+}
+
+.curl-import-field > textarea[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.curl-import-field > small {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 450;
+  line-height: 1.45;
 }
 
 /* Material-inspired product polish */
@@ -7009,6 +7122,51 @@ label.diagnostics-field {
   color: var(--accent);
 }
 
+.variable-resolution-mode {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 10px 12px;
+  padding: 10px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-muted);
+  cursor: pointer;
+}
+
+.variable-resolution-mode > input {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.variable-resolution-mode > span {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.variable-resolution-mode strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.variable-resolution-mode small {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.variable-resolution-mode:has(input:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.variable-resolution-mode:has(input:disabled) {
+  cursor: default;
+  opacity: 0.7;
+}
+
 .body-unavailable {
   min-height: 100%;
   gap: 10px;
@@ -7357,7 +7515,7 @@ label.diagnostics-field {
 
   .request-url-row,
   .response-horizontal .request-url-row {
-    grid-template-columns: 76px minmax(0, 1fr) 42px 42px 34px;
+    grid-template-columns: 76px minmax(0, 1fr) 42px 42px 42px 34px;
     gap: 5px;
     padding-inline: 6px;
   }
