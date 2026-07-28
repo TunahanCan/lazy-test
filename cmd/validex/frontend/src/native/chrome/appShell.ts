@@ -6,6 +6,7 @@ import {
   setHTML,
   type Disposable,
 } from "../../core/dom.js";
+import { applicationCommands } from "../../app/commands.js";
 import { icon } from "../../core/icons.js";
 import { closeActiveMenu } from "../../core/overlays.js";
 import { subscribeLocale, t } from "../../i18n/locale.js";
@@ -31,6 +32,7 @@ import { workspaceDefinition } from "../workspaces.js";
 import { mountActivityBar } from "./activityBar.js";
 import { mountCommandPalette } from "./commandPalette.js";
 import { mountContextPanel } from "./contextPanel.js";
+import { mountFeedback } from "./feedback.js";
 import {
   clamp,
   fitPanelWidths,
@@ -215,6 +217,7 @@ export function mountAppShell(
           </main>
         </div>
         <div data-status></div>
+        <div class="feedback-region" data-feedback></div>
         <div data-palette></div>
       </div>
     `,
@@ -253,6 +256,7 @@ export function mountAppShell(
   lifecycle.child(
     mountTopBar(requiredElement(root, "[data-topbar]"), bootstrap),
   );
+  lifecycle.child(mountFeedback(requiredElement(root, "[data-feedback]")));
   lifecycle.child(mountActivityBar(requiredElement(root, "[data-activity]")));
   lifecycle.child(
     mountSidebar(requiredElement(root, "[data-sidebar]"), bootstrap),
@@ -612,7 +616,9 @@ export function mountAppShell(
       state.setCommandPaletteOpen(true);
     } else if (command && event.key.toLowerCase() === "n") {
       event.preventDefault();
-      state.openTab({ name: t("chrome.untitledRequest"), dirty: true });
+      applicationCommands.openRequestDraft({
+        name: t("chrome.untitledRequest"),
+      });
     } else if (command && event.shiftKey && event.key.toLowerCase() === "t") {
       event.preventDefault();
       state.reopenClosedTab();

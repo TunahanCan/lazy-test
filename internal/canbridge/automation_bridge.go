@@ -81,10 +81,12 @@ func (b *Bridge) RunCollection(input CollectionRunInput) CollectionRunResult {
 		)}
 	}
 
+	sender := runner.NewHTTPSender(nil)
+	defer sender.CloseIdleConnections()
 	report, runErr := runner.Run(
 		ctx,
 		collection,
-		runner.NewHTTPSender(nil),
+		sender,
 		runner.Options{Limits: limits, Variables: input.Variables},
 	)
 	result := CollectionRunResult{Report: &report}

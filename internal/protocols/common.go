@@ -17,9 +17,14 @@ const (
 	maxTimeout     = 10 * time.Minute
 )
 
-// ErrLimitExceeded is returned when a configured response or event limit is
-// reached before the remote payload can be consumed safely.
-var ErrLimitExceeded = errors.New("protocol payload limit exceeded")
+var (
+	// ErrInvalidRequest classifies invalid SSE configuration without requiring
+	// adapters to parse a localized or implementation-specific error message.
+	ErrInvalidRequest = errors.New("invalid SSE request")
+	// ErrLimitExceeded is returned when a configured response or event limit is
+	// reached before the remote payload can be consumed safely.
+	ErrLimitExceeded = errors.New("protocol payload limit exceeded")
+)
 
 // HTTPStatusError reports a non-successful HTTP response from an SSE endpoint.
 // Body contains only a small, bounded diagnostic excerpt.
@@ -41,13 +46,17 @@ func boundedContext(parent context.Context, timeout time.Duration) (context.Cont
 		parent = context.Background()
 	}
 	if timeout < 0 {
-		return nil, nil, errors.New("timeout cannot be negative")
+		return nil, nil, fmt.Errorf("%w: timeout cannot be negative", ErrInvalidRequest)
 	}
 	if timeout == 0 {
 		timeout = defaultTimeout
 	}
 	if timeout > maxTimeout {
-		return nil, nil, fmt.Errorf("timeout cannot exceed %s", maxTimeout)
+		return nil, nil, fmt.Errorf(
+			"%w: timeout cannot exceed %s",
+			ErrInvalidRequest,
+			maxTimeout,
+		)
 	}
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	return ctx, cancel, nil
@@ -58,18 +67,30 @@ func validatedHeaders(input map[string]string) (http.Header, error) {
 	for rawName, value := range input {
 		name := textproto.TrimString(rawName)
 		if name == "" {
-			return nil, errors.New("header name cannot be empty")
+			return nil, fmt.Errorf("%w: header name cannot be empty", ErrInvalidRequest)
 		}
 		if strings.ContainsAny(name, "\r\n:") {
-			return nil, fmt.Errorf("invalid header name %q", rawName)
+			return nil, fmt.Errorf(
+				"%w: invalid header name %q",
+				ErrInvalidRequest,
+				rawName,
+			)
 		}
 		for _, r := range name {
 			if !isHTTPTokenRune(r) {
-				return nil, fmt.Errorf("invalid header name %q", rawName)
+				return nil, fmt.Errorf(
+					"%w: invalid header name %q",
+					ErrInvalidRequest,
+					rawName,
+				)
 			}
 		}
 		if strings.ContainsAny(value, "\r\n") {
-			return nil, fmt.Errorf("header %q contains a line break", rawName)
+			return nil, fmt.Errorf(
+				"%w: header %q contains a line break",
+				ErrInvalidRequest,
+				rawName,
+			)
 		}
 		headers.Set(textproto.CanonicalMIMEHeaderKey(name), value)
 	}

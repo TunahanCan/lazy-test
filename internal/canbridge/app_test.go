@@ -236,6 +236,7 @@ func TestIPCRuntimeDispatchesOffThreadAndDeliversPromiseCallback(t *testing.T) {
 		t.Fatal("native IPC callback was not delivered")
 	}
 	runtime.concurrentCalls.Wait()
+	assertIPCAdmissionReleased(t, runtime)
 
 	if err := runtime.dispatch(
 		"wrong",
@@ -310,6 +311,7 @@ func TestIPCRuntimeAllowsCancellationWhileRequestIsRunning(t *testing.T) {
 		}
 	}
 	runtime.concurrentCalls.Wait()
+	assertIPCAdmissionReleased(t, runtime)
 	output := callbacks.String()
 	for _, expected := range []string{
 		`"callbackId":"send-callback"`,
@@ -320,6 +322,251 @@ func TestIPCRuntimeAllowsCancellationWhileRequestIsRunning(t *testing.T) {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("callbacks do not contain %q: %s", expected, output)
 		}
+	}
+}
+
+func TestIPCRuntimeKeepsCancellationFastLaneAvailableWhenConcurrentLaneIsFull(
+	t *testing.T,
+) {
+	bridge := NewBridge()
+	picker := &blockingLifecycleFilePicker{
+		started:  make(chan struct{}),
+		canceled: make(chan struct{}),
+		release:  make(chan struct{}),
+	}
+	bridge.filePicker = picker
+	appContext, cancelApp := context.WithCancel(context.Background())
+	Startup(bridge)(appContext)
+
+	view := &fakeWebView{evaluated: make(chan string, 4)}
+	runtime := &ipcRuntime{
+		webview:    view,
+		bridge:     bridge,
+		capability: "test-capability",
+		concurrentAdmission: ipcAdmissionState{
+			limits: ipcAdmissionLimits{
+				maxCalls:         1,
+				maxArgumentBytes: 1 << 10,
+			},
+		},
+	}
+	blockingCallAccepted := false
+	cleanedUp := false
+	defer func() {
+		if cleanedUp {
+			return
+		}
+		cancelApp()
+		if blockingCallAccepted {
+			close(picker.release)
+			runtime.concurrentCalls.Wait()
+		}
+		runtime.close()
+		Shutdown(bridge)(context.Background())
+	}()
+
+	if err := runtime.dispatch(
+		"test-capability",
+		"blocking-callback",
+		bridgeMethodImportOpenAPI,
+		"[]",
+	); err != nil {
+		t.Fatal(err)
+	}
+	blockingCallAccepted = true
+	select {
+	case <-picker.started:
+	case <-time.After(time.Second):
+		t.Fatal("concurrent bridge call did not start")
+	}
+
+	err := runtime.dispatch(
+		"test-capability",
+		"overflow-callback",
+		bridgeMethodBootstrap,
+		"[]",
+	)
+	if err == nil || !strings.Contains(
+		err.Error(),
+		"concurrent lane is full: maximum 1 in-flight calls",
+	) {
+		t.Fatalf("concurrent saturation error = %v", err)
+	}
+	select {
+	case script := <-view.evaluated:
+		t.Fatalf("saturated dispatch unexpectedly created work: %s", script)
+	default:
+	}
+
+	cancelArguments, err := json.Marshal([]any{"missing-request"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.dispatch(
+		"test-capability",
+		"cancel-callback",
+		bridgeMethodCancelRequest,
+		string(cancelArguments),
+	); err != nil {
+		t.Fatalf("cancellation fast lane was blocked: %v", err)
+	}
+	select {
+	case script := <-view.evaluated:
+		if !strings.Contains(script, `"callbackId":"cancel-callback"`) ||
+			!strings.Contains(script, `"result":false`) {
+			t.Fatalf("unexpected cancellation callback: %s", script)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancellation fast lane did not deliver its callback")
+	}
+
+	cancelApp()
+	select {
+	case <-picker.canceled:
+	case <-time.After(time.Second):
+		t.Fatal("blocking call did not observe application cancellation")
+	}
+	close(picker.release)
+	runtime.concurrentCalls.Wait()
+	runtime.close()
+	Shutdown(bridge)(context.Background())
+	cleanedUp = true
+	assertIPCAdmissionReleased(t, runtime)
+
+	for {
+		select {
+		case script := <-view.evaluated:
+			if strings.Contains(script, `"callbackId":"overflow-callback"`) {
+				t.Fatalf("saturated dispatch opened a goroutine: %s", script)
+			}
+		default:
+			return
+		}
+	}
+}
+
+func TestIPCRuntimeBoundsCancellationFastLane(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name      string
+		admission ipcAdmissionState
+		wantError string
+	}{
+		{
+			name: "in-flight calls",
+			admission: ipcAdmissionState{
+				limits: ipcAdmissionLimits{
+					maxCalls:         1,
+					maxArgumentBytes: 1 << 10,
+				},
+				inFlightCalls:         1,
+				acceptedArgumentBytes: 2,
+			},
+			wantError: "cancellation lane is full: maximum 1 in-flight calls",
+		},
+		{
+			name: "accepted argument bytes",
+			admission: ipcAdmissionState{
+				limits: ipcAdmissionLimits{
+					maxCalls:         2,
+					maxArgumentBytes: 2,
+				},
+				inFlightCalls:         1,
+				acceptedArgumentBytes: 2,
+			},
+			wantError: "cancellation lane byte budget exceeded: maximum 2 accepted argument bytes",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			view := &fakeWebView{evaluated: make(chan string, 1)}
+			runtime := &ipcRuntime{
+				webview:               view,
+				bridge:                NewBridge(),
+				capability:            "test-capability",
+				cancellationAdmission: test.admission,
+			}
+			err := runtime.dispatch(
+				"test-capability",
+				"cancel-overflow",
+				bridgeMethodCancelToolOperation,
+				`["operation"]`,
+			)
+			if err == nil || !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("fast-lane saturation error = %v", err)
+			}
+			select {
+			case script := <-view.evaluated:
+				t.Fatalf("saturated fast lane unexpectedly created work: %s", script)
+			default:
+			}
+		})
+	}
+}
+
+func TestIPCAdmissionStateBoundsTotalAcceptedArgumentBytes(t *testing.T) {
+	t.Parallel()
+
+	admission := ipcAdmissionState{
+		limits: ipcAdmissionLimits{
+			maxCalls:         2,
+			maxArgumentBytes: 10,
+		},
+	}
+	defaults := ipcAdmissionLimits{
+		maxCalls:         maxConcurrentIPCCalls,
+		maxArgumentBytes: maxConcurrentIPCArgumentBytes,
+	}
+	if err := admission.acquire(
+		ipcAdmissionConcurrent,
+		6,
+		defaults,
+	); err != nil {
+		t.Fatalf("first admission failed: %v", err)
+	}
+	if err := admission.acquire(
+		ipcAdmissionConcurrent,
+		5,
+		defaults,
+	); err == nil || !strings.Contains(
+		err.Error(),
+		"maximum 10 accepted argument bytes",
+	) {
+		t.Fatalf("byte-budget error = %v", err)
+	}
+	if admission.inFlightCalls != 1 ||
+		admission.acceptedArgumentBytes != 6 {
+		t.Fatalf("failed admission mutated state: %#v", admission)
+	}
+
+	admission.release(6)
+	if admission.inFlightCalls != 0 ||
+		admission.acceptedArgumentBytes != 0 {
+		t.Fatalf("released admission state = %#v", admission)
+	}
+}
+
+func TestMarshalIPCResponseReplacesOversizedPayloadWithSmallError(t *testing.T) {
+	t.Parallel()
+
+	const responseLimit = 96
+	payload := marshalIPCResponse(ipcResponse{
+		CallbackID: "large-callback",
+		Result:     strings.Repeat("x", responseLimit*2),
+	}, responseLimit)
+	if len(payload) > 256 {
+		t.Fatalf("oversized response fallback is not small: %d bytes", len(payload))
+	}
+
+	var response ipcResponse
+	if err := json.Unmarshal(payload, &response); err != nil {
+		t.Fatalf("decode fallback response: %v", err)
+	}
+	if response.CallbackID != "large-callback" ||
+		!strings.Contains(response.Error, "exceeds 96 byte transport limit") ||
+		response.Result != nil {
+		t.Fatalf("fallback response = %#v", response)
 	}
 }
 
@@ -604,6 +851,22 @@ func decodeTestIPCResponse(t *testing.T, script string) testIPCResponse {
 		t.Fatalf("decode callback: %v", err)
 	}
 	return response
+}
+
+func assertIPCAdmissionReleased(t *testing.T, runtime *ipcRuntime) {
+	t.Helper()
+	runtime.mu.Lock()
+	defer runtime.mu.Unlock()
+	if runtime.concurrentAdmission.inFlightCalls != 0 ||
+		runtime.concurrentAdmission.acceptedArgumentBytes != 0 ||
+		runtime.cancellationAdmission.inFlightCalls != 0 ||
+		runtime.cancellationAdmission.acceptedArgumentBytes != 0 {
+		t.Fatalf(
+			"IPC admission was not released: concurrent=%#v cancellation=%#v",
+			runtime.concurrentAdmission,
+			runtime.cancellationAdmission,
+		)
+	}
 }
 
 type fakeWebView struct {

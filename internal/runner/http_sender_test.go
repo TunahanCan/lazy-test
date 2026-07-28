@@ -154,3 +154,24 @@ func TestHTTPSenderReturnsContextErrorsForRunnerClassification(t *testing.T) {
 		t.Fatalf("Send() error = %v", err)
 	}
 }
+
+func TestHTTPSenderOwnsOnlyItsDefaultTransport(t *testing.T) {
+	t.Parallel()
+
+	owned := NewHTTPSender(nil)
+	if owned.closeIdleConnections == nil {
+		t.Fatal("default sender must own a close-idle-connections hook")
+	}
+	owned.CloseIdleConnections()
+
+	injectedClient := &http.Client{}
+	injected := NewHTTPSender(injectedClient)
+	if injected.client != injectedClient {
+		t.Fatal("injected client identity was not preserved")
+	}
+	if injected.closeIdleConnections != nil {
+		t.Fatal("sender must not take ownership of an injected client")
+	}
+	injected.CloseIdleConnections()
+	(*HTTPSender)(nil).CloseIdleConnections()
+}

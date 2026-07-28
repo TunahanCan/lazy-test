@@ -10,13 +10,13 @@ import {
   openMenu,
   type OpenOverlay,
 } from "../../core/overlays.js";
+import { applicationCommands } from "../../app/commands.js";
 import {
   getLocale,
   setLocale,
   subscribeLocale,
   t,
 } from "../../i18n/locale.js";
-import { backend } from "../../lib/backend.js";
 import type { BootstrapData, ThemePreference } from "../../lib/types.js";
 import { workspaceStore } from "../../stores/workspace.js";
 
@@ -198,7 +198,7 @@ export function mountTopBar(
     notice = undefined;
     render();
     try {
-      const result = await backend.importOpenAPI();
+      const result = await applicationCommands.importOpenAPI();
       if (disposed) return;
       if (result.canceled) return;
       if (result.error) {
@@ -218,7 +218,6 @@ export function mountTopBar(
               }),
         };
       } else {
-        workspaceStore.getState().setImportedSpec(result);
         notice = {
           tone: "success",
           message: t(
@@ -266,9 +265,8 @@ export function mountTopBar(
     } else if (action === "palette") {
       workspaceStore.getState().setCommandPaletteOpen(true);
     } else if (action === "new-request") {
-      workspaceStore.getState().openTab({
+      applicationCommands.openRequestDraft({
         name: t("chrome.untitledRequest"),
-        dirty: true,
       });
     } else if (action === "import") {
       void importOpenAPI();

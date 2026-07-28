@@ -18,6 +18,11 @@ import {
 import { issueFrom } from "../.typescript-build/esm/features/protocols/model.js";
 import { parseMockServerPort } from "../.typescript-build/esm/features/mock-server/model.js";
 import { createPersistedStore, createStore } from "../.typescript-build/esm/core/store.js";
+import {
+  FEEDBACK_TONE,
+  notify,
+  subscribeFeedback,
+} from "../.typescript-build/esm/core/feedback.js";
 import { translate } from "../.typescript-build/esm/i18n/messages.js";
 import {
   analyzeJWT,
@@ -37,7 +42,9 @@ import {
 } from "../.typescript-build/esm/lib/openapi.js";
 import {
   missingVariables,
+  REQUEST_URL_VALIDATION_CODE,
   requestSchema,
+  requestURLValidationCode,
   requestURLValidationMessage,
   resolveVariableReferences,
 } from "../.typescript-build/esm/lib/schemas.js";
@@ -53,6 +60,93 @@ import {
   horizontalCenterMinWidth,
   panelResizerWidth,
 } from "../.typescript-build/esm/native/chrome/layout.js";
+import {
+  VIRTUAL_LIST_NAVIGATION_KEY,
+  virtualNavigationTarget,
+  virtualWindowRange,
+} from "../.typescript-build/esm/native/chrome/sidebarVirtualization.js";
+
+test("application feedback publishes normalized visible messages", () => {
+  const received = [];
+  const unsubscribe = subscribeFeedback((feedback) => received.push(feedback));
+  notify("  Saved to collection  ");
+  notify({
+    message: "Write failed",
+    tone: FEEDBACK_TONE.ERROR,
+    durationMs: 250,
+  });
+  notify("   ");
+  unsubscribe();
+
+  assert.equal(received.length, 2);
+  assert.equal(received[0].message, "Saved to collection");
+  assert.equal(received[0].tone, FEEDBACK_TONE.INFO);
+  assert.ok(received[0].durationMs >= 1_500);
+  assert.equal(received[1].tone, FEEDBACK_TONE.ERROR);
+  assert.equal(received[1].durationMs, 1_500);
+  assert.ok(received[1].id > received[0].id);
+});
+
+test("virtual API navigation renders and reveals off-window endpoints", () => {
+  const metrics = {
+    count: 1_000,
+    scrollTop: 0,
+    viewportHeight: 330,
+    rowHeight: 33,
+    overscan: 10,
+  };
+  const initialWindow = virtualWindowRange(metrics);
+  assert.deepEqual(initialWindow, { start: 0, end: 20 });
+
+  const afterRenderedEdge = virtualNavigationTarget({
+    ...metrics,
+    currentIndex: initialWindow.end - 1,
+    key: VIRTUAL_LIST_NAVIGATION_KEY.NEXT,
+  });
+  assert.equal(afterRenderedEdge?.index, initialWindow.end);
+  assert.ok((afterRenderedEdge?.scrollTop ?? 0) > 0);
+  assert.ok(
+    afterRenderedEdge !== undefined &&
+      afterRenderedEdge.index >= afterRenderedEdge.window.start &&
+      afterRenderedEdge.index < afterRenderedEdge.window.end,
+  );
+
+  const last = virtualNavigationTarget({
+    ...metrics,
+    currentIndex: 0,
+    key: VIRTUAL_LIST_NAVIGATION_KEY.LAST,
+  });
+  assert.equal(last?.index, metrics.count - 1);
+  assert.equal(last?.window.end, metrics.count);
+  assert.ok(
+    last !== undefined &&
+      last.index >= last.window.start &&
+      last.index < last.window.end,
+  );
+
+  const beforeLast = virtualNavigationTarget({
+    ...metrics,
+    currentIndex: last?.index ?? 0,
+    scrollTop: last?.scrollTop ?? 0,
+    key: VIRTUAL_LIST_NAVIGATION_KEY.PREVIOUS,
+  });
+  assert.equal(beforeLast?.index, metrics.count - 2);
+  assert.ok(
+    beforeLast !== undefined &&
+      beforeLast.index >= beforeLast.window.start &&
+      beforeLast.index < beforeLast.window.end,
+  );
+
+  const first = virtualNavigationTarget({
+    ...metrics,
+    currentIndex: last?.index ?? 0,
+    scrollTop: last?.scrollTop ?? 0,
+    key: VIRTUAL_LIST_NAVIGATION_KEY.FIRST,
+  });
+  assert.equal(first?.index, 0);
+  assert.equal(first?.scrollTop, 0);
+  assert.equal(first?.window.start, 0);
+});
 
 test("URL query helpers preserve raw duplicate parameters", () => {
   const url =
@@ -132,6 +226,18 @@ test("manual mock server ports accept only the TCP port range", () => {
 });
 
 test("request schema rejects implicit schemes, credentials and fragments", () => {
+  assert.equal(
+    requestURLValidationCode("localhost:8080/health"),
+    REQUEST_URL_VALIDATION_CODE.SCHEME,
+  );
+  assert.equal(
+    requestURLValidationCode("https://user:secret@example.test/users"),
+    REQUEST_URL_VALIDATION_CODE.USER_INFO,
+  );
+  assert.equal(
+    requestURLValidationCode("https://example.test/users#details"),
+    REQUEST_URL_VALIDATION_CODE.FRAGMENT,
+  );
   assert.equal(
     requestURLValidationMessage("localhost:8080/health"),
     "URL açıkça http:// veya https:// ile başlamalı.",

@@ -411,6 +411,51 @@ func TestCollectionLibraryServiceRemembersRevisionAfterPartialCommit(
 	}
 }
 
+func TestCollectionLibraryServiceStartRequiresFreshRevisionObservation(
+	t *testing.T,
+) {
+	revision := calculateCollectionLibraryRevision(
+		[]byte(initialCollectionLibraryDocument),
+	)
+	saveCalls := 0
+	repository := &stubCollectionLibraryRepository{
+		load: func(context.Context) (collectionLibrarySnapshot, error) {
+			return collectionLibrarySnapshot{
+				Document: initialCollectionLibraryDocument,
+				Revision: revision,
+				Found:    true,
+			}, nil
+		},
+		save: func(
+			context.Context,
+			collectionLibraryDocument,
+			collectionLibraryRevision,
+		) (collectionLibraryCommit, error) {
+			saveCalls++
+			return collectionLibraryCommit{
+				Revision:  revision,
+				Published: true,
+			}, nil
+		},
+	}
+	service := newCollectionLibraryService(repository)
+	if loaded := service.Load(); loaded.Error != nil || !loaded.Found {
+		t.Fatalf("initial Load() = %#v", loaded)
+	}
+
+	service.Start(context.Background())
+	result := service.Save(
+		`{"version":1,"state":{"collections":[{"id":"next"}]}}`,
+	)
+	if result.Saved || result.Error == nil ||
+		result.Error.Code != CollectionLibraryErrorNotLoaded {
+		t.Fatalf("Save() in a new session = %#v", result)
+	}
+	if saveCalls != 0 {
+		t.Fatalf("repository Save() calls = %d, want 0", saveCalls)
+	}
+}
+
 func TestCollectionLibraryServiceRejectsInvalidRepositoryCommits(t *testing.T) {
 	for name, commit := range map[string]collectionLibraryCommit{
 		"success without publish": {},

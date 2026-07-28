@@ -6,36 +6,76 @@ const variableExpression = /\{\{\s*[A-Za-z_][A-Za-z0-9_.-]*\s*}}/g;
 const variableAtStartExpression =
   /^\{\{\s*[A-Za-z_][A-Za-z0-9_.-]*\s*}}/;
 
+export const REQUEST_URL_VALIDATION_CODE = {
+  REQUIRED: "url_required",
+  WHITESPACE: "url_whitespace",
+  SCHEME: "url_scheme",
+  HTTP_ONLY: "url_http_only",
+  USER_INFO: "url_user_info",
+  FRAGMENT: "url_fragment",
+  INVALID: "url_invalid",
+} as const;
+
+export type RequestURLValidationCode =
+  (typeof REQUEST_URL_VALIDATION_CODE)[keyof typeof REQUEST_URL_VALIDATION_CODE];
+
+const requestURLValidationMessages: Readonly<
+  Record<RequestURLValidationCode, string>
+> = {
+  [REQUEST_URL_VALIDATION_CODE.REQUIRED]: "Request URL gerekli.",
+  [REQUEST_URL_VALIDATION_CODE.WHITESPACE]:
+    "URL başında veya sonunda boşluk içeremez.",
+  [REQUEST_URL_VALIDATION_CODE.SCHEME]:
+    "URL açıkça http:// veya https:// ile başlamalı.",
+  [REQUEST_URL_VALIDATION_CODE.HTTP_ONLY]:
+    "Yalnızca HTTP ve HTTPS URL’leri desteklenir.",
+  [REQUEST_URL_VALIDATION_CODE.USER_INFO]:
+    "URL kullanıcı bilgisi içeremez. Kimlik doğrulamayı Headers üzerinden yönetin.",
+  [REQUEST_URL_VALIDATION_CODE.FRAGMENT]:
+    "URL fragment (#…) içeremez.",
+  [REQUEST_URL_VALIDATION_CODE.INVALID]:
+    "Geçerli bir HTTP veya HTTPS URL’si girin.",
+};
+
 function requestURLValidationCandidate(value: string): string {
   return value
     .replace(variableAtStartExpression, "https://validex.invalid")
     .replace(variableExpression, "validex");
 }
 
-export function requestURLValidationMessage(value: string): string | undefined {
+export function requestURLValidationCode(
+  value: string,
+): RequestURLValidationCode | undefined {
   const candidate = value;
-  if (!candidate) return "Request URL gerekli.";
+  if (!candidate) return REQUEST_URL_VALIDATION_CODE.REQUIRED;
   if (candidate.trim() !== candidate) {
-    return "URL başında veya sonunda boşluk içeremez.";
+    return REQUEST_URL_VALIDATION_CODE.WHITESPACE;
   }
   if (!/^https?:\/\//i.test(candidate)) {
-    return "URL açıkça http:// veya https:// ile başlamalı.";
+    return REQUEST_URL_VALIDATION_CODE.SCHEME;
   }
   try {
     const parsed = new URL(candidate);
     if (!["http:", "https:"].includes(parsed.protocol)) {
-      return "Yalnızca HTTP ve HTTPS URL’leri desteklenir.";
+      return REQUEST_URL_VALIDATION_CODE.HTTP_ONLY;
     }
     if (parsed.username || parsed.password) {
-      return "URL kullanıcı bilgisi içeremez. Kimlik doğrulamayı Headers üzerinden yönetin.";
+      return REQUEST_URL_VALIDATION_CODE.USER_INFO;
     }
     if (candidate.includes("#")) {
-      return "URL fragment (#…) içeremez.";
+      return REQUEST_URL_VALIDATION_CODE.FRAGMENT;
     }
   } catch {
-    return "Geçerli bir HTTP veya HTTPS URL’si girin.";
+    return REQUEST_URL_VALIDATION_CODE.INVALID;
   }
   return undefined;
+}
+
+// requestURLValidationMessage keeps the form-schema boundary compatible while
+// presentation code consumes the stable code above and localizes it directly.
+export function requestURLValidationMessage(value: string): string | undefined {
+  const code = requestURLValidationCode(value);
+  return code ? requestURLValidationMessages[code] : undefined;
 }
 
 const headerSources = new Set([

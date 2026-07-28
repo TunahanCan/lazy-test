@@ -6,6 +6,7 @@ import {
   type Disposable,
   type TrustedHTMLFragment,
 } from "../../core/dom.js";
+import { applicationCommands } from "../../app/commands.js";
 import { icon } from "../../core/icons.js";
 import {
   openMenu,
@@ -45,6 +46,12 @@ import {
   subscribeCollectionLibraryPersistence,
 } from "../../stores/collectionLibraryStorage.js";
 import { workspaceStore } from "../../stores/workspace.js";
+import {
+  isVirtualListNavigationKey,
+  virtualNavigationTarget,
+  virtualWindowRange,
+  type VirtualWindowRange,
+} from "./sidebarVirtualization.js";
 
 const treeRowHeight = 33;
 const apiOverscan = 10;
@@ -94,27 +101,6 @@ function methodBadge(method: HTTPMethod): TrustedHTMLFragment {
       ${method}
     </span>
   `;
-}
-
-function visibleRowRange(
-  count: number,
-  scrollTop: number,
-  viewportHeight: number,
-): { start: number; end: number } {
-  const effectiveHeight =
-    viewportHeight > 0 ? viewportHeight : treeRowHeight * 20;
-  return {
-    start: Math.max(
-      0,
-      Math.floor(scrollTop / treeRowHeight) - apiOverscan,
-    ),
-    end: Math.min(
-      count,
-      Math.ceil(
-        (scrollTop + effectiveHeight) / treeRowHeight,
-      ) + apiOverscan,
-    ),
-  };
 }
 
 function visibleLibraryNodes(
@@ -196,6 +182,9 @@ export function mountSidebar(
   let activeMenu: OpenOverlay | undefined;
   let activeDialog: DialogHandle | undefined;
   let apiResizeObserver: ResizeObserver | undefined;
+  let renderedAPIList: HTMLElement | undefined;
+  let renderedAPIRange: VirtualWindowRange | undefined;
+  let renderedAPICount = -1;
 
   const persistence = () =>
     getCollectionLibraryPersistenceSnapshot();
@@ -291,11 +280,13 @@ export function mountSidebar(
     nodes: readonly APINode[],
   ): TrustedHTMLFragment => {
     const activeTabID = workspaceStore.getState().activeTabID;
-    const range = visibleRowRange(
-      nodes.length,
-      apiScrollTop,
-      apiViewportHeight,
-    );
+    const range = virtualWindowRange({
+      count: nodes.length,
+      scrollTop: apiScrollTop,
+      viewportHeight: apiViewportHeight,
+      rowHeight: treeRowHeight,
+      overscan: apiOverscan,
+    });
     return html`
       ${nodes.slice(range.start, range.end).map(
         (node, offset) => {
@@ -328,13 +319,82 @@ export function mountSidebar(
     `;
   };
 
-  const updateAPIRows = (): void => {
+  const updateAPIRows = (focusNodeID?: string): void => {
     if (disposed) return;
     const list = root.querySelector<HTMLElement>("[data-api-list]");
     if (!list) return;
     const nodes = apiNodes();
+    const range = virtualWindowRange({
+      count: nodes.length,
+      scrollTop: apiScrollTop,
+      viewportHeight: apiViewportHeight,
+      rowHeight: treeRowHeight,
+      overscan: apiOverscan,
+    });
     list.style.height = `${nodes.length * treeRowHeight}px`;
-    setHTML(list, apiRowsMarkup(nodes));
+    const focusedNodeID =
+      focusNodeID ??
+      (document.activeElement instanceof HTMLElement &&
+      list.contains(document.activeElement)
+        ? document.activeElement.dataset.apiId
+        : undefined);
+    if (
+      renderedAPIList !== list ||
+      renderedAPICount !== nodes.length ||
+      renderedAPIRange?.start !== range.start ||
+      renderedAPIRange?.end !== range.end
+    ) {
+      setHTML(list, apiRowsMarkup(nodes));
+      renderedAPIList = list;
+      renderedAPICount = nodes.length;
+      renderedAPIRange = range;
+    }
+    if (!focusedNodeID) return;
+    [
+      ...list.querySelectorAll<HTMLButtonElement>("[data-api-id]"),
+    ]
+      .find((candidate) => candidate.dataset.apiId === focusedNodeID)
+      ?.focus({ preventScroll: true });
+  };
+
+  const navigateAPIRow = (
+    nodeID: string,
+    key: string,
+  ): boolean => {
+    if (!isVirtualListNavigationKey(key)) return false;
+    const nodes = apiNodes();
+    const currentIndex = nodes.findIndex(
+      (candidate) => candidate.id === nodeID,
+    );
+    if (currentIndex < 0) return false;
+
+    const scroll = root.querySelector<HTMLElement>(
+      '[data-scroll-kind="apis"]',
+    );
+    if (scroll) {
+      apiScrollTop = scroll.scrollTop;
+      apiViewportHeight = scroll.clientHeight;
+    }
+    const target = virtualNavigationTarget({
+      count: nodes.length,
+      currentIndex,
+      key,
+      scrollTop: apiScrollTop,
+      viewportHeight: apiViewportHeight,
+      rowHeight: treeRowHeight,
+      overscan: apiOverscan,
+    });
+    const targetNode =
+      target === undefined ? undefined : nodes[target.index];
+    if (!target || !targetNode) return false;
+
+    apiScrollTop = target.scrollTop;
+    if (scroll) {
+      scroll.scrollTop = target.scrollTop;
+      apiScrollTop = scroll.scrollTop;
+    }
+    updateAPIRows(targetNode.id);
+    return true;
   };
 
   const apiBrowserMarkup = (): TrustedHTMLFragment => {
@@ -880,6 +940,7 @@ export function mountSidebar(
             ? collectionScrollTop
             : apiScrollTop;
       }
+      observeAPIScroll();
       if (focusKey) {
         const replacement = [
           ...root.querySelectorAll<HTMLElement>("[data-focus]"),
@@ -904,7 +965,6 @@ export function mountSidebar(
             ?.focus({ preventScroll: true });
         }
       }
-      observeAPIScroll();
     } finally {
       rendering = false;
     }
@@ -1232,11 +1292,10 @@ export function mountSidebar(
           icon: "plus",
           disabled: readOnly(),
           action: () =>
-            workspaceStore.getState().openTab({
+            applicationCommands.openRequestDraft({
               name: t("requests.untitled"),
               url: "",
               collectionId: collection.id,
-              dirty: true,
             }),
         },
         {
@@ -1505,6 +1564,15 @@ export function mountSidebar(
         event.preventDefault();
         row.click();
       }
+      return;
+    }
+
+    if (
+      row.dataset.apiId &&
+      isVirtualListNavigationKey(event.key)
+    ) {
+      event.preventDefault();
+      navigateAPIRow(row.dataset.apiId, event.key);
       return;
     }
 

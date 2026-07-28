@@ -102,6 +102,43 @@ func TestMockServerBridgeLifecycleAndHitSnapshot(t *testing.T) {
 	}
 }
 
+func TestMockServerBridgeSerializesConcurrentStateCommands(t *testing.T) {
+	t.Parallel()
+
+	bridge := NewBridge()
+	const commandCount = 24
+	results := make(chan MockServerSnapshot, commandCount)
+	for index := 0; index < commandCount; index++ {
+		index := index
+		go func() {
+			switch index % 3 {
+			case 0:
+				results <- bridge.UpdateMockRoutes([]MockRoute{{
+					ID:      fmt.Sprintf("route-%d", index),
+					Method:  http.MethodGet,
+					Path:    fmt.Sprintf("/route-%d", index),
+					Status:  http.StatusOK,
+					Enabled: true,
+				}})
+			case 1:
+				results <- bridge.ClearMockHits()
+			default:
+				results <- bridge.GetMockServer()
+			}
+		}()
+	}
+
+	for index := 0; index < commandCount; index++ {
+		if result := <-results; result.Error != nil {
+			t.Fatalf("concurrent mock command failed: %#v", result.Error)
+		}
+	}
+	final := bridge.GetMockServer()
+	if final.State.RouteCount > 1 || len(final.Routes) > 1 {
+		t.Fatalf("mock command facade returned an invalid snapshot: %#v", final)
+	}
+}
+
 func TestRunSSEMapsHandshakeAndEvents(t *testing.T) {
 	t.Parallel()
 
@@ -345,8 +382,17 @@ func TestDuplicateToolOperationIDDoesNotReplaceRunningOperation(t *testing.T) {
 		TimeoutMS:   1_000,
 		MaxEvents:   1,
 	})
-	if duplicate.Error == nil || duplicate.Error.Code == "tool_canceled" {
-		t.Fatalf("duplicate operation should be rejected without replacing the first: %#v", duplicate.Error)
+	if duplicate.Error == nil || duplicate.Error.Code != "invalid_input" {
+		t.Fatalf(
+			"duplicate operation error = %#v, want invalid_input",
+			duplicate.Error,
+		)
+	}
+	if strings.Contains(duplicate.Error.Message, errInvalidToolOperation.Error()) {
+		t.Fatalf(
+			"duplicate operation exposed internal sentinel: %#v",
+			duplicate.Error,
+		)
 	}
 	if !bridge.CancelToolOperation("duplicate-id") {
 		t.Fatal("original operation was no longer registered")

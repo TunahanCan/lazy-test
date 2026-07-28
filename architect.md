@@ -27,6 +27,9 @@ Validex aşağıdaki kurallar etrafında tasarlanır:
 9. Platform motorunun tamamı Go API'sine açılmaz; yalnız Validex'in kullandığı
    dar native yüzey korunur.
 10. State'in tek bir sahibi ve tanımlı bir ömrü olmalıdır.
+11. Tasarım deseni, isim veya katman sayısını artırmak için değil; gerçek bir
+    sahiplik, lifecycle, eşzamanlılık ya da genişletme problemini tek yerde
+    çözmek için kullanılmalıdır.
 
 ### Bilinçli kapsam dışı alanlar
 
@@ -184,7 +187,12 @@ validex/
 │   ├── validex/
 │   │   ├── main.go                    # desktop composition root
 │   │   ├── frontend/
-│   │   │   ├── src/                   # TypeScript uygulama kaynakları
+│   │   │   ├── src/
+│   │   │   │   ├── app/               # uygulama komutları ve politikaları
+│   │   │   │   ├── core/              # DOM/store/feedback primitive'leri
+│   │   │   │   ├── features/          # mümkün olduğunca saf modeller
+│   │   │   │   ├── native/            # shell, presenter ve controller'lar
+│   │   │   │   └── stores/            # state sahipleri ve migration'lar
 │   │   │   ├── public/                # ikon ve statik asset'ler
 │   │   │   ├── scripts/               # typecheck/build/dev/test araçları
 │   │   │   ├── third_party/typescript # pinli TS compiler paketi
@@ -292,6 +300,28 @@ Uygulama başlangıç boyutu `1440×900`, minimum boyutu `1080×700`'dür. Bunla
 responsive frontend davranışının yerine geçmez; yalnız native pencere
 sınırıdır.
 
+`Bridge` lifecycle'ı ayrı bir typed state machine ile izlenir:
+
+```text
+bridgeLifecycleCreated
+        │ Startup
+        ▼
+bridgeLifecycleRunning
+        │ Shutdown
+        ▼
+bridgeLifecycleStopped
+        │ Startup (yeni native runtime session'ı)
+        └────────────────────────► bridgeLifecycleRunning
+```
+
+`Startup` ve `Shutdown`, `Bridge.lifecycleMu` altında baştan sona serialize
+edilir. State yalnız context pointer'ını değil, collection persistence
+session'ının start/stop'unu ve shutdown'daki mock stop aşamasını da kapsar.
+Böylece bir Shutdown, eşzamanlı yeni Startup'ın kurduğu collection context'ini
+sonradan iptal edemez. Tekrarlanan Shutdown stopped state'inde idempotent
+döner. Shutdown sonrasında Startup desteklenen bir restart'tır; yeni runtime,
+operation ve collection context'leri kurar ve state'i yeniden running yapar.
+
 ### 6.2 Native WebView sınırı
 
 `internal/nativewebview.WebView` yalnız şu yetenekleri yayınlar:
@@ -335,6 +365,11 @@ Kapanış, süresiz beklemez. Genel IPC ve collection persistence için varsayı
 drain penceresi üçer saniyedir. Context'i dikkate almayan saf CPU işi bu süre
 içinde zorla durdurulamaz; runtime kapandıktan sonra ürettiği callback
 sessizce düşürülür.
+
+Bu sıra içindeki `Bridge.Shutdown` lifecycle state machine nedeniyle tek
+seferlik state geçişidir. Aynı Bridge test veya native runtime restart
+senaryosunda yeniden başlatılırsa sonraki `Startup`, stopped session'ın
+context/revision sahipliğini yeniden kullanmaz.
 
 ## 7. Frontend mimarisi
 
@@ -382,12 +417,12 @@ Packager:
 
 ```text
 frontend/src/
-├── app/          theme ve uygulama politikaları
-├── core/         DOM, icon, overlay ve store primitive'leri
+├── app/          uygulama komutları, theme ve uygulama politikaları
+├── core/         DOM, icon, overlay, feedback ve store primitive'leri
 ├── features/     saf feature modelleri
 ├── i18n/         tr/en mesaj sözleşmesi ve locale state'i
 ├── lib/          backend facade, DTO, normalizer ve yardımcılar
-├── native/       shell, controller ve workspace mount'ları
+├── native/       shell, presentation fonksiyonları, controller ve workspace mount'ları
 └── stores/       workspace ve collection state'i
 ```
 
@@ -396,6 +431,9 @@ Kurallar:
 - `core` feature adı bilmez.
 - `features/*/model.ts` mümkün olduğunca DOM ve bridge'den bağımsızdır.
 - `native/*` event delegation, render ve lifecycle orkestrasyonunu yapar.
+- Birden fazla controller veya klavye kısayolunun paylaştığı use case,
+  DOM'dan bağımsızsa `app` altındaki application command facade'ında
+  birleştirilebilir.
 - `lib/backend.ts`, native köprünün tek uygulama-facing facade'ıdır.
 - `lib/bridge-contract.ts`, Go'dan gelen shape'leri normalize eder ve
   zorunlu collection alanlarını `null` bırakmaz.
@@ -418,7 +456,9 @@ Frontend başlangıç akışı:
    görür; kullanıcı Retry'si yeni bir bootstrap çağrısı başlatır.
 6. Başarılı bootstrap sonrasında `mountAppShell` chrome ve request
    workspace'ini kurar.
-7. Tool workspace'leri ilk seçildiklerinde mount edilir; Mock ve Diagnostics
+7. Shell, görünür uygulama feedback'ini sunan feedback controller'ını mount
+   eder.
+8. Tool workspace'leri ilk seçildiklerinde mount edilir; Mock ve Diagnostics
    gibi ağır modüller dynamic import ile yüklenir.
 
 Shell tek pencere içinde:
@@ -448,6 +488,119 @@ Custom `createStore` subscribe/get/set primitive'ini sağlar.
 `createPersistedStore` version, migration, partialization ve async storage
 adaptasyonunu ekler. Controller'lar event listener ve alt controller
 kaynaklarını `Lifecycle` ile toplu olarak kapatır.
+
+### 7.5 Application Command Facade
+
+`frontend/src/app/commands.ts` içindeki `applicationCommands`, aynı kullanıcı
+niyetini başlatan top bar, command palette, sidebar, context panel ve shell
+klavye kısayolunun ortak uygulama use case sınırıdır. Bu facade şu anda yalnız
+iki komut yayınlar:
+
+| Komut | Davranış |
+| --- | --- |
+| `openRequestDraft(overrides)` | `workspaceStore` üzerinde dirty bir request tab'i açar; verilen alanlar tab taslağına uygulanır |
+| `importOpenAPI()` | Native dosya seçici/import çağrısını başlatır, aynı anda gelen çağrıları tek in-flight promise'te birleştirir ve başarılı sonucu `workspaceStore`'a bir kez yazar |
+
+Facade DOM elementi, dialog markup'ı veya ekran-local busy state'i sahiplenmez.
+Controller kullanıcı etkileşimini ve ekrana özgü sunumu yönetir; command ise
+paylaşılan backend/store orkestrasyonunu yönetir. Yalnız tek bir ekrana özgü
+basit state değişimi sırf “command pattern” kullanmak için buraya
+taşınmamalıdır.
+
+Yeni bir application command eklerken:
+
+1. Aynı use case'in gerçekten birden fazla giriş noktası olduğunu doğrulayın.
+2. Parametre ve sonucu TypeScript tipleriyle tanımlayın.
+3. Backend sonucunun store'a hangi katmanda ve kaç kez yazılacağını tek yerde
+   belirleyin.
+4. Dosya seçici gibi üst üste açılamayan işlemlerde in-flight sahipliğini
+   açıkça yönetin.
+5. DOM, çeviri ve ekran-local feedback kararlarını çağıran controller'da
+   bırakın.
+
+### 7.6 Feedback Observer
+
+`frontend/src/core/feedback.ts`, producer'ları belirli bir shell elementine
+bağlamadan transient kullanıcı feedback'i yayınlayan küçük bir Observer
+primitive'idir:
+
+- `FEEDBACK_TONE`, `info`, `success`, `warning` ve `error` değerlerinin
+  `as const` registry'sidir;
+- `notify`, boş mesajı düşürür, monoton bir ID verir ve gösterim süresini en
+  az 1.500 ms olarak normalize eder;
+- `subscribeFeedback`, listener kaydını ve cleanup fonksiyonunu sağlar;
+- mesajlar process içi ve geçicidir; history, queue veya persistence değildir.
+
+`frontend/src/native/chrome/feedback.ts` presentation/controller tarafıdır.
+Shell'deki `[data-feedback]` host'una yalnız en son mesajı render eder, önceki
+timer'ı iptal eder, kullanıcı kapatmasını destekler ve tona göre `status` ya
+da `alert` erişilebilirlik semantiği uygular. Domain/controller mesajın
+içeriğini ve tonunu seçer; süre, dismiss ve ARIA davranışını chrome katmanı
+sahiplenir.
+
+Kalıcı bir form hatası veya kullanıcının karar vermesi gereken uyarı toast ile
+modellenmemelidir; ilgili alanın yanında veya dialog içinde kalmalıdır.
+Feedback Observer, kaydetme/kopyalama gibi kısa süreli işlem sonucunu tüm
+giriş noktalarında tutarlı göstermek içindir.
+
+### 7.7 Request presenter/controller ayrımı
+
+Request ekranı iki dosya arasında bilinçli olarak bölünür:
+
+| Dosya | Sorumluluk |
+| --- | --- |
+| `frontend/src/native/requests/presentation.ts` | Tab, welcome, composer, editor ve response yerleşimi için typed snapshot'tan escaped `TrustedHTMLFragment` üretmek |
+| `frontend/src/native/requests/workspace.ts` | Draft/state sahipliği, event delegation, dialog/menu, backend çağrısı, cancellation, store senkronizasyonu, focus ve lifecycle |
+
+`presentation.ts` doğrudan listener kaydetmez, backend çağırmaz ve store'a
+yazmaz. `workspace.ts`, markup ayrıntısını kopyalamak yerine presenter'a
+`RequestWorkbenchPresentation` ve ilgili küçük view model'leri verir. Bu bir
+class tabanlı MVP framework'ü değildir; DOM üretimini büyük controller'dan
+ayıran typed presentation function yaklaşımıdır.
+
+Request ekranını genişletirken:
+
+1. Yalnız görünümü etkileyen hesap/markup'ı presenter'da tutun.
+2. Kullanıcı olayı, async orchestration ve cleanup'ı controller'da tutun.
+3. Presenter input'una tüm bağımlılıkları açıkça ekleyin; presenter içinden
+   store veya backend okumayın.
+4. Dinamik kullanıcı/backend içeriğini `html` escape sınırından geçirin.
+5. Yeni bölümün loading, empty, error, running/canceling ve dar ekran
+   davranışını birlikte tasarlayın.
+
+Request composer'ın birincil sırası Method, URL, Send, Save ve More'dur.
+cURL/Bash import gibi daha seyrek komutlar Welcome ve More menüsünde kalır;
+aynı komut ana sırada ikinci kez gösterilmez. Response henüz yokken summary ve
+sonuç tab'leri render edilmez; boş durum doğrudan gösterilir. Varsayılan
+response oranı `features/requests/model/responseLayout.ts` içindeki tek
+`responseSizeDefault` sabitinden gelir ve store reset/migration kodu bu değeri
+yeniden kopyalamaz.
+
+### 7.8 Stabil validation kodları ve sanal liste focus'u
+
+`lib/schemas.ts` URL doğrulamasını sunum metninden ayırır.
+`REQUEST_URL_VALIDATION_CODE` kapalı `as const` registry'si required,
+whitespace, scheme, HTTP-only, user-info, fragment ve invalid durumlarını
+tanımlar. Saf `requestURLValidationCode` bu machine-readable değeri üretir;
+Request controller kodu doğrudan çeviri anahtarına map eder.
+`requestURLValidationMessage` yalnız form-schema uyumluluk sınırında eski
+insan-okunur mesajı üretir. Presentation kodu hata sınıflandırmak için Türkçe
+metin karşılaştırmamalıdır.
+
+OpenAPI sidebar'ı büyük endpoint listelerini fixed-height sanallaştırır.
+`native/chrome/sidebarVirtualization.ts` DOM'dan bağımsız iki saf hesap
+yayınlar:
+
+- `virtualWindowRange`, viewport, row height ve overscan'den end-exclusive
+  render aralığını üretir;
+- `virtualNavigationTarget`, ArrowUp/Down/Home/End komutunu yalnız render
+  edilmiş DOM diliminde değil tüm mantıksal listede çözer, hedef scroll
+  konumunu ve yeni pencereyi birlikte döndürür.
+
+Controller yalnız pencere gerçekten değiştiğinde satır DOM'unu yeniden kurar.
+Klavye hedefi pencere dışındaysa önce scroll/window state'i güncellenir, sonra
+hedef `data-api-id` ile render edilmiş elemente focus taşınır. Böylece
+sanallaştırma performans kazanırken erişilebilir klavye modelini bozmaz.
 
 ## 8. Native IPC sözleşmesi
 
@@ -480,12 +633,31 @@ Kontroller:
 - capability constant-time karşılaştırılır;
 - callback ID ve metot adı uzunluğu doğrulanır;
 - encoded argument boyutu 32 MiB ile sınırlıdır;
-- metot, explicit `bridgeMethodRegistry` allowlist'inde olmalıdır;
-- her case kendi concrete Go tipine decode edilir;
+- metot, explicit typed `bridgeMethodRegistry` allowlist'inde olmalıdır;
+- çağrı, scheduling lane'ine kabul edilmeden goroutine başlatılmaz;
+- her descriptor kendi concrete Go tipine decode edilir;
 - panic, bridge metot adıyla kontrollü transport hatasına dönüştürülür.
 
-Go sonucu tekrar JSON envelope'a çevrilir ve native UI thread'inde
-`Eval` ile teslim edilir.
+`internal/canbridge/invoke.go` içindeki Command Registry, metot adını,
+argument decoder/handler'ını, execution policy'yi ve varsa typed busy
+result'ını tek descriptor'da tutar. `registerBridgeMethod0` argumentsız,
+`registerBridgeMethod1` tek argument'lı concrete `Bridge` metotlarını
+reflection kullanmadan generic adapter'a bağlar. Başlangıçta catalog:
+
+- boş veya çevresinde whitespace olan adları;
+- duplicate adları;
+- handler'ı olmayan descriptor'ları;
+- concurrent metoda eklenmiş anlamsız busy result'ı;
+- serial metoda eklenmemiş busy result'ı;
+- bilinmeyen execution policy'yi
+
+reddeder. Aynı catalog sıralı `bridgeMethodNames` reklam listesini ve O(1)
+`byName` dispatch lookup'ını üretir. Böylece allowlist, decoder, handler ve
+scheduling bilgisinin ayrı switch/listelerde birbirinden kopması engellenir.
+
+Go sonucu tekrar JSON envelope'a çevrilir. Marshaled envelope 64 MiB'ı aşarsa
+büyük sonuç UI'ya yazılmaz; aynı callback ID ile küçük bir transport error
+envelope'u üretilir. Teslimat native UI thread'inde `Eval` ile yapılır.
 
 ### 8.3 Metot grupları
 
@@ -521,13 +693,27 @@ ve tipli result alanlarını kullanmalıdır.
 
 ### 8.5 Scheduling
 
-- Collection load/save dışındaki metotlar background goroutine'lerde
-  concurrent çalışır.
+- Collection load/save dışındaki metotlar, bounded admission sonrasında
+  background goroutine'lerde concurrent çalışır.
+- Normal concurrent lane aynı anda en fazla 64 çağrı ve toplam 64 MiB kabul
+  edilmiş encoded argument taşır.
+- `CancelRequest` ve `CancelToolOperation`, normal işler doygunken de ilerleme
+  şansı bulması için ayrı cancellation fast lane'ine alınır. Bu lane aynı anda
+  en fazla 8 çağrı ve toplam 1 MiB encoded argument taşır.
+- Her çağrı için 32 MiB argument hard limiti, lane toplam bütçesinden önce de
+  uygulanır.
+- Lane call/byte bütçesi doluysa dispatch yeni goroutine başlatmadan transport
+  error döndürür. Tamamlanan çağrı iki bütçeyi de bırakır.
 - Collection işlemleri kabul sırasını koruyan tek tüketicili FIFO kuyruğa
-  girer.
+  girer ve concurrent/cancellation lane'lerinden bağımsızdır.
 - Queue en fazla 128 bekleyen çağrı ve 64 MiB encoded argument tutar.
 - Queue dolduğunda kullanıcıya tipli `collection_library_busy` sonucu döner.
 - Request iptali ile tool iptali ayrı operation registry'leridir.
+
+Cancellation fast lane bir öncelik kuyruğu değildir; yalnız iptal
+komutlarının normal lane kaynaklarını paylaşmamasını sağlar. Yeni bir bridge
+metodu bu lane'e yalnız mevcut bir işi sonlandırmak için kısa ve bounded bir
+komutsa eklenmelidir.
 
 ## 9. Temel veri akışları
 
@@ -610,6 +796,26 @@ Mock server `internal/mockserver.Server` tarafından sahiplenilir:
 Route ve hit state'i process belleğindedir; uygulama yeniden başladığında
 otomatik olarak geri yüklenmez.
 
+`internal/canbridge` tarafındaki mock komutları ayrıca Bridge-level serialized
+command facade kullanır. `Bridge.mockMu`:
+
+- `GetMockServer`, `UpdateMockRoutes`, `StartMockServer`, `StopMockServer` ve
+  `ClearMockHits` state geçişlerini;
+- `ImportMockOpenAPI` dosya okumasından sonraki route replacement aşamasını;
+- shutdown sırasında aktif instance'ın stop edilmesini
+
+birbirine göre sıralar. Dosya seçici ve OpenAPI parse işi state lock'u
+tutulmadan yapılabilir; fakat mevcut server'ı değiştiren bölüm tekrar
+`mockMu` içine girer. `StartMockServer`, “çalışıyor mu?” kontrolü, route
+kopyalama, yeni listener başlatma ve aktif instance atamasını tek serialized
+geçiş olarak yürütür. Böylece eşzamanlı Start/Stop/Update komutları stale
+server pointer'ı üzerinde birbirini ezmez.
+
+Bridge lock sırası gerektiğinde `mockMu` → `Bridge.mu` şeklindedir.
+`internal/mockserver.Server` kendi route/listener/hit iç durumunu ayrıca kendi
+mutex'leriyle korur; Bridge-level lock bunun yerine geçmez, birden fazla
+server instance'ı arasındaki application state geçişini korur.
+
 ### 9.4 SSE
 
 SSE için harici protokol paketi kullanılmaz. `internal/protocols.ReadSSE`:
@@ -626,6 +832,13 @@ SSE için harici protokol paketi kullanılmaz. `internal/protocols.ReadSSE`:
 
 Varsayılan limitler 100 event, toplam 8 MiB ve event başına 1 MiB'dir. Hard
 üst sınırlar 10.000 event, toplam 64 MiB ve 10 dakika timeout'tur.
+
+Geçersiz URL, header, timeout ve limit ayarı
+`protocols.ErrInvalidRequest` sentinel'ı ile wrap edilir. `canbridge`
+adaptörü `errors.Is` ile bunu stabil `invalid_input` kullanıcı hata koduna
+çevirir; hata sınıfını İngilizce/Türkçe mesaj substring'i arayarak tahmin
+etmez. Tool operation ID'nin boş, aşırı uzun veya duplicate olması da
+`errInvalidToolOperation` üzerinden aynı typed sınıflandırmayı izler.
 
 ### 9.5 Diagnostics
 
@@ -687,6 +900,22 @@ Repository adaptörü:
 - çakışmayı sessizce overwrite etmek yerine tipli conflict döndürür;
 - mümkün olan platformlarda dosya ve dizin sync'i yapar.
 
+`collectionLibraryService`, repository'nin üstündeki application-service
+sınırıdır. Repository operasyonlarını `operationMu` ile sıralar ve son
+gözlemlenen CAS revision'ını process session'ı boyunca sahiplenir. Her native
+runtime başlangıcında `Start`:
+
+1. önceki persistence context'ini iptal eder;
+2. eski lock waiter'ın çıkabilmesi için operation sınırına girer;
+3. `revision` ve `revisionKnown` alanlarını sıfırlar;
+4. yeni lifecycle context'ini kurar.
+
+Lifecycle ve operation lock'ları bu geçiş sırasında yeni bir çağrının yeni
+context ile eski revision'ı birlikte görmesini engeller. Sonuç olarak yeniden
+başlatılmış runtime, önceki session'dan kalan CAS gözlemiyle yazamaz. Mevcut
+bir dosya varsa yeni session önce onu load ederek revision'ı gözlemlemelidir;
+kör ilk save `collection_library_not_loaded` sözleşmesini korur.
+
 Frontend persistence adapter'i eski `localStorage` collection belgesini bir
 kez native depoya taşıyabilir. Native kopya onaylanmadan eski kayıt silinmez.
 
@@ -714,20 +943,24 @@ temizlemez; bu alanlara düz metin secret yazılmamalıdır.
 
 ## 11. Concurrency, cancellation ve kaynak sahipliği
 
-### Go tarafı
+### 11.1 Go tarafı
 
 - Uygulamanın root lifecycle context'i vardır.
+- Bridge lifecycle geçişleri `created/running/stopped` typed state'i ve
+  `lifecycleMu` ile serialdir; shutdown sonrası restart yeni context'ler kurar.
 - Her aktif HTTP request kendi request ID ve cancel fonksiyonuna sahiptir.
 - SSE, collection runner ve network inspector ayrı tool operation ID kullanır.
 - Actuator/environment işlemleri application context ile; thread/log/coverage
   analizleri synchronous bridge çağrısı olarak yürür. Lint ayrı tool ID
   yayınlamaz.
 - Aynı ID ile ikinci işlem ilk cancel fonksiyonunun üzerine yazamaz.
-- Collection persistence sıralıdır; diğer IPC işleri concurrent'tır.
-- Mock server mutex ile route, listener ve hit state'ini korur.
+- Collection persistence sıralıdır; diğer IPC işleri normal veya cancellation
+  admission lane'i içinde bounded concurrent çalışır.
+- Mock server'ın iç state'i kendi mutex'leriyle, Bridge-level instance/state
+  geçişleri `mockMu` ile korunur.
 - Shutdown önce yeni kabulü durdurur, sonra bounded drain uygular.
 
-### Frontend tarafı
+### 11.2 Frontend tarafı
 
 - Her mounted controller bir `Disposable` döndürür.
 - `Lifecycle`, listener ve child controller cleanup'larını ters sırada çalıştırır.
@@ -742,6 +975,25 @@ temizlemez; bu alanlara düz metin secret yazılmamalıdır.
 Kaynak sahibi başlatma ve durdurmadan birlikte sorumludur. Başka bir katmanın
 oluşturduğu server, timer, listener veya goroutine'i örtük olarak kapatmak
 yasaktır.
+
+### 11.3 HTTP transport sahipliği
+
+Standart `http.Transport` kopyaları connection pool ve idle connection
+kaynakları yaratır. Bu nedenle transport'u oluşturan katman kapanışını da
+sahiplenir:
+
+| Bileşen | Oluşturma | Kapanış sözleşmesi |
+| --- | --- | --- |
+| Desktop interactive request | `internal/canbridge` default transport'u clone eder | Request çağrısı sonunda `CloseIdleConnections` defer edilir |
+| SSE | `internal/protocols` kendi transport'unu clone eder | SSE çağrısı sonunda kapatılır |
+| Runner | `runner.NewHTTPSender(nil)` kendi client/transport'unu hazırlar | Sahip çağıran `HTTPSender.CloseIdleConnections` kullanır; CLI ve Automation bridge bunu defer eder |
+| Network inspector | `netinspector.New` HTTP client verilmediyse transport oluşturur | Paket-level `netinspector.Inspect` otomatik kapatır; doğrudan `New` kullanan sahip `Inspector.CloseIdleConnections` çağırır |
+
+Runner veya inspector'a dışarıdan client enjekte edildiğinde client ve
+transport caller-owned kalır; bileşen bunları kapatmaz. Yeni bir HTTP adapter
+eklerken constructor'ın “owned” ve “injected” yolları belgelenmeli, yalnız
+kendi oluşturduğu transport için idempotent bir cleanup yüzeyi yayınlamalı ve
+composition root bu cleanup'ı çağırmalıdır.
 
 ## 12. Güvenlik ve güven sınırları
 
@@ -786,7 +1038,10 @@ WebView genel amaçlı güvenlik sandbox'ı olarak değerlendirilmemelidir.
 
 | Alan | Varsayılan / hard sınır |
 | --- | --- |
-| IPC encoded arguments | 32 MiB hard |
+| IPC tek çağrı encoded arguments | 32 MiB hard |
+| IPC normal concurrent lane | 64 in-flight çağrı, toplam 64 MiB accepted arguments |
+| IPC cancellation fast lane | 8 in-flight çağrı, toplam 1 MiB accepted arguments |
+| IPC marshaled response envelope | 64 MiB hard |
 | Desktop HTTP response body | 16 MiB hard |
 | Desktop HTTP timeout | 1 ms–5 dakika |
 | OpenAPI import | 16 MiB, 10.000 endpoint, 8 cached spec |
@@ -927,14 +1182,21 @@ browser E2E işi içermez; belge bunları varmış gibi kabul etmez.
 
 ### 16.2 Yeni bridge metodu
 
-1. `invoke.go` içinde sabit ve registry descriptor ekleyin.
-2. Argument'ı concrete Go tipine decode edin.
-3. Concurrent veya serial scheduling politikasını bilinçli seçin.
-4. Domain hatasını typed result, IPC/programlama hatasını rejection olarak
+1. `invoke.go` içinde `bridgeMethod...` sabitini ekleyin.
+2. Metodu concrete imzasına göre `registerBridgeMethod0` veya
+   `registerBridgeMethod1` ile `bridgeMethodRegistry`'ye bir kez kaydedin.
+   Ayrı dispatch switch'i ya da reklam listesi eklemeyin.
+3. Varsayılan concurrent veya collection-library serial execution policy'sini
+   bilinçli seçin. Serial policy seçiliyorsa typed busy result factory'sini
+   aynı descriptor'a ekleyin.
+4. Metot yalnız mevcut bir operasyonu iptal eden kısa bir komutsa
+   `admissionLaneForBridgeMethod` içinde cancellation fast lane'ine alın.
+5. Domain hatasını typed result, IPC/programlama hatasını rejection olarak
    modelleyin.
-5. Frontend `CanbridgeAPI`, `backend` facade ve DTO/normalizer katmanını aynı
+6. Frontend `CanbridgeAPI`, `backend` facade ve DTO/normalizer katmanını aynı
    değişiklikte güncelleyin.
-6. Allowlist, invalid argument, result shape ve shutdown testlerini ekleyin.
+7. Catalog validation, allowlist, invalid argument, lane saturation, result
+   shape ve shutdown testlerinden ilgili olanları ekleyin.
 
 ### 16.3 Yeni workspace
 
@@ -972,21 +1234,114 @@ konular için ayrı mimari karar gerekir:
 
 Bu karar alınmadıkça Protocols workspace yalnız SSE olarak kalır.
 
+### 16.6 Tasarım deseni kullanım rehberi
+
+Desen seçimi “ileride lazım olabilir” tahminine değil, bugün görülen değişim
+eksenine dayanır. Validex'te kullanılan desenlerin sınırları:
+
+| Problem | Uygun desen | Mevcut örnek | Kullanılmaması gereken durum |
+| --- | --- | --- | --- |
+| Aynı use case birden fazla UI giriş noktasında tekrarlanıyor | Application Command Facade | `frontend/src/app/commands.ts` | Tek controller'daki basit alan güncellemesi |
+| Producer, shell presentation lifecycle'ını bilmemeli | Observer | `core/feedback.ts` → `native/chrome/feedback.ts` | Kalıcı form validation veya onay gerektiren karar |
+| Büyük controller'da markup ile orchestration birbirine karışıyor | Typed presentation function | `native/requests/presentation.ts` + `workspace.ts` | İki satırlık statik markup için yeni class hiyerarşisi |
+| Allowlist, decode, handler ve policy birlikte değişmeli | Typed Command Registry | `internal/canbridge/invoke.go` | Dinamik plugin discovery; registry yalnız compile-time metotları içerir |
+| Tek kaynağın state geçişleri paralel komutlarla yarışıyor | Serialized command facade | Bridge `mockMu` ile mock komutları | Uzun, state'ten bağımsız parse/I/O işini gereksiz yere lock altında tutmak |
+| Persistence revision ve lifecycle transport'tan bağımsız sahiplenilmeli | Application service + Repository | `collectionLibraryService` + repository | Repository içine UI/IPC result kararı taşımak |
+| Constructor bazen kaynak yaratıyor, bazen dependency alıyor | Explicit ownership + cleanup | `HTTPSender` ve `Inspector` | Enjekte edilmiş caller-owned client'ı örtük kapatmak |
+
+Uygulama rehberi:
+
+1. Önce state'i, kaynağı veya değişim eksenini adlandırın.
+2. Desenin tek sahibini ve cleanup yolunu belirleyin.
+3. Aynı bilginin iki registry, iki facade veya iki state kopyasında tutulup
+   tutulmadığını kontrol edin.
+4. TypeScript'te kapalı değer kümeleri için `as const` registry + türetilmiş
+   union; Go'da dış JSON sözleşmesi gerektirmeyen policy/state için typed
+   constant kullanın.
+5. Tek implementasyonlu interface'i yalnız test seam'i, platform sınırı veya
+   sahiplik ayrımı gerçekten gerekiyorsa ekleyin.
+6. Pattern katmanının domain error'ını string parse etmediğini ve limitleri
+   saklamadığını doğrulayın.
+7. Yeni geliştiricinin akışı takip edebilmesi için public olmayan kritik
+   invariant'ı kısa yorum ve bu belgeyle açıklayın.
+
+Yeni bir pattern eklemek, mevcut application command/registry/service
+sınırlarından biriyle çözülemeyen somut problemi ve kaldırdığı tekrar ya da
+yarışı change açıklamasında belirtmeyi gerektirir.
+
 ## 17. Değişiklik kontrol listesi
 
-Bir mimari değişiklik tamamlanmadan önce:
+Her değişiklikte yalnız ilgili grupları uygulayın; fakat sahiplik ve güven
+sınırı maddelerini atlamayın.
 
-- [ ] State'in tek sahibi ve ömrü belli mi?
-- [ ] Input/result tipleri ve machine-readable hata kodları tanımlı mı?
-- [ ] Byte, adet, timeout ve queue limitleri var mı?
-- [ ] Cancellation ve shutdown yolu test edildi mi?
+### 17.1 State ve desen
+
+- [ ] State'in tek sahibi, başlangıcı, reset koşulu ve ömrü belli mi?
+- [ ] Lifecycle restart destekliyorsa eski session context/revision/cancel
+      state'i yeni session'a taşınmıyor mu?
+- [ ] Seçilen desen somut tekrar, yarış veya lifecycle problemini çözüyor mu?
+- [ ] Aynı invariant ikinci bir switch, registry, store ya da facade'a
+      kopyalanmadı mı?
+- [ ] Application command yalnız paylaşılan use case'i, controller yalnız
+      etkileşim/sunumu sahipleniyor mu?
+- [ ] Presenter backend/store okumadan typed input ile markup üretiyor mu?
+- [ ] Observer mesajı gerçekten transient mi; kalıcı hata yanlışlıkla toast'a
+      taşınmadı mı?
+- [ ] Yeni enum-benzeri değer kümesi magic string yerine `as const`/typed
+      constant ile tanımlandı mı?
+
+### 17.2 Frontend ve kullanıcı deneyimi
+
+- [ ] Loading, empty, error, success, running ve cancellation durumları var mı?
+- [ ] Dar ekran ve iki yan panel açıkken ana görev hâlâ tamamlanabiliyor mu?
+- [ ] Klavye focus'u, tab sırası, ARIA label/live region ve focus restore
+      davranışı tanımlı mı?
+- [ ] Görsel feedback yalnız screen-reader announcement'a bağlı kalmıyor mu?
+- [ ] Türkçe ve İngilizce mesaj sözleşmeleri birlikte güncellendi mi?
+- [ ] Backend ve kullanıcı içeriği `html` escape sınırından geçiyor mu?
+- [ ] Secret değerleri DOM, persistence veya teknik hata metninde gereksiz
+      tutulmuyor mu?
+- [ ] Runtime dependency eklenmeden mevcut browser-native primitive'lerle
+      çözülebiliyor mu?
+
+### 17.3 Bridge, concurrency ve kaynaklar
+
+- [ ] Input/result DTO'ları ve machine-readable hata kodları iki tarafta da
+      tanımlı mı?
+- [ ] Yeni bridge metodu tek typed registry descriptor'ıyla kayıtlı mı?
+- [ ] Normal concurrent, cancellation fast lane veya serial queue politikası
+      bilinçli seçildi mi?
+- [ ] Byte, adet, timeout, queue ve response limitleri tanımlı mı?
+- [ ] Admission reddi yeni goroutine/kaynak yaratmadan gerçekleşiyor mu?
+- [ ] Cancellation komutu normal iş doygunken ilerleyebiliyor mu?
+- [ ] Paylaşılan resource state geçişi gerekiyorsa lock sahibi ve lock sırası
+      açık mı?
+- [ ] Constructor'ın yarattığı timer, listener, goroutine, server ve HTTP
+      transport'u aynı sahip tarafından kapatılıyor mu?
+- [ ] Enjekte edilmiş caller-owned dependency örtük olarak kapatılmıyor mu?
+- [ ] Cancellation, saturation, panic ve bounded shutdown yolları test edildi
+      mi?
+
+### 17.4 Persistence ve oturum geçişi
+
+- [ ] Kanonik storage ve fallback/migration kaynağı belli mi?
+- [ ] Schema version ve deterministik migration güncellendi mi?
+- [ ] Yeni runtime/session başlangıcında önceki revision ve geçici state
+      sıfırlanıyor mu?
+- [ ] CAS conflict, blind first save, corrupt document ve partial commit
+      davranışları korunuyor mu?
+- [ ] Secret redaction kuralları yeni alanları kapsıyor mu?
+
+### 17.5 Teslimat
+
 - [ ] Domain katmanı frontend/native ayrıntılarından bağımsız mı?
-- [ ] Bridge allowlist ve iki taraftaki DTO sözleşmesi birlikte güncellendi mi?
-- [ ] Secret değerleri persistence/log/technical error içine sızmıyor mu?
-- [ ] Türkçe ve İngilizce empty/error/success metinleri tamam mı?
-- [ ] Frontend dependency policy korunuyor mu?
-- [ ] `make test`, ilgili tagged test/vet ve host native build geçti mi?
-- [ ] README, bu belge ve third-party kayıtları gerekiyorsa güncellendi mi?
+- [ ] Frontend typecheck/build/test ve ilgili Go unit/race/tagged testleri
+      geçti mi?
+- [ ] Değişen native yüzey için host platform build/vet doğrulandı mı?
+- [ ] README yalnız kullanıcı-facing ürün/çalıştırma/build bilgisini koruyor,
+      teknik detaylar bu belgede mi?
+- [ ] Bu belge, third-party notice ve vendor checksum kayıtlarından ilgili
+      olanları güncellendi mi?
 
 ## 18. Mimari karar özeti
 
@@ -998,9 +1353,17 @@ Bir mimari değişiklik tamamlanmadan önce:
 | Dar `internal/nativewebview` | Kullanılmayan wrapper API'sini ve Go modülünü kaldırmak | Upstream header ve CGO sınırı proje tarafından bakım görür |
 | Loopback asset server | Güvenilir HTTP origin ve standart modül yükleme | Port, Host ve server lifecycle yönetilir |
 | Explicit JSON IPC | Küçük, test edilebilir ve tiplenebilir native API | DTO değişiklikleri iki tarafta birlikte yapılır |
+| Typed Command Registry | Allowlist, decoder, handler ve scheduling bilgisini tek kaynakta tutmak | Yeni bridge metodu typed adapter ve catalog validation ile kaydedilir |
+| Bounded IPC admission lane'leri | Normal iş yükünün goroutine/belleği sınırsız tüketmesini ve iptali bloke etmesini önlemek | Normal ve cancellation bütçeleri ayrı, collection persistence queue'su bağımsızdır |
 | Origin + random capability | Bridge'i beklenmeyen web içeriğine açmamak | Capability her process'te yeniden üretilir |
+| Application Command Facade | Aynı UI use case'inin chrome giriş noktalarında kopyalanmasını önlemek | Paylaşılan backend/store orkestrasyonu DOM controller'larından ayrılır |
+| Feedback Observer | İşlem sonucunu producer'ı shell sunumuna bağlamadan göstermek | Mesajlar transient'tir; timer, dismiss ve ARIA chrome katmanındadır |
+| Request presentation function'ları | Markup'ı event/async/lifecycle yüklü controller'dan ayırmak | Presenter typed snapshot alır; workspace state ve orchestration sahibi kalır |
+| Serialized mock command facade | Birden fazla mock server instance'ı arasındaki geçiş yarışlarını önlemek | Bridge mock komutları ve shutdown aynı `mockMu` sırasını izler |
+| Typed Bridge lifecycle state'i | Startup/Shutdown ve restart context sahipliğini yarışsız kılmak | Geçişler serialize, tekrarlanan shutdown idempotent ve restart yeni session'dır |
 | Go standart kütüphanesi SSE | Protokol bağımlılığını kaldırmak ve limitleri sahiplenmek | Yalnız ihtiyaç duyulan SSE yüzeyi desteklenir |
 | Native collection dosyası + CAS | Çakışmayı ve yarım yazmayı görünür kılmak | Lock, revision, atomic replace ve migration gerekir |
+| Explicit HTTP transport sahipliği | Idle connection kaynaklarını constructor/caller arasında belirsiz bırakmamak | Yalnız internally-created transport owner tarafından kapatılır |
 | CLI için paylaşılan domain paketleri | CI ve desktop davranışını yakın tutmak | CLI ince bir I/O adaptörü olarak kalır |
 
 Bu kararların değiştirilmesi mümkündür; ancak değişiklik yeni bağımlılık,

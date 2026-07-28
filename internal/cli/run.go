@@ -81,10 +81,12 @@ func executeRun(
 		writeCommandError(stderr, "run", err)
 		return exitFailure
 	}
+	sender := runner.NewHTTPSender(nil)
+	defer sender.CloseIdleConnections()
 	report, runErr := runner.Run(
 		ctx,
 		collection,
-		runner.NewHTTPSender(nil),
+		sender,
 		runner.Options{Variables: variables},
 	)
 	if jsonOutput {

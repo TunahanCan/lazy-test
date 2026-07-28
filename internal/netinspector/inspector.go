@@ -120,6 +120,7 @@ type Inspector struct {
 	maxIPAddresses         int
 	resolver               Resolver
 	httpClient             HTTPDoer
+	closeIdleConnections   func()
 }
 
 // New validates options and creates an Inspector.
@@ -190,6 +191,7 @@ func New(options Options) (*Inspector, error) {
 		resolver = net.DefaultResolver
 	}
 	httpClient := options.HTTPClient
+	var closeIdleConnections func()
 	if httpClient == nil {
 		transport := http.DefaultTransport.(*http.Transport).Clone()
 		transport.DisableCompression = true
@@ -213,6 +215,7 @@ func New(options Options) (*Inspector, error) {
 				return http.ErrUseLastResponse
 			},
 		}
+		closeIdleConnections = transport.CloseIdleConnections
 	}
 
 	return &Inspector{
@@ -223,7 +226,16 @@ func New(options Options) (*Inspector, error) {
 		maxIPAddresses:         maxIPAddresses,
 		resolver:               resolver,
 		httpClient:             httpClient,
+		closeIdleConnections:   closeIdleConnections,
 	}, nil
+}
+
+// CloseIdleConnections releases connections owned by an Inspector that built
+// its own HTTP transport. Injected HTTP clients remain caller-owned.
+func (inspector *Inspector) CloseIdleConnections() {
+	if inspector != nil && inspector.closeIdleConnections != nil {
+		inspector.closeIdleConnections()
+	}
 }
 
 // Inspect creates an Inspector for one call and returns its report.
@@ -240,6 +252,7 @@ func Inspect(
 			Hops:       []Hop{},
 		}, err
 	}
+	defer inspector.CloseIdleConnections()
 	return inspector.Inspect(ctx, rawURL)
 }
 

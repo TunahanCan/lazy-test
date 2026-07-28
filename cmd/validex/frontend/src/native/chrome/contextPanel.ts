@@ -5,6 +5,7 @@ import {
   setHTML,
   type Disposable,
 } from "../../core/dom.js";
+import { applicationCommands } from "../../app/commands.js";
 import { icon } from "../../core/icons.js";
 import { subscribeLocale, t } from "../../i18n/locale.js";
 import {
@@ -424,9 +425,8 @@ export function mountContextPanel(
       return;
     }
     if (action === "new-request") {
-      workspaceStore.getState().openTab({
+      applicationCommands.openRequestDraft({
         name: t("chrome.untitledRequest"),
-        dirty: true,
       });
       return;
     }

@@ -40,7 +40,7 @@ function workspaceState(tabs, activeTabID, recentlyClosed = []) {
     rightVisible: false,
     leftWidth: 264,
     rightWidth: 292,
-    responseSize: 42,
+    responseSize: 32,
     responsePlacement: "vertical",
     activeView: "requests",
     theme: "system",
@@ -111,6 +111,20 @@ test("session-only browser requests never enter workspace persistence", () => {
   ]) {
     assert.equal(serialized.includes(secret), false, secret);
   }
+});
+
+test("workspace persistence keeps the contract response section", () => {
+  const contractTab = createRequestTab({
+    id: "contract-tab",
+    url: "https://api.example.test/orders",
+  });
+  contractTab.responseSection = "contract";
+
+  const snapshot = createPersistedWorkspaceState(
+    workspaceState([contractTab], contractTab.id),
+  );
+
+  assert.equal(snapshot.tabs[0].responseSection, "contract");
 });
 
 test("workspace migration filters session-only recently closed data", () => {

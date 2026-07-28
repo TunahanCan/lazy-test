@@ -20,22 +20,38 @@ var (
 
 // HTTPSender sends PreparedRequest values with the standard library.
 type HTTPSender struct {
-	client *http.Client
+	client               *http.Client
+	closeIdleConnections func()
 }
 
-// NewHTTPSender creates a standard-library HTTP sender. A nil client uses
-// http.DefaultClient.
+// NewHTTPSender creates a standard-library HTTP sender. A nil client creates
+// an owned client from a clone of the default transport so response-header
+// limits and connection cleanup stay local to this sender.
 func NewHTTPSender(client *http.Client) *HTTPSender {
 	if client == nil {
 		transport := http.DefaultTransport
+		var closeIdleConnections func()
 		if defaultTransport, ok := http.DefaultTransport.(*http.Transport); ok {
 			cloned := defaultTransport.Clone()
 			cloned.MaxResponseHeaderBytes = hardMaxResponseHeaderBytes
 			transport = cloned
+			closeIdleConnections = cloned.CloseIdleConnections
 		}
 		client = &http.Client{Transport: transport}
+		return &HTTPSender{
+			client:               client,
+			closeIdleConnections: closeIdleConnections,
+		}
 	}
 	return &HTTPSender{client: client}
+}
+
+// CloseIdleConnections releases connections owned by a sender created with a
+// nil client. Injected clients remain owned by their caller.
+func (s *HTTPSender) CloseIdleConnections() {
+	if s != nil && s.closeIdleConnections != nil {
+		s.closeIdleConnections()
+	}
 }
 
 // Send implements Sender.

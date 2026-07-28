@@ -590,7 +590,25 @@ function responseContent(
 
 export function responsePanelMarkup(tab: RequestTab): TrustedHTMLFragment {
   const response = tab.response;
-  const sections = tab.openApi || response?.contract
+  if (!response) {
+    return html`
+      <section
+        class="response-panel response-panel-empty"
+        aria-label="${t("requests.response.label")}"
+        aria-busy="${tab.running ? "true" : "false"}"
+      >
+        <div
+          class="response-content response-content-empty"
+          aria-live="polite"
+          aria-busy="${tab.running ? "true" : "false"}"
+        >
+          ${responseContent(tab, "body")}
+        </div>
+      </section>
+    `;
+  }
+
+  const sections = tab.openApi || response.contract
     ? [
         ...baseSections,
         {
@@ -603,14 +621,12 @@ export function responsePanelMarkup(tab: RequestTab): TrustedHTMLFragment {
   const active = sections.some((section) => section.id === tab.responseSection)
     ? tab.responseSection
     : "body";
-  const headerCount = response
-    ? Object.values(response.headers).reduce(
-        (count, values) => count + values.length,
-        0,
-      )
-    : 0;
-  const responseTitle = response?.status.replace(/^\d+\s*/, "") || "";
-  const tone = response ? statusTone(response.statusCode) : "success";
+  const headerCount = Object.values(response.headers).reduce(
+    (count, values) => count + values.length,
+    0,
+  );
+  const responseTitle = response.status.replace(/^\d+\s*/, "") || "";
+  const tone = statusTone(response.statusCode);
 
   return html`
     <section
@@ -620,127 +636,95 @@ export function responsePanelMarkup(tab: RequestTab): TrustedHTMLFragment {
     >
       <div class="response-summary" role="status" aria-live="polite">
         <div class="response-summary-primary">
-          ${response
+          <span
+            class="status-mark ${tone}"
+            aria-label="${t("requests.response.status", {
+              value: response.status,
+            })}"
+          >
+            ${response.statusCode} ${responseTitle}
+          </span>
+          <span
+            class="response-duration"
+            aria-label="${t("requests.response.duration", {
+              value: formatDuration(response.durationMs),
+            })}"
+          >
+            ${formatDuration(response.durationMs)}
+          </span>
+          <span
+            class="response-size"
+            aria-label="${t("requests.response.size", {
+              value: formatBytes(response.sizeBytes),
+            })}"
+          >
+            ${formatBytes(response.sizeBytes)}
+          </span>
+          <span
+            class="response-content-type"
+            aria-label="${t("requests.response.contentType", {
+              value:
+                response.contentType ||
+                t("requests.response.unknownContentType"),
+            })}"
+          >
+            ${response.contentType ||
+            t("requests.response.unknownContentType")}
+          </span>
+          <span
+            class="response-protocol"
+            aria-label="${t("requests.response.protocol", {
+              value: response.protocol,
+            })}"
+          >
+            ${response.protocol}
+          </span>
+        </div>
+        <div class="response-summary-secondary">
+          ${response.remoteAddr
             ? html`
                 <span
-                  class="status-mark ${tone}"
-                  aria-label="${t("requests.response.status", {
-                    value: response.status,
+                  aria-label="${t("requests.response.remoteAddress", {
+                    value: response.remoteAddr,
+                  })}"
+                  title="${t("requests.response.remoteAddress", {
+                    value: response.remoteAddr,
                   })}"
                 >
-                  ${response.statusCode} ${responseTitle}
-                </span>
-                <span
-                  class="response-duration"
-                  aria-label="${t("requests.response.duration", {
-                    value: formatDuration(response.durationMs),
-                  })}"
-                >
-                  ${formatDuration(response.durationMs)}
-                </span>
-                <span
-                  class="response-size"
-                  aria-label="${t("requests.response.size", {
-                    value: formatBytes(response.sizeBytes),
-                  })}"
-                >
-                  ${formatBytes(response.sizeBytes)}
-                </span>
-                <span
-                  class="response-content-type"
-                  aria-label="${t("requests.response.contentType", {
-                    value:
-                      response.contentType ||
-                      t("requests.response.unknownContentType"),
-                  })}"
-                >
-                  ${response.contentType ||
-                  t("requests.response.unknownContentType")}
-                </span>
-                <span
-                  class="response-protocol"
-                  aria-label="${t("requests.response.protocol", {
-                    value: response.protocol,
-                  })}"
-                >
-                  ${response.protocol}
+                  ${response.remoteAddr}
                 </span>
               `
-            : tab.running
-              ? html`
-                  <span class="status-mark warning">
-                    ${icon("spinner", 13, "spin")}
-                    ${t("requests.response.sending")}
-                  </span>
-                `
-              : tab.userError
-                ? html`
-                    <span
-                      class="status-mark ${tab.userError.code ===
-                      "request_canceled"
-                        ? "warning"
-                        : "danger"}"
-                    >
-                      ${tab.userError.code === "request_canceled"
-                        ? t("requests.response.canceled")
-                        : t("requests.response.failed")}
-                    </span>
-                  `
-                : html`
-                    <span class="response-idle">
-                      ${t("requests.response.label")}
-                    </span>
-                  `}
+            : ""}
+          ${response.tls
+            ? html`
+                <span
+                  aria-label="${t("requests.response.tlsVersion", {
+                    value: response.tls,
+                  })}"
+                  title="${t("requests.response.tlsVersion", {
+                    value: response.tls,
+                  })}"
+                >
+                  ${response.tls}
+                </span>
+              `
+            : ""}
+          ${response.traceId
+            ? html`
+                <button
+                  type="button"
+                  data-action="copy-trace"
+                  data-trace="${response.traceId}"
+                  aria-label="${t("requests.response.traceCopy")}"
+                  title="${t("requests.response.traceCopy")}"
+                >
+                  ${t("requests.response.traceShort", {
+                    value: response.traceId.slice(0, 10),
+                  })}
+                </button>
+              `
+            : ""}
         </div>
-        ${response
-          ? html`
-              <div class="response-summary-secondary">
-                ${response.remoteAddr
-                  ? html`
-                      <span
-                        aria-label="${t("requests.response.remoteAddress", {
-                          value: response.remoteAddr,
-                        })}"
-                        title="${t("requests.response.remoteAddress", {
-                          value: response.remoteAddr,
-                        })}"
-                      >
-                        ${response.remoteAddr}
-                      </span>
-                    `
-                  : ""}
-                ${response.tls
-                  ? html`
-                      <span
-                        aria-label="${t("requests.response.tlsVersion", {
-                          value: response.tls,
-                        })}"
-                        title="${t("requests.response.tlsVersion", {
-                          value: response.tls,
-                        })}"
-                      >
-                        ${response.tls}
-                      </span>
-                    `
-                  : ""}
-                ${response.traceId
-                  ? html`
-                      <button
-                        type="button"
-                        data-action="copy-trace"
-                        data-trace="${response.traceId}"
-                        aria-label="${t("requests.response.traceCopy")}"
-                        title="${t("requests.response.traceCopy")}"
-                      >
-                        ${t("requests.response.traceShort", {
-                          value: response.traceId.slice(0, 10),
-                        })}
-                      </button>
-                    `
-                  : ""}
-              </div>
-            `
-          : ""}
       </div>
       <div
         class="response-tabs"

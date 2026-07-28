@@ -47,6 +47,32 @@ func (body *trackedBody) Close() error {
 	return nil
 }
 
+func TestInspectorOwnsOnlyItsDefaultTransport(t *testing.T) {
+	t.Parallel()
+
+	owned, err := New(Options{})
+	if err != nil {
+		t.Fatalf("New(defaults) error = %v", err)
+	}
+	if owned.closeIdleConnections == nil {
+		t.Fatal("default inspector must own a close-idle-connections hook")
+	}
+	owned.CloseIdleConnections()
+
+	injectedClient := doerFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("not called")
+	})
+	injected, err := New(Options{HTTPClient: injectedClient})
+	if err != nil {
+		t.Fatalf("New(injected client) error = %v", err)
+	}
+	if injected.closeIdleConnections != nil {
+		t.Fatal("inspector must not take ownership of an injected client")
+	}
+	injected.CloseIdleConnections()
+	(*Inspector)(nil).CloseIdleConnections()
+}
+
 func TestInspectReportsDNSFinalHopAndJSONMilliseconds(t *testing.T) {
 	t.Parallel()
 

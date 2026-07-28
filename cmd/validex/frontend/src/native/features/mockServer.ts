@@ -412,7 +412,7 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
     const manualPortValid = parsedManualPort() !== null;
     return html`
       <section
-        class="tool-page"
+        class="tool-page mock-server-page"
         aria-labelledby="mock-server-title"
         aria-busy="${isBusy ? "true" : "false"}"
       >

@@ -6,6 +6,7 @@ import {
   setHTML,
   type Disposable,
 } from "../../core/dom.js";
+import { applicationCommands } from "../../app/commands.js";
 import { icon, type IconName } from "../../core/icons.js";
 import { presentDialog, type DialogHandle } from "../../core/overlays.js";
 import { getLocale, subscribeLocale, t } from "../../i18n/locale.js";
@@ -49,9 +50,8 @@ function commands(bootstrap: BootstrapData): PaletteCommand[] {
       keywords: "new request create",
       icon: "plus",
       run: () =>
-        workspaceStore.getState().openTab({
+        applicationCommands.openRequestDraft({
           name: t("chrome.untitledRequest"),
-          dirty: true,
         }),
     },
     {

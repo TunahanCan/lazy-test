@@ -15,6 +15,7 @@ import {
   isSecretKey,
   isSafeSecretReference,
 } from "../lib/secrets.js";
+import { responseSizeDefault } from "../features/requests/model/responseLayout.js";
 
 export const workspaceStorageKey = "validex:workspace:validex-workspace";
 
@@ -135,6 +136,7 @@ function persistedTab(tab: RequestTab): RequestTab {
     "headers",
     "cookies",
     "timeline",
+    "contract",
     "raw",
   ].includes(tab.responseSection)
     ? tab.responseSection
@@ -398,7 +400,7 @@ export const workspaceStore = createPersistedStore<WorkspaceState>(
       rightVisible: false,
       leftWidth: 264,
       rightWidth: 292,
-      responseSize: 42,
+      responseSize: responseSizeDefault,
       responsePlacement: "vertical",
       activeView: "requests",
       theme: "system",
@@ -609,7 +611,7 @@ export const workspaceStore = createPersistedStore<WorkspaceState>(
           rightVisible: true,
           leftWidth: 264,
           rightWidth: 292,
-          responseSize: 42,
+          responseSize: responseSizeDefault,
           responsePlacement: "vertical",
         }),
       setTheme: (theme) => set({ theme }),

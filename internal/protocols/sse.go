@@ -140,20 +140,26 @@ func ReadSSE(parent context.Context, input SSERequest) (SSEResult, error) {
 func validateSSEURL(raw string) (*url.URL, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
-		return nil, errors.New("SSE URL is required")
+		return nil, fmt.Errorf("%w: SSE URL is required", ErrInvalidRequest)
 	}
 	parsed, err := url.ParseRequestURI(value)
 	if err != nil {
-		return nil, fmt.Errorf("invalid SSE URL: %w", err)
+		return nil, fmt.Errorf("%w: invalid SSE URL: %v", ErrInvalidRequest, err)
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return nil, errors.New("SSE URL must use http or https")
+		return nil, fmt.Errorf(
+			"%w: SSE URL must use http or https",
+			ErrInvalidRequest,
+		)
 	}
 	if parsed.Host == "" {
-		return nil, errors.New("SSE URL must include a host")
+		return nil, fmt.Errorf("%w: SSE URL must include a host", ErrInvalidRequest)
 	}
 	if parsed.User != nil {
-		return nil, errors.New("SSE URL cannot contain user information")
+		return nil, fmt.Errorf(
+			"%w: SSE URL cannot contain user information",
+			ErrInvalidRequest,
+		)
 	}
 	return parsed, nil
 }
@@ -164,7 +170,11 @@ func normalizeSSELimits(input SSERequest) (int, int64, int64, error) {
 		maxEvents = defaultSSEMaxEvents
 	}
 	if maxEvents < 0 || maxEvents > hardSSEMaxEvents {
-		return 0, 0, 0, fmt.Errorf("max events must be between 1 and %d", hardSSEMaxEvents)
+		return 0, 0, 0, fmt.Errorf(
+			"%w: max events must be between 1 and %d",
+			ErrInvalidRequest,
+			hardSSEMaxEvents,
+		)
 	}
 
 	maxResponseBytes := input.MaxResponseBytes
@@ -172,7 +182,11 @@ func normalizeSSELimits(input SSERequest) (int, int64, int64, error) {
 		maxResponseBytes = defaultSSEMaxResponseBytes
 	}
 	if maxResponseBytes < 1 || maxResponseBytes > hardSSEMaxResponseBytes {
-		return 0, 0, 0, fmt.Errorf("max response bytes must be between 1 and %d", hardSSEMaxResponseBytes)
+		return 0, 0, 0, fmt.Errorf(
+			"%w: max response bytes must be between 1 and %d",
+			ErrInvalidRequest,
+			hardSSEMaxResponseBytes,
+		)
 	}
 
 	maxEventBytes := input.MaxEventBytes
@@ -180,7 +194,10 @@ func normalizeSSELimits(input SSERequest) (int, int64, int64, error) {
 		maxEventBytes = defaultSSEMaxEventBytes
 	}
 	if maxEventBytes < 1 || maxEventBytes > maxResponseBytes {
-		return 0, 0, 0, errors.New("max event bytes must be positive and no larger than max response bytes")
+		return 0, 0, 0, fmt.Errorf(
+			"%w: max event bytes must be positive and no larger than max response bytes",
+			ErrInvalidRequest,
+		)
 	}
 	return maxEvents, maxResponseBytes, maxEventBytes, nil
 }

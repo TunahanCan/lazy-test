@@ -3,6 +3,7 @@ package canbridge
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 const (
@@ -44,77 +45,258 @@ type bridgeMethodDescriptor struct {
 	Name       string
 	Policy     bridgeExecutionPolicy
 	BusyResult func() any
+	invoke     bridgeMethodInvoker
 }
 
-// bridgeMethodRegistry is the single source of truth for methods advertised to
-// the browser and transport-level scheduling policy. Invoke remains an explicit
-// switch so each method keeps compile-time argument decoding.
-var bridgeMethodRegistry = []bridgeMethodDescriptor{
-	{Name: bridgeMethodBootstrap},
-	{
-		Name:   bridgeMethodLoadCollectionLibrary,
-		Policy: bridgeExecutionCollectionLibrarySerial,
-		BusyResult: func() any {
-			return CollectionLibraryLoadResult{
-				Error: collectionLibraryBusyError(),
-			}
-		},
-	},
-	{
-		Name:   bridgeMethodSaveCollectionLibrary,
-		Policy: bridgeExecutionCollectionLibrarySerial,
-		BusyResult: func() any {
-			return CollectionLibrarySaveResult{
-				Error: collectionLibraryBusyError(),
-			}
-		},
-	},
-	{Name: bridgeMethodSendRequest},
-	{Name: bridgeMethodCancelRequest},
-	{Name: bridgeMethodImportOpenAPI},
-	{Name: bridgeMethodValidateOpenAPIResponse},
-	{Name: bridgeMethodGetMockServer},
-	{Name: bridgeMethodUpdateMockRoutes},
-	{Name: bridgeMethodStartMockServer},
-	{Name: bridgeMethodStopMockServer},
-	{Name: bridgeMethodClearMockHits},
-	{Name: bridgeMethodImportMockOpenAPI},
-	{Name: bridgeMethodRunSSE},
-	{Name: bridgeMethodCancelToolOperation},
-	{Name: bridgeMethodInspectActuator},
-	{Name: bridgeMethodCompareEnvironments},
-	{Name: bridgeMethodAnalyzeThreadDump},
-	{Name: bridgeMethodSearchTraceLog},
-	{Name: bridgeMethodAnalyzeEndpointCoverage},
-	{Name: bridgeMethodRunCollection},
-	{Name: bridgeMethodAnalyzeNetwork},
-	{Name: bridgeMethodLintOpenAPI},
+type bridgeMethodInvoker func(*Bridge, string) (any, error)
+
+type bridgeMethodOption func(*bridgeMethodDescriptor)
+
+type bridgeMethodCatalog struct {
+	methods []bridgeMethodDescriptor
+	byName  map[string]bridgeMethodDescriptor
 }
 
-var bridgeMethodNames = func() []string {
-	names := make([]string, len(bridgeMethodRegistry))
-	for index, method := range bridgeMethodRegistry {
+func withBridgeExecutionPolicy(
+	policy bridgeExecutionPolicy,
+	busyResult func() any,
+) bridgeMethodOption {
+	return func(method *bridgeMethodDescriptor) {
+		method.Policy = policy
+		method.BusyResult = busyResult
+	}
+}
+
+// registerBridgeMethod0 adapts a typed, argument-free Bridge method into one
+// command descriptor. The closure keeps argument validation and the handler
+// together without reflection.
+func registerBridgeMethod0[Result any](
+	name string,
+	handler func(*Bridge) Result,
+	options ...bridgeMethodOption,
+) bridgeMethodDescriptor {
+	method := bridgeMethodDescriptor{Name: name}
+	if handler != nil {
+		method.invoke = func(bridge *Bridge, encodedArguments string) (any, error) {
+			if err := requireNoArguments(encodedArguments); err != nil {
+				return nil, err
+			}
+			return handler(bridge), nil
+		}
+	}
+	applyBridgeMethodOptions(&method, options)
+	return method
+}
+
+// registerBridgeMethod1 adapts a single-argument typed Bridge method. Argument
+// decoding remains compile-time typed because Argument is inferred from the
+// concrete method expression at registration.
+func registerBridgeMethod1[Argument, Result any](
+	name string,
+	handler func(*Bridge, Argument) Result,
+	options ...bridgeMethodOption,
+) bridgeMethodDescriptor {
+	method := bridgeMethodDescriptor{Name: name}
+	if handler != nil {
+		method.invoke = func(bridge *Bridge, encodedArguments string) (any, error) {
+			var argument Argument
+			if err := decodeArguments(encodedArguments, &argument); err != nil {
+				return nil, err
+			}
+			return handler(bridge, argument), nil
+		}
+	}
+	applyBridgeMethodOptions(&method, options)
+	return method
+}
+
+func applyBridgeMethodOptions(
+	method *bridgeMethodDescriptor,
+	options []bridgeMethodOption,
+) {
+	for _, option := range options {
+		if option != nil {
+			option(method)
+		}
+	}
+}
+
+func newBridgeMethodCatalog(
+	methods ...bridgeMethodDescriptor,
+) (bridgeMethodCatalog, error) {
+	catalog := bridgeMethodCatalog{
+		methods: append([]bridgeMethodDescriptor(nil), methods...),
+		byName:  make(map[string]bridgeMethodDescriptor, len(methods)),
+	}
+	for index, method := range catalog.methods {
+		if err := validateBridgeMethodDescriptor(method); err != nil {
+			return bridgeMethodCatalog{}, fmt.Errorf(
+				"method descriptor %d: %w",
+				index,
+				err,
+			)
+		}
+		if _, duplicate := catalog.byName[method.Name]; duplicate {
+			return bridgeMethodCatalog{}, fmt.Errorf(
+				"duplicate bridge method %q",
+				method.Name,
+			)
+		}
+		catalog.byName[method.Name] = method
+	}
+	return catalog, nil
+}
+
+func validateBridgeMethodDescriptor(method bridgeMethodDescriptor) error {
+	if strings.TrimSpace(method.Name) == "" {
+		return fmt.Errorf("bridge method name is required")
+	}
+	if method.Name != strings.TrimSpace(method.Name) {
+		return fmt.Errorf("bridge method name %q has surrounding whitespace", method.Name)
+	}
+	if method.invoke == nil {
+		return fmt.Errorf("bridge method %q has no invocation handler", method.Name)
+	}
+	switch method.Policy {
+	case bridgeExecutionConcurrent:
+		if method.BusyResult != nil {
+			return fmt.Errorf(
+				"concurrent bridge method %q has an unused busy result",
+				method.Name,
+			)
+		}
+	case bridgeExecutionCollectionLibrarySerial:
+		if method.BusyResult == nil {
+			return fmt.Errorf(
+				"serial bridge method %q has no typed busy result",
+				method.Name,
+			)
+		}
+	default:
+		return fmt.Errorf(
+			"bridge method %q has unsupported execution policy %d",
+			method.Name,
+			method.Policy,
+		)
+	}
+	return nil
+}
+
+func mustBridgeMethodCatalog(
+	methods ...bridgeMethodDescriptor,
+) bridgeMethodCatalog {
+	catalog, err := newBridgeMethodCatalog(methods...)
+	if err != nil {
+		panic("invalid canbridge method registry: " + err.Error())
+	}
+	return catalog
+}
+
+func (catalog bridgeMethodCatalog) names() []string {
+	names := make([]string, len(catalog.methods))
+	for index, method := range catalog.methods {
 		names[index] = method.Name
 	}
 	return names
-}()
+}
+
+func (catalog bridgeMethodCatalog) lookup(
+	methodName string,
+) (bridgeMethodDescriptor, bool) {
+	method, ok := catalog.byName[methodName]
+	return method, ok
+}
+
+// bridgeMethodRegistry is the single source of truth for browser advertising,
+// transport scheduling, typed argument decoding and Bridge dispatch.
+var bridgeMethodRegistry = mustBridgeMethodCatalog(
+	registerBridgeMethod0(bridgeMethodBootstrap, (*Bridge).Bootstrap),
+	registerBridgeMethod0(
+		bridgeMethodLoadCollectionLibrary,
+		(*Bridge).LoadCollectionLibrary,
+		withBridgeExecutionPolicy(
+			bridgeExecutionCollectionLibrarySerial,
+			func() any {
+				return CollectionLibraryLoadResult{
+					Error: collectionLibraryBusyError(),
+				}
+			},
+		),
+	),
+	registerBridgeMethod1(
+		bridgeMethodSaveCollectionLibrary,
+		(*Bridge).SaveCollectionLibrary,
+		withBridgeExecutionPolicy(
+			bridgeExecutionCollectionLibrarySerial,
+			func() any {
+				return CollectionLibrarySaveResult{
+					Error: collectionLibraryBusyError(),
+				}
+			},
+		),
+	),
+	registerBridgeMethod1(bridgeMethodSendRequest, (*Bridge).SendRequest),
+	registerBridgeMethod1(bridgeMethodCancelRequest, (*Bridge).CancelRequest),
+	registerBridgeMethod0(bridgeMethodImportOpenAPI, (*Bridge).ImportOpenAPI),
+	registerBridgeMethod1(
+		bridgeMethodValidateOpenAPIResponse,
+		(*Bridge).ValidateOpenAPIResponse,
+	),
+	registerBridgeMethod0(bridgeMethodGetMockServer, (*Bridge).GetMockServer),
+	registerBridgeMethod1(bridgeMethodUpdateMockRoutes, (*Bridge).UpdateMockRoutes),
+	registerBridgeMethod1(bridgeMethodStartMockServer, (*Bridge).StartMockServer),
+	registerBridgeMethod0(bridgeMethodStopMockServer, (*Bridge).StopMockServer),
+	registerBridgeMethod0(bridgeMethodClearMockHits, (*Bridge).ClearMockHits),
+	registerBridgeMethod0(
+		bridgeMethodImportMockOpenAPI,
+		(*Bridge).ImportMockOpenAPI,
+	),
+	registerBridgeMethod1(bridgeMethodRunSSE, (*Bridge).RunSSE),
+	registerBridgeMethod1(
+		bridgeMethodCancelToolOperation,
+		(*Bridge).CancelToolOperation,
+	),
+	registerBridgeMethod1(bridgeMethodInspectActuator, (*Bridge).InspectActuator),
+	registerBridgeMethod1(
+		bridgeMethodCompareEnvironments,
+		(*Bridge).CompareEnvironments,
+	),
+	registerBridgeMethod1(
+		bridgeMethodAnalyzeThreadDump,
+		(*Bridge).AnalyzeThreadDump,
+	),
+	registerBridgeMethod1(bridgeMethodSearchTraceLog, (*Bridge).SearchTraceLog),
+	registerBridgeMethod1(
+		bridgeMethodAnalyzeEndpointCoverage,
+		(*Bridge).AnalyzeEndpointCoverage,
+	),
+	registerBridgeMethod1(bridgeMethodRunCollection, (*Bridge).RunCollection),
+	registerBridgeMethod1(bridgeMethodAnalyzeNetwork, (*Bridge).AnalyzeNetwork),
+	registerBridgeMethod0(bridgeMethodLintOpenAPI, (*Bridge).LintOpenAPI),
+)
+
+var bridgeMethodNames = bridgeMethodRegistry.names()
+
+func bridgeMethodForName(
+	methodName string,
+) (bridgeMethodDescriptor, bool) {
+	return bridgeMethodRegistry.lookup(methodName)
+}
 
 func executionPolicyForBridgeMethod(methodName string) bridgeExecutionPolicy {
-	for _, method := range bridgeMethodRegistry {
-		if method.Name == methodName {
-			return method.Policy
-		}
+	method, ok := bridgeMethodForName(methodName)
+	if !ok {
+		return bridgeExecutionConcurrent
 	}
-	return bridgeExecutionConcurrent
+	return method.Policy
 }
 
 func busyResultForBridgeMethod(methodName string) (any, bool) {
-	for _, method := range bridgeMethodRegistry {
-		if method.Name == methodName && method.BusyResult != nil {
-			return method.BusyResult(), true
-		}
+	method, ok := bridgeMethodForName(methodName)
+	if !ok || method.BusyResult == nil {
+		return nil, false
 	}
-	return nil, false
+	return method.BusyResult(), true
 }
 
 // Invoke dispatches the small, explicit API exposed to the frontend. Keeping an
@@ -132,140 +314,11 @@ func (b *Bridge) Invoke(method string, encodedArguments string) (result any, err
 		return nil, fmt.Errorf("canbridge arguments exceed %d bytes", maxBridgeArgumentsBytes)
 	}
 
-	switch method {
-	case bridgeMethodBootstrap:
-		if err := requireNoArguments(encodedArguments); err != nil {
-			return nil, err
-		}
-		return b.Bootstrap(), nil
-	case bridgeMethodLoadCollectionLibrary:
-		if err := requireNoArguments(encodedArguments); err != nil {
-			return nil, err
-		}
-		return b.LoadCollectionLibrary(), nil
-	case bridgeMethodSaveCollectionLibrary:
-		var data string
-		if err := decodeArguments(encodedArguments, &data); err != nil {
-			return nil, err
-		}
-		return b.SaveCollectionLibrary(data), nil
-	case bridgeMethodSendRequest:
-		var input RequestInput
-		if err := decodeArguments(encodedArguments, &input); err != nil {
-			return nil, err
-		}
-		return b.SendRequest(input), nil
-	case bridgeMethodCancelRequest:
-		var requestID string
-		if err := decodeArguments(encodedArguments, &requestID); err != nil {
-			return nil, err
-		}
-		return b.CancelRequest(requestID), nil
-	case bridgeMethodImportOpenAPI:
-		if err := requireNoArguments(encodedArguments); err != nil {
-			return nil, err
-		}
-		return b.ImportOpenAPI(), nil
-	case bridgeMethodValidateOpenAPIResponse:
-		var input ContractCheckInput
-		if err := decodeArguments(encodedArguments, &input); err != nil {
-			return nil, err
-		}
-		return b.ValidateOpenAPIResponse(input), nil
-	case bridgeMethodGetMockServer:
-		if err := requireNoArguments(encodedArguments); err != nil {
-			return nil, err
-		}
-		return b.GetMockServer(), nil
-	case bridgeMethodUpdateMockRoutes:
-		var routes []MockRoute
-		if err := decodeArguments(encodedArguments, &routes); err != nil {
-			return nil, err
-		}
-		return b.UpdateMockRoutes(routes), nil
-	case bridgeMethodStartMockServer:
-		var input MockStartInput
-		if err := decodeArguments(encodedArguments, &input); err != nil {
-			return nil, err
-		}
-		return b.StartMockServer(input), nil
-	case bridgeMethodStopMockServer:
-		if err := requireNoArguments(encodedArguments); err != nil {
-			return nil, err
-		}
-		return b.StopMockServer(), nil
-	case bridgeMethodClearMockHits:
-		if err := requireNoArguments(encodedArguments); err != nil {
-			return nil, err
-		}
-		return b.ClearMockHits(), nil
-	case bridgeMethodImportMockOpenAPI:
-		if err := requireNoArguments(encodedArguments); err != nil {
-			return nil, err
-		}
-		return b.ImportMockOpenAPI(), nil
-	case bridgeMethodRunSSE:
-		var input SSEInput
-		if err := decodeArguments(encodedArguments, &input); err != nil {
-			return nil, err
-		}
-		return b.RunSSE(input), nil
-	case bridgeMethodCancelToolOperation:
-		var operationID string
-		if err := decodeArguments(encodedArguments, &operationID); err != nil {
-			return nil, err
-		}
-		return b.CancelToolOperation(operationID), nil
-	case bridgeMethodInspectActuator:
-		var input ActuatorInspectInput
-		if err := decodeArguments(encodedArguments, &input); err != nil {
-			return nil, err
-		}
-		return b.InspectActuator(input), nil
-	case bridgeMethodCompareEnvironments:
-		var input EnvironmentCompareInput
-		if err := decodeArguments(encodedArguments, &input); err != nil {
-			return nil, err
-		}
-		return b.CompareEnvironments(input), nil
-	case bridgeMethodAnalyzeThreadDump:
-		var input ThreadDumpInput
-		if err := decodeArguments(encodedArguments, &input); err != nil {
-			return nil, err
-		}
-		return b.AnalyzeThreadDump(input), nil
-	case bridgeMethodSearchTraceLog:
-		var input LogSearchInput
-		if err := decodeArguments(encodedArguments, &input); err != nil {
-			return nil, err
-		}
-		return b.SearchTraceLog(input), nil
-	case bridgeMethodAnalyzeEndpointCoverage:
-		var input CoverageInput
-		if err := decodeArguments(encodedArguments, &input); err != nil {
-			return nil, err
-		}
-		return b.AnalyzeEndpointCoverage(input), nil
-	case bridgeMethodRunCollection:
-		var input CollectionRunInput
-		if err := decodeArguments(encodedArguments, &input); err != nil {
-			return nil, err
-		}
-		return b.RunCollection(input), nil
-	case bridgeMethodAnalyzeNetwork:
-		var input NetworkInspectInput
-		if err := decodeArguments(encodedArguments, &input); err != nil {
-			return nil, err
-		}
-		return b.AnalyzeNetwork(input), nil
-	case bridgeMethodLintOpenAPI:
-		if err := requireNoArguments(encodedArguments); err != nil {
-			return nil, err
-		}
-		return b.LintOpenAPI(), nil
-	default:
+	registeredMethod, ok := bridgeMethodForName(method)
+	if !ok {
 		return nil, fmt.Errorf("canbridge method %q is not registered", method)
 	}
+	return registeredMethod.invoke(b, encodedArguments)
 }
 
 func requireNoArguments(encoded string) error {

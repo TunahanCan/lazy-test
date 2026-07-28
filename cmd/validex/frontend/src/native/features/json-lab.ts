@@ -473,13 +473,9 @@ function renderPage(root: HTMLElement, state: JSONLabState): void {
             `,
           )}
 
-        <div class="tool-mode-intro" id="json-mode-guidance">
-          ${icon(activeMode.icon, 18)}
-          <div>
-            <strong>${activeMode.label}</strong>
-            <span>${activeMode.description}</span>
-          </div>
-        </div>
+        <p class="tool-mode-guidance" id="json-mode-guidance">
+          ${activeMode.description}
+        </p>
 
         <div data-json-slot="notice">${toolNotice(state.notice)}</div>
 

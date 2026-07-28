@@ -38,8 +38,10 @@ func newCollectionLibraryService(
 	}
 }
 
-// Start replaces the persistence context for a new native runtime session.
-// Canceling the previous context also releases any old lock waiter.
+// Start replaces the persistence context and CAS observation for a new native
+// runtime session. Canceling the previous context also releases any old lock
+// waiter. The lifecycle write lock prevents a new operation from observing the
+// next context before the prior session revision has been forgotten.
 func (service *collectionLibraryService) Start(parent context.Context) {
 	if service == nil {
 		return
@@ -51,13 +53,16 @@ func (service *collectionLibraryService) Start(parent context.Context) {
 
 	service.lifecycleMu.Lock()
 	previousCancel := service.lifecycleCancel
-	service.lifecycleCtx = nextContext
-	service.lifecycleCancel = nextCancel
-	service.lifecycleMu.Unlock()
-
 	if previousCancel != nil {
 		previousCancel()
 	}
+	service.operationMu.Lock()
+	service.revision = ""
+	service.revisionKnown = false
+	service.lifecycleCtx = nextContext
+	service.lifecycleCancel = nextCancel
+	service.operationMu.Unlock()
+	service.lifecycleMu.Unlock()
 }
 
 // Stop is idempotent and makes context-aware repository work return promptly.

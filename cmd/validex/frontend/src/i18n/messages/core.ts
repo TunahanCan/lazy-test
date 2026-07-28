@@ -46,6 +46,7 @@ export const coreEnglish = {
   "common.copy": "Copy",
   "common.copied": "Copied",
   "common.copyFailed": "Clipboard is not available.",
+  "common.dismiss": "Dismiss",
   "common.technicalDetails": "Technical details",
   "common.httpMethod": "HTTP method {method}",
 
@@ -276,6 +277,7 @@ export const coreTurkish = {
   "common.copy": "Kopyala",
   "common.copied": "Kopyalandı",
   "common.copyFailed": "Pano kullanılamadı.",
+  "common.dismiss": "Kapat",
   "common.technicalDetails": "Teknik ayrıntı",
   "common.httpMethod": "HTTP metodu {method}",
 

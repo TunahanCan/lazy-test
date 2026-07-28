@@ -29,6 +29,11 @@ const (
 	developmentPortMinimum           = 34116
 	developmentPortMaximum           = 34215
 	defaultConcurrentCallDrainPeriod = 3 * time.Second
+	maxConcurrentIPCCalls            = 64
+	maxConcurrentIPCArgumentBytes    = 64 << 20
+	maxCancellationIPCCalls          = 8
+	maxCancellationIPCArgumentBytes  = 1 << 20
+	maxIPCResponseBytes              = 64 << 20
 )
 
 type AppOptions struct {
@@ -54,6 +59,8 @@ type ipcRuntime struct {
 	mu                           sync.Mutex
 	closed                       bool
 	concurrentCalls              sync.WaitGroup
+	concurrentAdmission          ipcAdmissionState
+	cancellationAdmission        ipcAdmissionState
 	collectionLibraryQueue       *ipcSerialInvocationQueue
 	collectionLibraryDrainPeriod time.Duration
 	concurrentDrainPeriod        time.Duration
@@ -65,6 +72,26 @@ type ipcResponse struct {
 	CallbackID string `json:"callbackId"`
 	Result     any    `json:"result,omitempty"`
 	Error      string `json:"error,omitempty"`
+}
+
+type ipcAdmissionLane uint8
+
+const (
+	ipcAdmissionConcurrent ipcAdmissionLane = iota
+	ipcAdmissionCancellation
+)
+
+type ipcAdmissionLimits struct {
+	maxCalls         int
+	maxArgumentBytes int
+}
+
+type ipcAdmissionState struct {
+	// limits is optional so directly constructed runtimes retain production
+	// defaults. Tests may set smaller positive limits to exercise saturation.
+	limits                ipcAdmissionLimits
+	inFlightCalls         int
+	acceptedArgumentBytes int
 }
 
 func Run(options AppOptions) error {
@@ -326,14 +353,115 @@ func (runtime *ipcRuntime) dispatch(
 			return nil
 		}
 	}
+	admissionLane, err := runtime.admitConcurrentCallLocked(
+		method,
+		len(encodedArguments),
+	)
+	if err != nil {
+		runtime.mu.Unlock()
+		return err
+	}
 	runtime.concurrentCalls.Add(1)
 	runtime.mu.Unlock()
 
 	go func() {
-		defer runtime.concurrentCalls.Done()
+		defer runtime.releaseConcurrentCall(
+			admissionLane,
+			len(invocation.encodedArguments),
+		)
 		runtime.execute(invocation)
 	}()
 	return nil
+}
+
+func (runtime *ipcRuntime) admitConcurrentCallLocked(
+	method string,
+	argumentBytes int,
+) (ipcAdmissionLane, error) {
+	lane := admissionLaneForBridgeMethod(method)
+	admission, defaultLimits := runtime.admissionStateLocked(lane)
+	if err := admission.acquire(lane, argumentBytes, defaultLimits); err != nil {
+		return lane, err
+	}
+	return lane, nil
+}
+
+func (runtime *ipcRuntime) releaseConcurrentCall(
+	lane ipcAdmissionLane,
+	argumentBytes int,
+) {
+	runtime.mu.Lock()
+	admission, _ := runtime.admissionStateLocked(lane)
+	admission.release(argumentBytes)
+	runtime.concurrentCalls.Done()
+	runtime.mu.Unlock()
+}
+
+func (runtime *ipcRuntime) admissionStateLocked(
+	lane ipcAdmissionLane,
+) (*ipcAdmissionState, ipcAdmissionLimits) {
+	if lane == ipcAdmissionCancellation {
+		return &runtime.cancellationAdmission, ipcAdmissionLimits{
+			maxCalls:         maxCancellationIPCCalls,
+			maxArgumentBytes: maxCancellationIPCArgumentBytes,
+		}
+	}
+	return &runtime.concurrentAdmission, ipcAdmissionLimits{
+		maxCalls:         maxConcurrentIPCCalls,
+		maxArgumentBytes: maxConcurrentIPCArgumentBytes,
+	}
+}
+
+func admissionLaneForBridgeMethod(method string) ipcAdmissionLane {
+	switch method {
+	case bridgeMethodCancelRequest, bridgeMethodCancelToolOperation:
+		return ipcAdmissionCancellation
+	default:
+		return ipcAdmissionConcurrent
+	}
+}
+
+func (admission *ipcAdmissionState) acquire(
+	lane ipcAdmissionLane,
+	argumentBytes int,
+	defaultLimits ipcAdmissionLimits,
+) error {
+	limits := admission.limits
+	if limits.maxCalls <= 0 {
+		limits.maxCalls = defaultLimits.maxCalls
+	}
+	if limits.maxArgumentBytes <= 0 {
+		limits.maxArgumentBytes = defaultLimits.maxArgumentBytes
+	}
+	if admission.inFlightCalls >= limits.maxCalls {
+		return fmt.Errorf(
+			"canbridge IPC %s lane is full: maximum %d in-flight calls",
+			lane,
+			limits.maxCalls,
+		)
+	}
+	if argumentBytes > limits.maxArgumentBytes-admission.acceptedArgumentBytes {
+		return fmt.Errorf(
+			"canbridge IPC %s lane byte budget exceeded: maximum %d accepted argument bytes",
+			lane,
+			limits.maxArgumentBytes,
+		)
+	}
+	admission.inFlightCalls++
+	admission.acceptedArgumentBytes += argumentBytes
+	return nil
+}
+
+func (admission *ipcAdmissionState) release(argumentBytes int) {
+	admission.inFlightCalls--
+	admission.acceptedArgumentBytes -= argumentBytes
+}
+
+func (lane ipcAdmissionLane) String() string {
+	if lane == ipcAdmissionCancellation {
+		return "cancellation"
+	}
+	return "concurrent"
 }
 
 func (runtime *ipcRuntime) execute(invocation ipcInvocation) {
@@ -350,13 +478,7 @@ func (runtime *ipcRuntime) execute(invocation ipcInvocation) {
 }
 
 func (runtime *ipcRuntime) deliver(response ipcResponse) {
-	payload, err := json.Marshal(response)
-	if err != nil {
-		payload, _ = json.Marshal(ipcResponse{
-			CallbackID: response.CallbackID,
-			Error:      "encode canbridge response: " + err.Error(),
-		})
-	}
+	payload := marshalIPCResponse(response, maxIPCResponseBytes)
 
 	// Coordinate both scheduling and execution with close. Dispatch may invoke
 	// its callback synchronously in tests or asynchronously in a native WebView,
@@ -382,6 +504,36 @@ func (runtime *ipcRuntime) deliver(response ipcResponse) {
 		}
 		view.Eval("window.__canbridgeReceive(" + string(payload) + ");")
 	})
+}
+
+func marshalIPCResponse(response ipcResponse, maximumBytes int) []byte {
+	payload, err := json.Marshal(response)
+	if err != nil {
+		log.Printf(
+			"[canbridge:error] encode IPC response for callback %q: %v",
+			response.CallbackID,
+			err,
+		)
+		return marshalIPCError(response.CallbackID, "encode canbridge response")
+	}
+	if len(payload) > maximumBytes {
+		return marshalIPCError(
+			response.CallbackID,
+			fmt.Sprintf(
+				"canbridge response exceeds %d byte transport limit",
+				maximumBytes,
+			),
+		)
+	}
+	return payload
+}
+
+func marshalIPCError(callbackID string, message string) []byte {
+	payload, _ := json.Marshal(ipcResponse{
+		CallbackID: callbackID,
+		Error:      message,
+	})
+	return payload
 }
 
 func (runtime *ipcRuntime) close() {

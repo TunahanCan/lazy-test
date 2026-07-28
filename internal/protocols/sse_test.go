@@ -277,8 +277,14 @@ func TestReadSSEValidatesInput(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			if _, err := ReadSSE(context.Background(), input); err == nil {
-				t.Fatal("ReadSSE returned nil error")
+			if _, err := ReadSSE(context.Background(), input); !errors.Is(
+				err,
+				ErrInvalidRequest,
+			) {
+				t.Fatalf(
+					"ReadSSE error = %v, want ErrInvalidRequest",
+					err,
+				)
 			}
 		})
 	}

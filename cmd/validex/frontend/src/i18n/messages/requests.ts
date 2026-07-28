@@ -155,13 +155,20 @@ export const requestMessages = defineMessages(
       "Keep this request available after its tab is closed.",
     "requests.workbench.saveDialogHelp":
       "Choose an existing collection or enter a name to create a new one.",
+    "requests.workbench.saveDialogFirstCollectionHelp":
+      "Name your first collection. You can add more requests to it later.",
     "requests.workbench.collectionRequired":
       "Choose a collection or enter a new collection name.",
+    "requests.workbench.firstCollectionRequired":
+      "Enter a name for your first collection.",
     "requests.workbench.requestName": "Request name",
     "requests.workbench.collection": "Collection",
     "requests.workbench.selectCollection": "Select a collection",
     "requests.workbench.createNewCollection": "Create new collection",
     "requests.workbench.newCollectionName": "New collection name",
+    "requests.workbench.firstCollectionName": "First collection name",
+    "requests.workbench.createFirstCollection":
+      "Create your first collection",
     "requests.workbench.cancelSave": "Cancel",
     "requests.workbench.confirmSave": "Save request",
     "requests.workbench.savedTo": "Saved in {collection}",
@@ -654,13 +661,20 @@ export const requestMessages = defineMessages(
       "Sekmesi kapandıktan sonra da bu isteğe erişin.",
     "requests.workbench.saveDialogHelp":
       "Mevcut bir koleksiyon seçin veya yeni koleksiyon oluşturmak için ad girin.",
+    "requests.workbench.saveDialogFirstCollectionHelp":
+      "İlk koleksiyonunuza ad verin. Daha sonra başka istekler de ekleyebilirsiniz.",
     "requests.workbench.collectionRequired":
       "Bir koleksiyon seçin veya yeni koleksiyon adı girin.",
+    "requests.workbench.firstCollectionRequired":
+      "İlk koleksiyonunuz için bir ad girin.",
     "requests.workbench.requestName": "İstek adı",
     "requests.workbench.collection": "Koleksiyon",
     "requests.workbench.selectCollection": "Koleksiyon seç",
     "requests.workbench.createNewCollection": "Yeni koleksiyon oluştur",
     "requests.workbench.newCollectionName": "Yeni koleksiyon adı",
+    "requests.workbench.firstCollectionName": "İlk koleksiyon adı",
+    "requests.workbench.createFirstCollection":
+      "İlk koleksiyonunuzu oluşturun",
     "requests.workbench.cancelSave": "İptal",
     "requests.workbench.confirmSave": "İsteği kaydet",
     "requests.workbench.savedTo": "{collection} içine kaydedildi",

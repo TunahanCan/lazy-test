@@ -14,10 +14,12 @@ import (
 )
 
 func (b *Bridge) GetMockServer() MockServerSnapshot {
-	return mockSnapshot(b.currentMockServer(), "")
+	return b.snapshotMockServer("")
 }
 
 func (b *Bridge) UpdateMockRoutes(routes []MockRoute) MockServerSnapshot {
+	b.mockMu.Lock()
+	defer b.mockMu.Unlock()
 	server := b.currentMockServer()
 	if err := server.ReplaceRoutes(toMockRoutes(routes)); err != nil {
 		return mockFailure(server, "mock_routes_invalid", "Mock route’ları uygulanamadı", err)
@@ -26,31 +28,29 @@ func (b *Bridge) UpdateMockRoutes(routes []MockRoute) MockServerSnapshot {
 }
 
 func (b *Bridge) StartMockServer(input MockStartInput) MockServerSnapshot {
-	b.mu.Lock()
-	current := b.mock
-	if current == nil {
-		current = mockserver.New(mockserver.Options{})
-	}
+	b.mockMu.Lock()
+	defer b.mockMu.Unlock()
+	current := b.currentMockServer()
 	if current.Status().Running {
-		b.mu.Unlock()
 		return mockFailure(current, "mock_already_running", "Mock server zaten çalışıyor", errors.New("önce çalışan server’ı durdurun"))
 	}
 	routes := current.Routes()
 	server := mockserver.New(mockserver.Options{EnableCORS: input.EnableCORS})
 	if err := server.ReplaceRoutes(routes); err != nil {
-		b.mu.Unlock()
 		return mockFailure(current, "mock_routes_invalid", "Mock route’ları uygulanamadı", err)
 	}
 	if _, err := server.Start(input.Port); err != nil {
-		b.mu.Unlock()
 		return mockFailure(current, "mock_start_failed", "Mock server başlatılamadı", err)
 	}
+	b.mu.Lock()
 	b.mock = server
 	b.mu.Unlock()
 	return mockSnapshot(server, "")
 }
 
 func (b *Bridge) StopMockServer() MockServerSnapshot {
+	b.mockMu.Lock()
+	defer b.mockMu.Unlock()
 	server := b.currentMockServer()
 	ctx, cancel := context.WithTimeout(b.operationContext(), 3*time.Second)
 	defer cancel()
@@ -61,6 +61,8 @@ func (b *Bridge) StopMockServer() MockServerSnapshot {
 }
 
 func (b *Bridge) ClearMockHits() MockServerSnapshot {
+	b.mockMu.Lock()
+	defer b.mockMu.Unlock()
 	server := b.currentMockServer()
 	server.ClearHits()
 	return mockSnapshot(server, "")
@@ -69,7 +71,7 @@ func (b *Bridge) ClearMockHits() MockServerSnapshot {
 func (b *Bridge) ImportMockOpenAPI() MockServerSnapshot {
 	ctx := b.runtimeContext()
 	if ctx == nil {
-		out := mockSnapshot(b.currentMockServer(), "")
+		out := b.snapshotMockServer("")
 		out.Error = &UserError{
 			Code:    "runtime_unavailable",
 			Title:   "OpenAPI dosyası seçilemedi",
@@ -82,7 +84,7 @@ func (b *Bridge) ImportMockOpenAPI() MockServerSnapshot {
 		Extensions: []string{"yaml", "yml", "json"},
 	})
 	if err != nil {
-		out := mockSnapshot(b.currentMockServer(), "")
+		out := b.snapshotMockServer("")
 		out.Error = &UserError{
 			Code: "file_dialog_failed", Title: "OpenAPI dosyası seçilemedi",
 			Message: "Sistem dosya seçicisi tamamlanamadı.", Technical: err.Error(),
@@ -90,14 +92,18 @@ func (b *Bridge) ImportMockOpenAPI() MockServerSnapshot {
 		return out
 	}
 	if path == "" {
-		snapshot := mockSnapshot(b.currentMockServer(), "")
+		snapshot := b.snapshotMockServer("")
 		snapshot.Canceled = true
 		return snapshot
 	}
 	routes, err := mockserver.ImportOpenAPI(path)
 	if err != nil {
+		b.mockMu.Lock()
+		defer b.mockMu.Unlock()
 		return mockFailure(b.currentMockServer(), "invalid_openapi", "Mock route’ları üretilemedi", err)
 	}
+	b.mockMu.Lock()
+	defer b.mockMu.Unlock()
 	server := b.currentMockServer()
 	if err := server.ReplaceRoutes(routes); err != nil {
 		return mockFailure(server, "mock_routes_invalid", "Mock route’ları uygulanamadı", err)
@@ -446,6 +452,12 @@ func (b *Bridge) currentMockServer() *mockserver.Server {
 	return b.mock
 }
 
+func (b *Bridge) snapshotMockServer(importedPath string) MockServerSnapshot {
+	b.mockMu.Lock()
+	defer b.mockMu.Unlock()
+	return mockSnapshot(b.currentMockServer(), importedPath)
+}
+
 func toMockRoutes(routes []MockRoute) []mockserver.Route {
 	result := make([]mockserver.Route, 0, len(routes))
 	for _, route := range routes {
@@ -523,14 +535,30 @@ func toolError(code, title string, err error) *UserError {
 		userError.Code = "tool_canceled"
 		userError.Message = "İşlem iptal edildi."
 		userError.Technical = ""
-	} else if strings.Contains(strings.ToLower(err.Error()), "required") ||
-		strings.Contains(strings.ToLower(err.Error()), "invalid") ||
-		strings.Contains(strings.ToLower(err.Error()), "must ") {
+	} else if errors.Is(err, errInvalidToolOperation) ||
+		errors.Is(err, protocols.ErrInvalidRequest) {
 		userError.Code = "invalid_input"
-		userError.Message = err.Error()
+		userError.Message = classifiedErrorDetail(
+			err,
+			errInvalidToolOperation,
+			protocols.ErrInvalidRequest,
+		)
 		userError.Technical = ""
 	}
 	return userError
+}
+
+func classifiedErrorDetail(err error, sentinels ...error) string {
+	message := err.Error()
+	for _, sentinel := range sentinels {
+		if errors.Is(err, sentinel) {
+			return strings.TrimPrefix(
+				message,
+				sentinel.Error()+": ",
+			)
+		}
+	}
+	return message
 }
 
 func diagnosticError(title string, err error) *UserError {

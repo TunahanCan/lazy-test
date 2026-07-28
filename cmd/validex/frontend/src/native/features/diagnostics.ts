@@ -321,17 +321,11 @@ function mainTabs(state: DiagnosticsState): TrustedHTMLFragment {
   `;
 }
 
-function modeIntro(state: DiagnosticsState): TrustedHTMLFragment {
+function modeGuidance(state: DiagnosticsState): TrustedHTMLFragment {
   const mode = modeDefinitions().find((item) => item.id === state.mode);
   if (!mode) return html``;
   return html`
-    <div class="tool-mode-intro diagnostics-mode-intro">
-      ${icon(mode.icon, 18)}
-      <div>
-        <strong>${mode.label}</strong>
-        <span>${mode.description}</span>
-      </div>
-    </div>
+    <p class="tool-mode-guidance">${mode.description}</p>
   `;
 }
 
@@ -1276,7 +1270,7 @@ function springPanel(state: DiagnosticsState): TrustedHTMLFragment {
   const activeResponse = activeTab?.response;
   return html`
     <div class="diagnostics-work-grid">
-      <article class="tool-editor-card">
+      <article class="tool-editor-card diagnostics-spring-input">
         ${cardHeader(
           t("diagnostics.spring.responseTitle"),
           activeResponse
@@ -1881,7 +1875,7 @@ function pageMarkup(state: DiagnosticsState): TrustedHTMLFragment {
         `,
       })}
       ${mainTabs(state)}
-      ${modeIntro(state)}
+      ${modeGuidance(state)}
       ${state.busy
         ? html`
             <div

@@ -1390,6 +1390,59 @@ func TestCancelUnknownRequest(t *testing.T) {
 	Shutdown(bridge)(context.Background())
 }
 
+func TestBridgeLifecycleStateSupportsSerializedRestart(t *testing.T) {
+	bridge := NewBridge()
+	if bridge.lifecycleState != bridgeLifecycleCreated {
+		t.Fatalf("initial lifecycle state = %d", bridge.lifecycleState)
+	}
+
+	firstRuntime := context.Background()
+	Startup(bridge)(firstRuntime)
+	if bridge.lifecycleState != bridgeLifecycleRunning {
+		t.Fatalf("started lifecycle state = %d", bridge.lifecycleState)
+	}
+	firstOperation := bridge.operationContext()
+	if firstOperation.Err() != nil {
+		t.Fatalf("started operation context error = %v", firstOperation.Err())
+	}
+
+	Shutdown(bridge)(context.Background())
+	if bridge.lifecycleState != bridgeLifecycleStopped {
+		t.Fatalf("stopped lifecycle state = %d", bridge.lifecycleState)
+	}
+	if bridge.runtimeContext() != nil {
+		t.Fatal("runtime context remained available after shutdown")
+	}
+	if !errors.Is(firstOperation.Err(), context.Canceled) {
+		t.Fatalf("first operation context error = %v", firstOperation.Err())
+	}
+	if err := bridge.collectionLibrary.persistenceContext().Err(); !errors.Is(
+		err,
+		context.Canceled,
+	) {
+		t.Fatalf("collection context after shutdown = %v", err)
+	}
+
+	// Repeated shutdown is intentionally idempotent, while a later Startup
+	// creates a fresh runtime session for native application restarts in tests.
+	Shutdown(bridge)(context.Background())
+	secondRuntime := context.Background()
+	Startup(bridge)(secondRuntime)
+	if bridge.lifecycleState != bridgeLifecycleRunning {
+		t.Fatalf("restarted lifecycle state = %d", bridge.lifecycleState)
+	}
+	if bridge.runtimeContext() != secondRuntime {
+		t.Fatal("restart did not publish the new runtime context")
+	}
+	if err := bridge.operationContext().Err(); err != nil {
+		t.Fatalf("restarted operation context error = %v", err)
+	}
+	if err := bridge.collectionLibrary.persistenceContext().Err(); err != nil {
+		t.Fatalf("restarted collection context error = %v", err)
+	}
+	Shutdown(bridge)(context.Background())
+}
+
 func TestConcurrentDuplicateRequestIDCannotReplaceOriginalCancel(t *testing.T) {
 	var hits atomic.Int32
 	started := make(chan struct{})

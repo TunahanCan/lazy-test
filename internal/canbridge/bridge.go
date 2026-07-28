@@ -30,6 +30,8 @@ import (
 
 var variablePattern = regexp.MustCompile(`\{\{\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*\}\}`)
 
+var errInvalidToolOperation = errors.New("invalid tool operation")
+
 const (
 	maxHTTPResponseBodyBytes     = int64(16 << 20)
 	maxHTTPResponseHeaderBytes   = int64(1 << 20)
@@ -48,8 +50,19 @@ type requestOperation struct {
 	cancel context.CancelFunc
 }
 
+type bridgeLifecycleState uint8
+
+const (
+	bridgeLifecycleCreated bridgeLifecycleState = iota
+	bridgeLifecycleRunning
+	bridgeLifecycleStopped
+)
+
 type Bridge struct {
 	mu                sync.Mutex
+	mockMu            sync.Mutex
+	lifecycleMu       sync.Mutex
+	lifecycleState    bridgeLifecycleState
 	ctx               context.Context
 	lifecycleCtx      context.Context
 	lifecycleCancel   context.CancelFunc
@@ -97,25 +110,35 @@ func Startup(b *Bridge) func(context.Context) {
 		if ctx == nil {
 			ctx = context.Background()
 		}
+		b.lifecycleMu.Lock()
+		defer b.lifecycleMu.Unlock()
+
 		b.mu.Lock()
 		previousCancel := b.lifecycleCancel
 		b.ctx = ctx
 		b.lifecycleCtx, b.lifecycleCancel = context.WithCancel(ctx)
 		b.mu.Unlock()
+		if previousCancel != nil {
+			previousCancel()
+		}
 		if b.collectionLibrary != nil {
 			// Runtime shutdown cancels concurrent bridge work before it drains
 			// accepted collection writes. Collection cancellation is therefore
 			// owned explicitly by its service/queue, not the shared app context.
 			b.collectionLibrary.Start(context.WithoutCancel(ctx))
 		}
-		if previousCancel != nil {
-			previousCancel()
-		}
+		b.lifecycleState = bridgeLifecycleRunning
 	}
 }
 
 func Shutdown(b *Bridge) func(context.Context) {
 	return func(shutdownCtx context.Context) {
+		b.lifecycleMu.Lock()
+		defer b.lifecycleMu.Unlock()
+		if b.lifecycleState == bridgeLifecycleStopped {
+			return
+		}
+
 		b.mu.Lock()
 		lifecycleCancel := b.lifecycleCancel
 		requestCancels := make([]context.CancelFunc, 0, len(b.cancels))
@@ -129,7 +152,6 @@ func Shutdown(b *Bridge) func(context.Context) {
 		b.ctx = nil
 		b.cancels = map[string]*requestOperation{}
 		b.toolCancels = map[string]*toolOperation{}
-		mock := b.mock
 		b.mu.Unlock()
 
 		if lifecycleCancel != nil {
@@ -142,6 +164,10 @@ func Shutdown(b *Bridge) func(context.Context) {
 		for _, cancel := range toolCancels {
 			cancel()
 		}
+		b.mockMu.Lock()
+		b.mu.Lock()
+		mock := b.mock
+		b.mu.Unlock()
 		if mock != nil {
 			if shutdownCtx == nil {
 				shutdownCtx = context.Background()
@@ -150,6 +176,8 @@ func Shutdown(b *Bridge) func(context.Context) {
 			defer cancel()
 			_ = mock.Stop(ctx)
 		}
+		b.mockMu.Unlock()
+		b.lifecycleState = bridgeLifecycleStopped
 	}
 }
 
@@ -704,10 +732,16 @@ func (b *Bridge) operationContext() context.Context {
 func (b *Bridge) beginToolOperation(operationID string) (context.Context, func(), error) {
 	operationID = strings.TrimSpace(operationID)
 	if operationID == "" {
-		return nil, nil, errors.New("operation ID is required")
+		return nil, nil, fmt.Errorf(
+			"%w: operation ID is required",
+			errInvalidToolOperation,
+		)
 	}
 	if len(operationID) > 128 {
-		return nil, nil, errors.New("operation ID must be at most 128 characters")
+		return nil, nil, fmt.Errorf(
+			"%w: operation ID must be at most 128 characters",
+			errInvalidToolOperation,
+		)
 	}
 
 	ctx, cancel := context.WithCancel(b.operationContext())
@@ -715,7 +749,11 @@ func (b *Bridge) beginToolOperation(operationID string) (context.Context, func()
 	if _, exists := b.toolCancels[operationID]; exists {
 		b.mu.Unlock()
 		cancel()
-		return nil, nil, fmt.Errorf("operation %q is already running", operationID)
+		return nil, nil, fmt.Errorf(
+			"%w: operation %q is already running",
+			errInvalidToolOperation,
+			operationID,
+		)
 	}
 	operation := &toolOperation{cancel: cancel}
 	b.toolCancels[operationID] = operation
