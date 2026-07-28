@@ -55,6 +55,15 @@ func DecodeCollection(reader io.Reader, limits Limits) (Collection, error) {
 }
 
 func validateCollection(collection Collection, limits Limits) error {
+	switch collection.Version {
+	case 0, 1:
+	case 2:
+	default:
+		return fmt.Errorf(
+			"collection version %d is not supported",
+			collection.Version,
+		)
+	}
 	if len(collection.Requests) > limits.MaxRequests {
 		return fmt.Errorf("collection has %d requests; maximum is %d", len(collection.Requests), limits.MaxRequests)
 	}
@@ -65,6 +74,20 @@ func validateCollection(collection Collection, limits Limits) error {
 	assertionCount := 0
 	for index, request := range collection.Requests {
 		label := fmt.Sprintf("request %d", index+1)
+		if collection.Version < 2 &&
+			request.headerFormat == collectionHeadersArray {
+			return fmt.Errorf(
+				"%s uses ordered header arrays, which require collection version 2",
+				label,
+			)
+		}
+		if collection.Version == 2 &&
+			request.headerFormat == collectionHeadersObject {
+			return fmt.Errorf(
+				"%s uses a legacy header object; version 2 requires an ordered header array",
+				label,
+			)
+		}
 		if strings.TrimSpace(request.ID) != "" {
 			if _, exists := seenIDs[request.ID]; exists {
 				return fmt.Errorf("%s uses duplicate id %q", label, request.ID)
@@ -85,6 +108,16 @@ func validateCollection(collection Collection, limits Limits) error {
 		}
 		if len(request.Headers) > maxHeaders {
 			return fmt.Errorf("%s has %d headers; maximum is %d", label, len(request.Headers), maxHeaders)
+		}
+		for headerIndex, header := range request.Headers {
+			if len(header.Value) > maxHeaderValueBytes {
+				return fmt.Errorf(
+					"%s header %d exceeds %d bytes",
+					label,
+					headerIndex+1,
+					maxHeaderValueBytes,
+				)
+			}
 		}
 		if err := validateVariables(label, request.Variables); err != nil {
 			return err

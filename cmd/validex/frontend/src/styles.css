@@ -4167,6 +4167,47 @@ kbd {
   gap: 12px;
 }
 
+.automation-saved-collection {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 7px 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-muted) 54%, transparent);
+}
+
+.automation-saved-collection label {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.automation-saved-collection select {
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 30px 6px 9px;
+  background: var(--surface);
+  font-weight: 500;
+}
+
+.automation-saved-collection > button {
+  min-height: 34px;
+  white-space: nowrap;
+}
+
+.automation-saved-collection > small {
+  grid-column: 1 / -1;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 450;
+  line-height: 1.4;
+}
+
 .automation-collection-input {
   min-height: 160px;
 }
@@ -5208,6 +5249,15 @@ label.diagnostics-field {
 
   .automation-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .automation-saved-collection {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .automation-saved-collection > button {
+    min-height: 42px;
   }
 
   .automation-fields {

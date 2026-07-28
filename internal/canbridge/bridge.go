@@ -4,27 +4,22 @@ package canbridge
 
 import (
 	"bytes"
-	"compress/flate"
-	"compress/gzip"
-	"compress/zlib"
 	"context"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
-	"net/http"
 	"net/http/httptrace"
 	neturl "net/url"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"validex/internal/core"
+	"validex/internal/httpexec"
 	"validex/internal/mockserver"
 )
 
@@ -33,6 +28,7 @@ var variablePattern = regexp.MustCompile(`\{\{\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*\}
 var errInvalidToolOperation = errors.New("invalid tool operation")
 
 const (
+	maxHTTPRequestBodyBytes      = int64(16 << 20)
 	maxHTTPResponseBodyBytes     = int64(16 << 20)
 	maxHTTPResponseHeaderBytes   = int64(1 << 20)
 	maxHTTPContentEncodingLayers = 4
@@ -268,9 +264,9 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 	trace := &requestTrace{started: started}
 	ctx = httptrace.WithClientTrace(ctx, trace.clientTrace())
 
-	var body io.Reader
-	if input.Body != "" && methodAllowsBody(input.Method) {
-		resolvedBody := input.Body
+	resolvedBody := ""
+	if input.Body != "" && httpexec.MethodAllowsBody(input.Method) {
+		resolvedBody = input.Body
 		if !input.LiteralValues {
 			var bodyMissing []string
 			resolvedBody, bodyMissing = resolveVariables(input.Body, input.Variables)
@@ -278,23 +274,9 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 				return failed("missing_variables", "Body içinde eksik değişken var", "Request body çözümlenemedi.", "Şu değişkenleri tanımlayın: "+strings.Join(bodyMissing, ", "), "")
 			}
 		}
-		body = bytes.NewBufferString(resolvedBody)
 	}
 
-	req, err := http.NewRequestWithContext(
-		ctx,
-		strings.TrimSpace(input.Method),
-		resolvedURL,
-		body,
-	)
-	if err != nil {
-		return failed("invalid_request", "Request oluşturulamadı", "Method veya URL geçerli görünmüyor.", "URL’yi ve method seçimini kontrol edin.", err.Error())
-	}
-	bodyContentLength := req.ContentLength
-	hostSet := false
-	contentLengthSet := false
-	transferEncodingSet := false
-	forceHTTP1 := false
+	headers := make([]httpexec.HeaderField, 0, len(input.Headers))
 	for _, header := range input.Headers {
 		if !header.Enabled || strings.TrimSpace(header.Key) == "" {
 			continue
@@ -307,119 +289,39 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 				return failed("missing_variables", "Header içinde eksik değişken var", header.Key+" header değeri çözümlenemedi.", "Şu değişkenleri tanımlayın: "+strings.Join(headerMissing, ", "), "")
 			}
 		}
-		switch {
-		case strings.EqualFold(header.Key, "Host"):
-			if hostSet {
-				return invalidRequestHeader("Host", "Bir request birden fazla Host header içeremez.")
-			}
-			if !validHostHeaderValue(value) {
-				return invalidRequestHeader("Host", "Host değeri geçersiz veya güvenli olmayan karakterler içeriyor.")
-			}
-			// net/http represents Host separately from Header. Leaving it in the
-			// header map silently ignores a browser-exported Host override.
-			req.Host = value
-			hostSet = true
-		case strings.EqualFold(header.Key, "Content-Length"):
-			if contentLengthSet {
-				return invalidRequestHeader("Content-Length", "Bir request birden fazla Content-Length header içeremez.")
-			}
-			if transferEncodingSet {
-				return invalidRequestHeader("Content-Length", "Content-Length ve Transfer-Encoding aynı request’te birlikte kullanılamaz.")
-			}
-			normalizedValue, valueValid := normalizedSpecialHeaderValue(value)
-			parsedLength, parseErr := strconv.ParseUint(normalizedValue, 10, 63)
-			if !valueValid || parseErr != nil {
-				return invalidRequestHeader("Content-Length", "Content-Length negatif olmayan bir tam sayı olmalıdır.")
-			}
-			declaredLength := int64(parsedLength)
-			if declaredLength != bodyContentLength {
-				return invalidRequestHeader(
-					"Content-Length",
-					fmt.Sprintf("Content-Length %d ancak çözümlenmiş request body %d byte.", declaredLength, bodyContentLength),
-				)
-			}
-			normalizedMethod := strings.ToUpper(strings.TrimSpace(input.Method))
-			if declaredLength == 0 &&
-				(normalizedMethod == http.MethodGet || normalizedMethod == http.MethodHead) {
-				return invalidRequestHeader(
-					"Content-Length",
-					"Bu method için açık Content-Length: 0 net/http tarafından wire’a yazılamaz; header’ı kaldırın.",
-				)
-			}
-			if declaredLength == 0 &&
-				normalizedMethod != http.MethodPost &&
-				normalizedMethod != http.MethodPut &&
-				normalizedMethod != http.MethodPatch {
-				// net/http normally omits an explicit zero Content-Length for
-				// DELETE, OPTIONS, TRACE and extension methods. Identity is an
-				// internal transfer-writer signal (it is not emitted as a
-				// Transfer-Encoding header) that preserves the imported wire
-				// framing on HTTP/1.1.
-				req.Body = http.NoBody
-				req.TransferEncoding = []string{"identity"}
-				forceHTTP1 = true
-			}
-			contentLengthSet = true
-		case strings.EqualFold(header.Key, "Transfer-Encoding"):
-			if transferEncodingSet {
-				return invalidRequestHeader("Transfer-Encoding", "Bir request birden fazla Transfer-Encoding header içeremez.")
-			}
-			if contentLengthSet {
-				return invalidRequestHeader("Transfer-Encoding", "Transfer-Encoding ve Content-Length aynı request’te birlikte kullanılamaz.")
-			}
-			normalizedValue, valueValid := normalizedSpecialHeaderValue(value)
-			if !valueValid || !strings.EqualFold(normalizedValue, "chunked") {
-				return invalidRequestHeader("Transfer-Encoding", "Yalnız chunked Transfer-Encoding destekleniyor.")
-			}
-			if !methodAllowsBody(input.Method) {
-				return invalidRequestHeader("Transfer-Encoding", "HEAD ve TRACE requestleri chunked body taşıyamaz.")
-			}
-			if req.Body == nil {
-				req.Body = io.NopCloser(strings.NewReader(""))
-			}
-			req.TransferEncoding = []string{"chunked"}
-			req.ContentLength = -1
-			transferEncodingSet = true
-			forceHTTP1 = true
-		case strings.EqualFold(header.Key, "Trailer"):
-			return invalidRequestHeader(
-				"Trailer",
-				"Trailer alanları düz bir header listesi olarak güvenilir biçimde gönderilemez.",
-			)
-		default:
-			req.Header.Add(header.Key, value)
-		}
-	}
-	if _, explicitlySet := req.Header["User-Agent"]; !explicitlySet {
-		// net/http otherwise adds Go's default User-Agent even though the user did
-		// not enable one in the request editor.
-		req.Header["User-Agent"] = []string{""}
+		headers = append(headers, httpexec.HeaderField{
+			Name:  header.Key,
+			Value: value,
+		})
 	}
 
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.DisableCompression = true
-	transport.MaxResponseHeaderBytes = maxHTTPResponseHeaderBytes
-	if forceHTTP1 {
-		// HTTP/2 has neither chunked transfer coding nor a way to preserve
-		// explicit Content-Length: 0 on every method. Keep these explicitly
-		// imported framing choices on HTTP/1.1 so their wire semantics are not
-		// silently changed.
-		transport.ForceAttemptHTTP2 = false
-		transport.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
-	}
-	defer transport.CloseIdleConnections()
-	client := &http.Client{
-		Timeout:   requestTimeout,
-		Transport: transport,
-		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	executor := httpexec.NewExecutor(httpexec.ExecutorConfig{
+		MaxResponseHeaderBytes: maxHTTPResponseHeaderBytes,
+	})
+	defer executor.CloseIdleConnections()
 	trace.mark(&trace.requestReady)
-	resp, err := client.Do(req)
+	response, err := executor.Execute(ctx, httpexec.Request{
+		Method:  strings.TrimSpace(input.Method),
+		URL:     resolvedURL,
+		Headers: headers,
+		Body:    []byte(resolvedBody),
+	}, httpexec.Options{
+		RequestBodyLimit:     maxHTTPRequestBodyBytes,
+		ResponseBodyLimit:    maxHTTPResponseBodyBytes,
+		ResponseHeaderLimit:  maxHTTPResponseHeaderBytes,
+		MaxContentEncodings:  maxHTTPContentEncodingLayers,
+		RedirectPolicy:       httpexec.StopAtFirstResponse,
+		SuppressDefaultAgent: true,
+	})
 	if err != nil {
-		if responseHeaderLimitExceeded(err) {
+		if errors.Is(err, httpexec.ErrResponseHeadersTooLarge) {
 			return responseHeadersTooLarge(err)
+		}
+		if errors.Is(err, httpexec.ErrRequestBodyTooLarge) {
+			return requestTooLarge()
+		}
+		if errors.Is(err, httpexec.ErrResponseBodyTooLarge) {
+			return responseTooLarge()
 		}
 		if errors.Is(err, context.Canceled) {
 			return failed("request_canceled", "Request iptal edildi", "İstek kullanıcı tarafından durduruldu.", "URL ve form değerleri sekmede korunuyor.", "")
@@ -427,72 +329,51 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return failed("request_timeout", "Request zaman aşımına uğradı", fmt.Sprintf("%d ms içinde yanıt alınamadı.", input.TimeoutMS), "Timeout değerini artırın veya hedef servisin erişilebilirliğini kontrol edin.", err.Error())
 		}
+		if errors.Is(err, httpexec.ErrUnsupportedContentEncoding) {
+			var encodingError *httpexec.ContentEncodingError
+			if errors.As(err, &encodingError) {
+				return unsupportedContentEncoding(encodingError.Encoding)
+			}
+			return unsupportedContentEncoding("")
+		}
+		if errors.Is(err, httpexec.ErrTooManyContentEncodings) {
+			return tooManyContentEncodings()
+		}
+		if errors.Is(err, httpexec.ErrResponseDecodeFailed) {
+			var encodingError *httpexec.ContentEncodingError
+			if errors.As(err, &encodingError) {
+				return responseDecodeFailed(encodingError.Encoding, err)
+			}
+			return responseDecodeFailed("", err)
+		}
+		var headerError *httpexec.HeaderError
+		if errors.As(err, &headerError) {
+			return interactiveHeaderError(headerError)
+		}
+		if errors.Is(err, httpexec.ErrInvalidRequest) {
+			return failed(
+				"invalid_request",
+				"Request oluşturulamadı",
+				"Method, URL veya header tanımı geçerli görünmüyor.",
+				"URL’yi, method seçimini ve etkin header’ları kontrol edin.",
+				err.Error(),
+			)
+		}
 		var netErr net.Error
 		if errors.As(err, &netErr) {
 			return failed("network_error", "Sunucuya ulaşılamadı", "Ağ bağlantısı kurulamadı.", "Base URL, VPN, proxy ve sunucu durumunu kontrol edin.", err.Error())
 		}
 		return failed("request_failed", "Request tamamlanamadı", "Beklenmeyen bir bağlantı hatası oluştu.", "Teknik ayrıntıyı kopyalayıp servis loglarıyla karşılaştırın.", err.Error())
 	}
-	defer resp.Body.Close()
-
-	contentEncodings, unsupportedEncoding, tooManyEncodings :=
-		supportedContentEncodings(resp.Header)
-	responseHasBody := responseCanHaveBody(
-		input.Method,
-		resp.StatusCode,
-		resp.ContentLength,
-	)
-	if responseHasBody && tooManyEncodings {
-		return tooManyContentEncodings()
-	}
-	if responseHasBody && unsupportedEncoding != "" {
-		return unsupportedContentEncoding(unsupportedEncoding)
-	}
-	if !responseHasBody {
-		contentEncodings = nil
-	}
-	if resp.ContentLength > maxHTTPResponseBodyBytes {
-		return responseTooLarge()
-	}
-	encoded, tooLarge, readErr := readHTTPResponseBody(resp.Body, maxHTTPResponseBodyBytes)
-	if readErr != nil {
-		if errors.Is(readErr, context.Canceled) {
-			return failed("request_canceled", "Request iptal edildi", "İstek kullanıcı tarafından durduruldu.", "URL ve form değerleri sekmede korunuyor.", "")
-		}
-		if errors.Is(readErr, context.DeadlineExceeded) {
-			return failed("request_timeout", "Request zaman aşımına uğradı", fmt.Sprintf("%d ms içinde yanıt alınamadı.", input.TimeoutMS), "Timeout değerini artırın veya hedef servisin erişilebilirliğini kontrol edin.", readErr.Error())
-		}
-		return failed("response_read_failed", "Response okunamadı", "Sunucu yanıt verdi ancak response body tamamlanamadı.", "Bağlantıyı kontrol edip request’i yeniden gönderin.", readErr.Error())
-	}
-	if tooLarge {
-		return responseTooLarge()
-	}
-	raw, tooLarge, failedEncoding, decodeErr := decodeContentEncodedBody(
-		ctx,
-		encoded,
-		contentEncodings,
-		maxHTTPResponseBodyBytes,
-	)
-	if decodeErr != nil {
-		if errors.Is(decodeErr, context.Canceled) {
-			return failed("request_canceled", "Request iptal edildi", "İstek kullanıcı tarafından durduruldu.", "URL ve form değerleri sekmede korunuyor.", "")
-		}
-		if errors.Is(decodeErr, context.DeadlineExceeded) {
-			return failed("request_timeout", "Request zaman aşımına uğradı", fmt.Sprintf("%d ms içinde yanıt alınamadı.", input.TimeoutMS), "Timeout değerini artırın veya hedef servisin erişilebilirliğini kontrol edin.", decodeErr.Error())
-		}
-		return responseDecodeFailed(failedEncoding, decodeErr)
-	}
-	if tooLarge {
-		return responseTooLarge()
-	}
+	raw := response.Body
 	end := time.Now()
 	duration := end.Sub(started)
-	pretty := prettyBody(raw, resp.Header.Get("Content-Type"))
+	pretty := prettyBody(raw, response.Headers.Get("Content-Type"))
 	traceSnapshot := trace.snapshot()
 	timeline := traceSnapshot.timeline(end)
 
-	cookies := make([]ResponseCookie, 0, len(resp.Cookies()))
-	for _, cookie := range resp.Cookies() {
+	cookies := make([]ResponseCookie, 0, len(response.Cookies))
+	for _, cookie := range response.Cookies {
 		expires := ""
 		if !cookie.Expires.IsZero() {
 			expires = cookie.Expires.Format(time.RFC3339)
@@ -504,25 +385,26 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 	}
 
 	tlsSummary := "Not used"
-	if resp.TLS != nil {
-		tlsSummary = tlsVersion(resp.TLS.Version) + " · " + tls.CipherSuiteName(resp.TLS.CipherSuite)
+	if response.TLS != nil {
+		tlsSummary = tlsVersion(response.TLS.Version) + " · " +
+			tls.CipherSuiteName(response.TLS.CipherSuite)
 	}
 
-	traceID := traceIDFromTraceparent(resp.Header.Get("traceparent"))
+	traceID := traceIDFromTraceparent(response.Headers.Get("traceparent"))
 	if traceID == "" {
 		traceID = firstNonEmpty(
-			resp.Header.Get("X-Trace-ID"),
-			resp.Header.Get("X-Request-ID"),
+			response.Headers.Get("X-Trace-ID"),
+			response.Headers.Get("X-Request-ID"),
 		)
 	}
 	b.recordObservedCall(input.Method, parsedURL.Path)
 
 	return SendResult{Response: &ResponseEnvelope{
-		RequestID: input.ID, StatusCode: resp.StatusCode, Status: resp.Status,
+		RequestID: input.ID, StatusCode: response.StatusCode, Status: response.Status,
 		DurationMS: duration.Milliseconds(), SizeBytes: int64(len(raw)),
-		ContentType: resp.Header.Get("Content-Type"), Protocol: resp.Proto,
+		ContentType: response.Headers.Get("Content-Type"), Protocol: response.Protocol,
 		RemoteAddr: traceSnapshot.remoteAddr, TLS: tlsSummary, TraceID: traceID,
-		Headers: resp.Header.Clone(), Cookies: cookies, Body: pretty, RawBody: string(raw),
+		Headers: response.Headers.Clone(), Cookies: cookies, Body: pretty, RawBody: string(raw),
 		Timeline: timeline, ResolvedURL: resolvedURL,
 	}}
 }
@@ -770,132 +652,6 @@ func (b *Bridge) beginToolOperation(operationID string) (context.Context, func()
 	return ctx, finish, nil
 }
 
-func readHTTPResponseBody(body io.Reader, limit int64) ([]byte, bool, error) {
-	raw, err := io.ReadAll(io.LimitReader(body, limit+1))
-	if err != nil {
-		return nil, false, err
-	}
-	if int64(len(raw)) > limit {
-		return nil, true, nil
-	}
-	return raw, false, nil
-}
-
-func supportedContentEncodings(header http.Header) ([]string, string, bool) {
-	var encodings []string
-	encodingCount := 0
-	for _, value := range header.Values("Content-Encoding") {
-		for _, rawEncoding := range strings.Split(value, ",") {
-			encoding := strings.ToLower(strings.TrimSpace(rawEncoding))
-			if encoding == "" {
-				continue
-			}
-			encodingCount++
-			if encodingCount > maxHTTPContentEncodingLayers {
-				return nil, "", true
-			}
-			switch encoding {
-			case "identity":
-				continue
-			case "gzip", "x-gzip", "deflate":
-				encodings = append(encodings, encoding)
-			default:
-				return nil, encoding, false
-			}
-		}
-	}
-	return encodings, "", false
-}
-
-func decodeContentEncodedBody(
-	ctx context.Context,
-	encoded []byte,
-	encodings []string,
-	limit int64,
-) ([]byte, bool, string, error) {
-	decoded := encoded
-	if len(decoded) == 0 {
-		return decoded, false, "", nil
-	}
-	for index := len(encodings) - 1; index >= 0; index-- {
-		encoding := encodings[index]
-		if err := ctx.Err(); err != nil {
-			return nil, false, encoding, err
-		}
-		next, tooLarge, err := decodeContentEncodingLayer(
-			ctx,
-			decoded,
-			encoding,
-			limit,
-		)
-		if err != nil {
-			return nil, false, encoding, err
-		}
-		if tooLarge {
-			return nil, true, encoding, nil
-		}
-		decoded = next
-	}
-	return decoded, false, "", nil
-}
-
-func decodeContentEncodingLayer(
-	ctx context.Context,
-	encoded []byte,
-	encoding string,
-	limit int64,
-) ([]byte, bool, error) {
-	var (
-		reader io.ReadCloser
-		err    error
-	)
-	switch encoding {
-	case "gzip", "x-gzip":
-		reader, err = gzip.NewReader(bytes.NewReader(encoded))
-	case "deflate":
-		reader, err = zlib.NewReader(bytes.NewReader(encoded))
-		if err != nil {
-			// Although RFC 9110 defines deflate as a zlib-wrapped stream, some
-			// browser-facing servers still emit raw DEFLATE.
-			reader = flate.NewReader(bytes.NewReader(encoded))
-			err = nil
-		}
-	default:
-		return nil, false, fmt.Errorf("unsupported content encoding %q", encoding)
-	}
-	if err != nil {
-		return nil, false, err
-	}
-
-	decoded, tooLarge, readErr := readHTTPResponseBody(
-		&contextCheckingReader{ctx: ctx, reader: reader},
-		limit,
-	)
-	closeErr := reader.Close()
-	if readErr != nil {
-		return nil, false, readErr
-	}
-	if tooLarge {
-		return nil, true, nil
-	}
-	if closeErr != nil {
-		return nil, false, closeErr
-	}
-	return decoded, false, nil
-}
-
-type contextCheckingReader struct {
-	ctx    context.Context
-	reader io.Reader
-}
-
-func (reader *contextCheckingReader) Read(buffer []byte) (int, error) {
-	if err := reader.ctx.Err(); err != nil {
-		return 0, err
-	}
-	return reader.reader.Read(buffer)
-}
-
 func responseTooLarge() SendResult {
 	return failed(
 		"response_too_large",
@@ -905,6 +661,19 @@ func responseTooLarge() SendResult {
 			maxHTTPResponseBodyBytes>>20,
 		),
 		"Daha küçük bir veri kümesi isteyin veya endpoint’e sayfalama/filtre ekleyin.",
+		"",
+	)
+}
+
+func requestTooLarge() SendResult {
+	return failed(
+		"invalid_request",
+		"Request body sınırı aştı",
+		fmt.Sprintf(
+			"Request body %d MiB güvenlik sınırını aştığı için gönderilmedi.",
+			maxHTTPRequestBodyBytes>>20,
+		),
+		"Body boyutunu küçültün veya büyük dosya aktarımı için özel bir istemci kullanın.",
 		"",
 	)
 }
@@ -922,15 +691,51 @@ func responseHeadersTooLarge(err error) SendResult {
 	)
 }
 
-func responseHeaderLimitExceeded(err error) bool {
-	if err == nil {
-		return false
+func interactiveHeaderError(headerError *httpexec.HeaderError) SendResult {
+	if headerError == nil {
+		return invalidRequestHeader(
+			"Header",
+			"Header adı veya değeri geçerli değil.",
+		)
 	}
-	message := strings.ToLower(err.Error())
-	return strings.Contains(message, "server response headers exceeded") ||
-		strings.Contains(message, "header list too large") ||
-		(strings.Contains(message, "read limit of ") &&
-			strings.Contains(message, " bytes exhausted"))
+	name := headerError.Name
+	if strings.TrimSpace(name) == "" {
+		name = "Header"
+	}
+	message := headerError.Error()
+	switch headerError.Reason {
+	case httpexec.HeaderNameInvalid:
+		message = "Header adı geçerli bir HTTP token değeri olmalıdır."
+	case httpexec.HeaderValueInvalid:
+		message = "Header değeri güvenli olmayan satır sonu karakterleri içeriyor."
+	case httpexec.HeaderHostDuplicate:
+		message = "Bir request birden fazla Host header içeremez."
+	case httpexec.HeaderHostInvalid:
+		message = "Host değeri geçersiz veya güvenli olmayan karakterler içeriyor."
+	case httpexec.HeaderContentLengthDuplicate:
+		message = "Bir request birden fazla Content-Length header içeremez."
+	case httpexec.HeaderContentLengthInvalid:
+		message = "Content-Length negatif olmayan bir tam sayı olmalıdır."
+	case httpexec.HeaderContentLengthMismatch:
+		message = fmt.Sprintf(
+			"Content-Length %d ancak çözümlenmiş request body %d byte.",
+			headerError.DeclaredLength,
+			headerError.BodyLength,
+		)
+	case httpexec.HeaderContentLengthUnsupported:
+		message = "Bu method için açık Content-Length: 0 net/http tarafından wire’a yazılamaz; header’ı kaldırın."
+	case httpexec.HeaderFramingConflict:
+		message = "Content-Length ve Transfer-Encoding aynı request’te birlikte kullanılamaz."
+	case httpexec.HeaderTransferDuplicate:
+		message = "Bir request birden fazla Transfer-Encoding header içeremez."
+	case httpexec.HeaderTransferInvalid:
+		message = "Yalnız chunked Transfer-Encoding destekleniyor."
+	case httpexec.HeaderTransferBodyUnsupported:
+		message = "HEAD ve TRACE requestleri chunked body taşıyamaz."
+	case httpexec.HeaderTrailerUnsupported:
+		message = "Trailer alanları düz bir header listesi olarak güvenilir biçimde gönderilemez."
+	}
+	return invalidRequestHeader(name, message)
 }
 
 func unsupportedContentEncoding(encoding string) SendResult {
@@ -1026,127 +831,6 @@ func isMaskedSecretValue(value string) bool {
 		}
 	}
 	return true
-}
-
-func methodAllowsBody(method string) bool {
-	switch strings.ToUpper(strings.TrimSpace(method)) {
-	case "", http.MethodHead, http.MethodTrace:
-		return false
-	default:
-		return true
-	}
-}
-
-func validHostHeaderValue(host string) bool {
-	if host == "" || strings.TrimSpace(host) != host {
-		return false
-	}
-	hostName := host
-	port := ""
-	if strings.HasPrefix(host, "[") {
-		closingBracket := strings.IndexByte(host, ']')
-		if closingBracket <= 1 {
-			return false
-		}
-		literal := host[1:closingBracket]
-		rest := host[closingBracket+1:]
-		if rest != "" {
-			if !strings.HasPrefix(rest, ":") || len(rest) == 1 {
-				return false
-			}
-			port = rest[1:]
-		}
-		address := literal
-		if zone := strings.LastIndexByte(address, '%'); zone >= 0 {
-			if zone == len(address)-1 || !validHostZone(address[zone+1:]) {
-				return false
-			}
-			address = address[:zone]
-		}
-		if parsed := net.ParseIP(address); parsed == nil || !strings.Contains(address, ":") {
-			return false
-		}
-	} else {
-		if strings.ContainsAny(host, "[]") || strings.Count(host, ":") > 1 {
-			return false
-		}
-		if separator := strings.LastIndexByte(host, ':'); separator >= 0 {
-			if separator == 0 || separator == len(host)-1 {
-				return false
-			}
-			hostName = host[:separator]
-			port = host[separator+1:]
-		}
-		if !validRegisteredHost(hostName) {
-			return false
-		}
-	}
-	if port != "" {
-		parsedPort, err := strconv.ParseUint(port, 10, 16)
-		if err != nil || parsedPort > 65_535 {
-			return false
-		}
-	}
-	return true
-}
-
-func validRegisteredHost(host string) bool {
-	if host == "" || strings.HasPrefix(host, ".") || strings.Contains(host, "..") {
-		return false
-	}
-	for index := 0; index < len(host); index++ {
-		character := host[index]
-		if character >= 'a' && character <= 'z' ||
-			character >= 'A' && character <= 'Z' ||
-			character >= '0' && character <= '9' ||
-			character == '-' ||
-			character == '.' ||
-			character == '_' ||
-			character == '~' {
-			continue
-		}
-		return false
-	}
-	return true
-}
-
-func validHostZone(zone string) bool {
-	for index := 0; index < len(zone); index++ {
-		character := zone[index]
-		if character >= 'a' && character <= 'z' ||
-			character >= 'A' && character <= 'Z' ||
-			character >= '0' && character <= '9' ||
-			character == '-' ||
-			character == '.' ||
-			character == '_' ||
-			character == '~' {
-			continue
-		}
-		return false
-	}
-	return zone != ""
-}
-
-func responseCanHaveBody(method string, statusCode int, contentLength int64) bool {
-	if strings.EqualFold(strings.TrimSpace(method), http.MethodHead) ||
-		contentLength == 0 ||
-		statusCode >= 100 && statusCode <= 199 ||
-		statusCode == http.StatusNoContent ||
-		statusCode == http.StatusResetContent ||
-		statusCode == http.StatusNotModified {
-		return false
-	}
-	return true
-}
-
-func normalizedSpecialHeaderValue(value string) (string, bool) {
-	for index := 0; index < len(value); index++ {
-		character := value[index]
-		if character < ' ' && character != '\t' || character == 0x7f {
-			return "", false
-		}
-	}
-	return strings.Trim(value, " \t"), true
 }
 
 const (

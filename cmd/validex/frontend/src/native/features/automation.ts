@@ -28,6 +28,12 @@ import {
   sampleCollection,
   type AutomationMode,
 } from "../../features/automation/model.js";
+import { savedCollectionRunnerDefinition } from "../../features/automation/savedCollectionRunner.js";
+import {
+  collectionLibraryStore,
+  selectOrderedCollections,
+  selectOrderedRequests,
+} from "../../stores/collectionLibrary.js";
 import {
   emptyToolResult,
   noticeMarkup,
@@ -42,6 +48,7 @@ interface AutomationState {
   mode: AutomationMode;
   notice: ToolNotice | null;
   collection: string;
+  savedCollectionID: string;
   variables: string;
   runnerReport: CollectionRunReport | null;
   runnerOperation: string;
@@ -56,12 +63,21 @@ interface AutomationState {
   lintPending: boolean;
 }
 
+interface SavedCollectionOption {
+  id: string;
+  name: string;
+  requestCount: number;
+}
+
 const knownRunnerFailureCodes = new Set([
   "invalid_request",
   "missing_variables",
   "request_body_too_large",
   "response_body_too_large",
   "response_headers_too_large",
+  "unsupported_content_encoding",
+  "too_many_content_encodings",
+  "response_decode_failed",
   "request_timeout",
   "request_canceled",
   "send_failed",
@@ -393,7 +409,13 @@ function lintResultMarkup(
   `;
 }
 
-function runnerPanel(state: AutomationState): TrustedHTMLFragment {
+function runnerPanel(
+  state: AutomationState,
+  savedCollections: readonly SavedCollectionOption[],
+): TrustedHTMLFragment {
+  const selectedCollectionAvailable = savedCollections.some(
+    (collection) => collection.id === state.savedCollectionID,
+  );
   return html`
     <div
       class="automation-grid"
@@ -420,6 +442,63 @@ function runnerPanel(state: AutomationState): TrustedHTMLFragment {
             </button>
           `,
         )}
+        <div class="automation-saved-collection">
+          <label for="automation-saved-collection">
+            <span>${t("automation.runner.savedCollection.label")}</span>
+            <select
+              id="automation-saved-collection"
+              data-runner-saved-collection
+              aria-describedby="automation-saved-collection-help"
+              ${savedCollections.length === 0 || state.runnerOperation
+                ? "disabled"
+                : ""}
+            >
+              <option
+                value=""
+                ${selectedCollectionAvailable ? "" : "selected"}
+              >
+                ${t(
+                  savedCollections.length === 0
+                    ? "automation.runner.savedCollection.emptyOption"
+                    : "automation.runner.savedCollection.placeholder",
+                )}
+              </option>
+              ${savedCollections.map(
+                (collection) => html`
+                  <option
+                    value="${collection.id}"
+                    ${collection.id === state.savedCollectionID
+                      ? "selected"
+                      : ""}
+                  >
+                    ${t("automation.runner.savedCollection.option", {
+                      name: collection.name,
+                      count: collection.requestCount,
+                    })}
+                  </option>
+                `,
+              )}
+            </select>
+          </label>
+          <button
+            type="button"
+            class="button button-secondary button-sm"
+            data-action="runner-load-saved"
+            ${!selectedCollectionAvailable || state.runnerOperation
+              ? "disabled"
+              : ""}
+          >
+            ${icon("collection", 14)}
+            ${t("automation.runner.savedCollection.load")}
+          </button>
+          <small id="automation-saved-collection-help">
+            ${t(
+              savedCollections.length === 0
+                ? "automation.runner.savedCollection.emptyHelp"
+                : "automation.runner.savedCollection.help",
+            )}
+          </small>
+        </div>
         <textarea
           class="tool-code-input automation-collection-input"
           name="collection"
@@ -672,6 +751,7 @@ export function mountAutomationLab(root: HTMLElement): Disposable {
     mode: "runner",
     notice: null,
     collection: sampleCollection,
+    savedCollectionID: "",
     variables: "{}",
     runnerReport: null,
     runnerOperation: "",
@@ -705,6 +785,17 @@ export function mountAutomationLab(root: HTMLElement): Disposable {
 
   const render = () => {
     if (disposed) return;
+    const library = collectionLibraryStore.getState();
+    const savedCollections = selectOrderedCollections(library).map(
+      (collection) => ({
+        id: collection.id,
+        name: collection.name,
+        requestCount: selectOrderedRequests(
+          library,
+          collection.id,
+        ).length,
+      }),
+    );
     setHTML(
       root,
       html`
@@ -751,7 +842,7 @@ export function mountAutomationLab(root: HTMLElement): Disposable {
           )}
           ${noticeMarkup(state.notice)}
           ${state.mode === "runner"
-            ? runnerPanel(state)
+            ? runnerPanel(state, savedCollections)
             : state.mode === "network"
               ? networkPanel(state)
               : lintPanel(state)}
@@ -766,6 +857,50 @@ validex-cli lint --file openapi.yaml</code></pre>
         </section>
       `,
     );
+  };
+
+  const loadSavedCollection = () => {
+    captureVisibleForm();
+    const selected =
+      root.querySelector<HTMLSelectElement>(
+        "[data-runner-saved-collection]",
+      )?.value ?? state.savedCollectionID;
+    state.savedCollectionID = selected;
+    const library = collectionLibraryStore.getState();
+    const collection = library.collections.find(
+      (candidate) => candidate.id === selected,
+    );
+    if (!collection) {
+      state.savedCollectionID = "";
+      state.notice = {
+        tone: "warning",
+        message: t("automation.runner.savedCollection.missing"),
+      };
+      render();
+      root
+        .querySelector<HTMLSelectElement>(
+          "[data-runner-saved-collection]",
+        )
+        ?.focus();
+      return;
+    }
+    const requests = selectOrderedRequests(library, collection.id);
+    state.collection = savedCollectionRunnerDefinition(
+      collection,
+      requests,
+    );
+    state.runnerReport = null;
+    state.notice = {
+      tone: "success",
+      message: t("automation.runner.savedCollection.loaded", {
+        name: collection.name,
+        count: requests.length,
+      }),
+    };
+    render();
+    root
+      .querySelector<HTMLTextAreaElement>('[name="collection"]')
+      ?.focus();
   };
 
   lifecycle.listen(root, "click", (event) => {
@@ -788,9 +923,12 @@ validex-cli lint --file openapi.yaml</code></pre>
       .action;
     if (action === "runner-sample") {
       state.collection = sampleCollection;
+      state.savedCollectionID = "";
       const textarea =
         root.querySelector<HTMLTextAreaElement>('[name="collection"]');
       if (textarea) textarea.value = sampleCollection;
+    } else if (action === "runner-load-saved") {
+      loadSavedCollection();
     } else if (action === "runner-stop") {
       void backend.cancelToolOperation(state.runnerOperation);
     } else if (action === "network-stop") {
@@ -798,6 +936,19 @@ validex-cli lint --file openapi.yaml</code></pre>
     } else if (action === "lint") {
       void lintOpenAPI();
     }
+  });
+
+  lifecycle.listen(root, "change", (event) => {
+    const selector = eventElement<HTMLSelectElement>(
+      event,
+      "[data-runner-saved-collection]",
+    );
+    if (!selector) return;
+    state.savedCollectionID = selector.value;
+    const loadButton = root.querySelector<HTMLButtonElement>(
+      '[data-action="runner-load-saved"]',
+    );
+    if (loadButton) loadButton.disabled = selector.value === "";
   });
 
   lifecycle.listen(root, "keydown", (event) => {
@@ -988,6 +1139,22 @@ validex-cli lint --file openapi.yaml</code></pre>
     state.notice = null;
     render();
   }));
+  lifecycle.add(
+    collectionLibraryStore.subscribe(() => {
+      captureVisibleForm();
+      if (
+        state.savedCollectionID &&
+        !collectionLibraryStore
+          .getState()
+          .collections.some(
+            (collection) => collection.id === state.savedCollectionID,
+          )
+      ) {
+        state.savedCollectionID = "";
+      }
+      render();
+    }),
+  );
   render();
   return {
     dispose() {

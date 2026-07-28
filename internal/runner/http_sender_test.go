@@ -1,6 +1,8 @@
 package runner
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"io"
@@ -11,6 +13,7 @@ import (
 	"testing"
 
 	"validex/internal/assertions"
+	"validex/internal/httpexec"
 )
 
 func TestHTTPSenderSendsRequestAndCapturesBoundedResponse(t *testing.T) {
@@ -35,9 +38,11 @@ func TestHTTPSenderSendsRequestAndCapturesBoundedResponse(t *testing.T) {
 	defer server.Close()
 
 	result, err := NewHTTPSender(nil).Send(context.Background(), PreparedRequest{
-		Method:            http.MethodPost,
-		URL:               server.URL + "/items",
-		Headers:           http.Header{"X-Token": {"secret"}},
+		Method: http.MethodPost,
+		URL:    server.URL + "/items",
+		Headers: []httpexec.HeaderField{
+			{Name: "X-Token", Value: "secret"},
+		},
 		Body:              []byte(`{"name":"Ada"}`),
 		RequestBodyLimit:  1024,
 		ResponseBodyLimit: 1024,
@@ -50,6 +55,47 @@ func TestHTTPSenderSendsRequestAndCapturesBoundedResponse(t *testing.T) {
 		string(result.Body) != `{"id":42}` ||
 		result.DurationMS < 0 {
 		t.Fatalf("Send() response = %#v", result)
+	}
+}
+
+func TestHTTPSenderUsesBoundedManualContentDecoding(t *testing.T) {
+	t.Parallel()
+	var encoded bytes.Buffer
+	writer := gzip.NewWriter(&encoded)
+	if _, err := writer.Write([]byte("decoded response")); err != nil {
+		t.Fatalf("write gzip payload: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close gzip payload: %v", err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(
+		response http.ResponseWriter,
+		request *http.Request,
+	) {
+		if request.Header.Get("Accept-Encoding") != "" {
+			t.Errorf(
+				"implicit Accept-Encoding = %q",
+				request.Header.Get("Accept-Encoding"),
+			)
+		}
+		response.Header().Set("Content-Encoding", "gzip")
+		_, _ = response.Write(encoded.Bytes())
+	}))
+	defer server.Close()
+
+	sender := NewHTTPSender(nil)
+	defer sender.CloseIdleConnections()
+	result, err := sender.Send(context.Background(), PreparedRequest{
+		Method:            http.MethodGet,
+		URL:               server.URL,
+		ResponseBodyLimit: 128,
+	})
+	if err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	if string(result.Body) != "decoded response" ||
+		result.Headers.Get("Content-Encoding") != "gzip" {
+		t.Fatalf("response = %#v", result)
 	}
 }
 
@@ -139,6 +185,95 @@ func TestRunWithHTTPSenderEndToEnd(t *testing.T) {
 	}
 }
 
+func TestHTTPSenderFollowsRedirectsExplicitly(t *testing.T) {
+	t.Parallel()
+	var targetCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(
+		response http.ResponseWriter,
+		request *http.Request,
+	) {
+		if request.URL.Path == "/target" {
+			targetCalls.Add(1)
+			response.WriteHeader(http.StatusNoContent)
+			return
+		}
+		http.Redirect(response, request, "/target", http.StatusFound)
+	}))
+	defer server.Close()
+
+	sender := NewHTTPSender(nil)
+	defer sender.CloseIdleConnections()
+	result, err := sender.Send(context.Background(), PreparedRequest{
+		Method: http.MethodGet,
+		URL:    server.URL + "/start",
+	})
+	if err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	if result.StatusCode != http.StatusNoContent || targetCalls.Load() != 1 {
+		t.Fatalf(
+			"result/target calls = %#v/%d",
+			result,
+			targetCalls.Load(),
+		)
+	}
+}
+
+func TestRunPreservesOrderedDuplicateAndSpecialHeaders(t *testing.T) {
+	t.Parallel()
+	type observedRequest struct {
+		host     string
+		repeated []string
+		agent    string
+		encoding string
+	}
+	observed := make(chan observedRequest, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(
+		response http.ResponseWriter,
+		request *http.Request,
+	) {
+		observed <- observedRequest{
+			host:     request.Host,
+			repeated: request.Header.Values("X-Repeated"),
+			agent:    request.Header.Get("User-Agent"),
+			encoding: request.Header.Get("Accept-Encoding"),
+		}
+		response.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	sender := NewHTTPSender(nil)
+	defer sender.CloseIdleConnections()
+	report, err := Run(context.Background(), Collection{
+		Version: 2,
+		Requests: []Request{{
+			Method: http.MethodGet,
+			URL:    server.URL,
+			Headers: []Header{
+				{Enabled: true, Key: "X-Repeated", Value: "first"},
+				{Enabled: false, Key: "X-Repeated", Value: "disabled"},
+				{Enabled: true, Key: "x-repeated", Value: "second"},
+				{Enabled: true, Key: "Host", Value: "api.example.test"},
+			},
+		}},
+	}, sender, Options{})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if report.Passed != 1 || report.Failed != 0 {
+		t.Fatalf("report = %#v", report)
+	}
+	request := <-observed
+	if request.host != "api.example.test" ||
+		len(request.repeated) != 2 ||
+		request.repeated[0] != "first" ||
+		request.repeated[1] != "second" ||
+		request.agent != "" ||
+		request.encoding != "" {
+		t.Fatalf("observed request = %#v", request)
+	}
+}
+
 func TestHTTPSenderReturnsContextErrorsForRunnerClassification(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
@@ -169,8 +304,8 @@ func TestHTTPSenderOwnsOnlyItsDefaultTransport(t *testing.T) {
 	if injected.client != injectedClient {
 		t.Fatal("injected client identity was not preserved")
 	}
-	if injected.closeIdleConnections != nil {
-		t.Fatal("sender must not take ownership of an injected client")
+	if injected.closeIdleConnections == nil {
+		t.Fatal("sender must clean up transport clones derived from an injected client")
 	}
 	injected.CloseIdleConnections()
 	(*HTTPSender)(nil).CloseIdleConnections()

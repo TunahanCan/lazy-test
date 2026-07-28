@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"validex/internal/assertions"
+	"validex/internal/httpexec"
 )
 
 const (
@@ -42,6 +43,9 @@ const (
 	FailureRequestBodyTooLarge     = "request_body_too_large"
 	FailureResponseBodyTooLarge    = "response_body_too_large"
 	FailureResponseHeadersTooLarge = "response_headers_too_large"
+	FailureUnsupportedEncoding     = "unsupported_content_encoding"
+	FailureTooManyEncodings        = "too_many_content_encodings"
+	FailureResponseDecodeFailed    = "response_decode_failed"
 	FailureRequestTimeout          = "request_timeout"
 	FailureRequestCanceled         = "request_canceled"
 	FailureSendFailed              = "send_failed"
@@ -93,17 +97,28 @@ type Collection struct {
 	Requests  []Request         `json:"requests"`
 }
 
+// Header is one collection header row. Version 2 collections use an ordered
+// array so repeated names and disabled editor rows survive persistence.
+type Header struct {
+	Enabled bool   `json:"enabled"`
+	Key     string `json:"key"`
+	Value   string `json:"value"`
+}
+
 // Request is one collection entry.
 type Request struct {
-	ID         string                 `json:"id,omitempty"`
-	Name       string                 `json:"name,omitempty"`
-	Method     string                 `json:"method"`
-	URL        string                 `json:"url"`
-	Headers    map[string]string      `json:"headers,omitempty"`
-	Body       string                 `json:"body,omitempty"`
-	Variables  map[string]string      `json:"variables,omitempty"`
-	TimeoutMS  int                    `json:"timeoutMs,omitempty"`
-	Assertions []assertions.Assertion `json:"assertions,omitempty"`
+	ID            string                 `json:"id,omitempty"`
+	Name          string                 `json:"name,omitempty"`
+	Method        string                 `json:"method"`
+	URL           string                 `json:"url"`
+	Headers       []Header               `json:"headers,omitempty"`
+	Body          string                 `json:"body,omitempty"`
+	Variables     map[string]string      `json:"variables,omitempty"`
+	LiteralValues bool                   `json:"literalValues,omitempty"`
+	TimeoutMS     int                    `json:"timeoutMs,omitempty"`
+	Assertions    []assertions.Assertion `json:"assertions,omitempty"`
+
+	headerFormat collectionHeaderFormat
 }
 
 // PreparedRequest is the fully interpolated request passed to a Sender.
@@ -113,7 +128,7 @@ type PreparedRequest struct {
 	Method              string
 	URL                 string
 	ReportURL           string
-	Headers             http.Header
+	Headers             []httpexec.HeaderField
 	Body                []byte
 	RequestBodyLimit    int64
 	ResponseBodyLimit   int64

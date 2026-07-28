@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"validex/internal/assertions"
+	"validex/internal/httpexec"
 )
 
 // Run executes requests sequentially. Transport and assertion failures are
@@ -129,7 +130,7 @@ func Run(
 			}
 			continue
 		}
-		if responseHeadersExceed(
+		if httpexec.ResponseHeadersExceed(
 			response.Headers,
 			limits.MaxResponseHeaderBytes,
 		) {
@@ -209,6 +210,12 @@ func failureFromPreparation(err error) *Failure {
 
 func failureFromSendError(err, contextErr error, timeoutMS int, limits Limits) *Failure {
 	switch {
+	case errors.Is(err, httpexec.ErrInvalidRequest):
+		return &Failure{
+			Code:    FailureInvalidRequest,
+			Message: "Request definition is not valid.",
+			Hint:    "Check the method, URL, headers, and body framing.",
+		}
 	case errors.Is(err, ErrRequestBodyTooLarge):
 		return &Failure{
 			Code:    FailureRequestBodyTooLarge,
@@ -234,6 +241,24 @@ func failureFromSendError(err, contextErr error, timeoutMS int, limits Limits) *
 		return &Failure{
 			Code:    FailureRequestCanceled,
 			Message: "Request was canceled.",
+		}
+	case errors.Is(err, ErrUnsupportedContentEncoding):
+		return &Failure{
+			Code:    FailureUnsupportedEncoding,
+			Message: "Response uses an unsupported Content-Encoding.",
+			Hint:    "Request gzip or deflate, or update the target service response.",
+		}
+	case errors.Is(err, ErrTooManyContentEncodings):
+		return &Failure{
+			Code:    FailureTooManyEncodings,
+			Message: "Response uses too many Content-Encoding layers.",
+			Hint:    "Reduce the number of response compression layers.",
+		}
+	case errors.Is(err, ErrResponseDecodeFailed):
+		return &Failure{
+			Code:    FailureResponseDecodeFailed,
+			Message: "Response body could not be decoded.",
+			Hint:    "Check that Content-Encoding matches the response body.",
 		}
 	default:
 		return &Failure{

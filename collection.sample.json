@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "name": "Validex local smoke",
   "variables": {
     "baseUrl": "http://localhost:8080"
@@ -10,9 +10,13 @@
       "name": "Actuator health",
       "method": "GET",
       "url": "{{baseUrl}}/actuator/health",
-      "headers": {
-        "Accept": "application/json"
-      },
+      "headers": [
+        {
+          "enabled": true,
+          "key": "Accept",
+          "value": "application/json"
+        }
+      ],
       "timeoutMs": 5000,
       "assertions": [
         {

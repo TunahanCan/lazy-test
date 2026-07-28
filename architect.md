@@ -166,6 +166,7 @@ cmd/validex-cli
       ▼
 internal/cli
       ├── internal/runner ──► internal/assertions
+      │                   └─► internal/httpexec
       ├── internal/netinspector
       └── internal/openapilint
 ```
@@ -202,10 +203,11 @@ validex/
 │       └── main.go                    # CLI composition root
 ├── internal/
 │   ├── assertions/                    # saf assertion motoru
-│   ├── canbridge/                     # desktop adapter, IPC ve request motoru
+│   ├── canbridge/                     # desktop adapter, IPC ve request orkestrasyonu
 │   ├── cli/                           # test edilebilir CLI adaptörü
 │   ├── core/                          # OpenAPI ve contract drift
 │   ├── diagnostics/                   # backend/JVM analizleri
+│   ├── httpexec/                      # ortak bounded HTTP wire executor
 │   ├── mockserver/                    # loopback mock HTTP server
 │   ├── nativewebview/                 # dar Go/CGO/native pencere sınırı
 │   ├── netinspector/                  # DNS ve redirect analizi
@@ -234,6 +236,7 @@ flowchart TD
     Canbridge["internal/canbridge"]
     CLIAdapter["internal/cli"]
     Native["internal/nativewebview"]
+    HTTPExec["internal/httpexec"]
     Core["core · mockserver · protocols · diagnostics"]
     Automation["runner · assertions · netinspector · openapilint"]
 
@@ -242,6 +245,8 @@ flowchart TD
     Canbridge --> Native
     Canbridge --> Core
     Canbridge --> Automation
+    Canbridge --> HTTPExec
+    Automation --> HTTPExec
     CLIRoot --> CLIAdapter
     CLIAdapter --> Automation
 ```
@@ -260,7 +265,8 @@ Oklar compile-time veya runtime kullanım yönünü gösterir. Temel kurallar:
 
 | Paket | Sorumluluk |
 | --- | --- |
-| `internal/canbridge` | Desktop lifecycle, IPC, bootstrap, HTTP request gönderimi, dosya seçici, collection persistence ve domain adaptasyonu |
+| `internal/canbridge` | Desktop lifecycle, IPC, bootstrap, interactive request orkestrasyonu, dosya seçici, collection persistence ve domain adaptasyonu |
+| `internal/httpexec` | Sıralı/tekrarlı header modeli, özel wire header'ları, redirect policy, bounded response ve content decoding kullanan ortak HTTP executor |
 | `internal/nativewebview` | Native pencere oluşturma, navigate/eval/bind/dispatch ve minimum pencere API'si |
 | `internal/core` | Sınırlı OpenAPI yükleme, endpoint çıkarma ve JSON response contract drift |
 | `internal/mockserver` | `127.0.0.1` üzerinde deterministic mock route ve bounded hit geçmişi |
@@ -272,10 +278,11 @@ Oklar compile-time veya runtime kullanım yönünü gösterir. Temel kurallar:
 | `internal/openapilint` | Sınırlı, sıralı ve makinece okunabilir OpenAPI bulguları |
 | `internal/cli` | Flag, stdin/stdout, JSON çıktı ve exit code adaptasyonu |
 
-`internal/canbridge` içinde desktop HTTP request orkestrasyonu bulunması mevcut
-ve bilinçli bir durumdur. Bu kod CLI tarafından paylaşılmıyorsa sırf katman
-sayısını artırmak için ayrı pakete taşınmamalıdır; paylaşılacak yeni bir domain
-davranışı oluştuğunda ayrıştırılmalıdır.
+Variable çözümleme, kullanıcı hata metni, timeline sunumu, assertion ve rapor
+üretimi kendi adapter/domain katmanlarında kalır. Wire-level HTTP davranışı ise
+`canbridge` ile `runner` arasında kopyalanmaz; iki akış da
+`internal/httpexec` kullanır. `httpexec` hiçbir UI veya runner report tipini
+import etmez.
 
 ## 6. Desktop lifecycle ve native pencere
 
@@ -755,6 +762,22 @@ Request motoru:
 - status, protokol, uzak adres, TLS, trace ID, header, cookie, raw body ve
   ölçülmüş bağlantı fazlarını döndürür.
 
+Bu akışta `canbridge` variable, request ID/cancellation, timeline, history ve
+`UserError` adaptasyonunun sahibidir. Çözümlenmiş method/URL/body ile etkin
+header listesi `internal/httpexec.Executor`'a verilir. Ortak executor:
+
+- aynı canonical header adına ait tekrarlı değerlerin sırasını korur;
+- `Host`, `Content-Length`, `Transfer-Encoding` ve `Trailer` alanlarını
+  `net/http` özel alanlarına güvenli biçimde adapte eder;
+- normal ve gerektiğinde HTTP/1 transport clone'larını sahiplenir;
+- request/response body ile response header limitlerini uygular;
+- gzip, x-gzip ve zlib/raw deflate katmanlarını decoded-size sınırıyla açar;
+- invalid header, limit ve encoding hatalarını typed sentinel'larla döndürür.
+
+Standart `net/http` farklı header adlarının global wire sırasını garanti etmez.
+Modeldeki sıra, aynı isimli değerlerin sırası ve editör round-trip'i içindir;
+raw HTTP/1 header order sözleşmesi değildir.
+
 Contract kontrolü request transport'undan ayrı ikinci aşamadır. Bu ayrım,
 başarılı HTTP cevabının OpenAPI hatası yüzünden kaybolmamasını sağlar.
 
@@ -867,6 +890,26 @@ Desktop Automation workspace ve CLI şu domain paketlerini paylaşır:
 Runner bir request başarısız olduğunda raporu korur ve sonraki request'lere
 devam eder; parent context iptali tüm çalışmayı durdurur. CLI yalnız input/output
 adaptasyonudur, domain kararlarını yeniden uygulamaz.
+
+Runner collection wire sözleşmesinin iki sürümü okunabilir:
+
+| Sürüm | Header biçimi | Davranış |
+| --- | --- | --- |
+| Eksik / `1` | JSON object (`name -> value`) | Geriye uyumluluk için okunur; key'ler deterministik sıralanarak canonical listeye çevrilir |
+| `2` | Sıralı `{enabled,key,value}` array'i | Duplicate ad, satır sırası ve disabled durumunu kaybetmez; `literalValues` request seviyesinde taşınır |
+
+Yeni örnekler ve kayıtlı UI collection adaptörü sürüm 2 üretir. Automation
+workspace'teki anti-corruption layer, `collectionLibraryStore` modelini runner
+JSON'una çevirir; runtime variable'ları definition içine gömmez ve ayrı
+`CollectionRunInput.variables` alanında tutar. Persist edilen frontend
+collection schema'sı ile runner wire schema'sı iki farklı sözleşmedir; native
+collection repository iç dokümanı yorumlamaya devam etmez.
+
+Runner shared executor'a açık `FollowRedirects` policy'si verir; interactive
+Request ise `StopAtFirstResponse` kullanır. Bu fark örtük client varsayılanı
+değil, adapter seviyesinde görünür bir ürün kararıdır. İki akış da implicit
+User-Agent/Accept-Encoding eklemez, özel framing kurallarını ve bounded manuel
+content decoding'i paylaşır.
 
 ## 10. State ve persistence
 
@@ -984,13 +1027,16 @@ sahiplenir:
 
 | Bileşen | Oluşturma | Kapanış sözleşmesi |
 | --- | --- | --- |
-| Desktop interactive request | `internal/canbridge` default transport'u clone eder | Request çağrısı sonunda `CloseIdleConnections` defer edilir |
+| Desktop interactive request | `httpexec.NewExecutor` normal ve HTTP/1 default transport clone'larını oluşturur | Request çağrısı sonunda `Executor.CloseIdleConnections` defer edilir |
 | SSE | `internal/protocols` kendi transport'unu clone eder | SSE çağrısı sonunda kapatılır |
-| Runner | `runner.NewHTTPSender(nil)` kendi client/transport'unu hazırlar | Sahip çağıran `HTTPSender.CloseIdleConnections` kullanır; CLI ve Automation bridge bunu defer eder |
+| Runner | `runner.NewHTTPSender(nil)` ortak executor ve owned transport clone'larını hazırlar | Sahip çağıran `HTTPSender.CloseIdleConnections` kullanır; CLI ve Automation bridge bunu defer eder |
 | Network inspector | `netinspector.New` HTTP client verilmediyse transport oluşturur | Paket-level `netinspector.Inspect` otomatik kapatır; doğrudan `New` kullanan sahip `Inspector.CloseIdleConnections` çağırır |
 
-Runner veya inspector'a dışarıdan client enjekte edildiğinde client ve
-transport caller-owned kalır; bileşen bunları kapatmaz. Yeni bir HTTP adapter
+Runner'a standart transport taşıyan client enjekte edildiğinde ortak executor,
+compression/header politikasını caller kaynağını mutate etmeden uygulamak için
+transport'u clone eder ve yalnız bu clone'u kapatır. Orijinal client/transport
+caller-owned kalır. Custom `RoundTripper` as-is kullanılır ve kapatılmaz.
+Inspector'a enjekte edilen client da caller-owned kalır. Yeni bir HTTP adapter
 eklerken constructor'ın “owned” ve “injected” yolları belgelenmeli, yalnız
 kendi oluşturduğu transport için idempotent bir cleanup yüzeyi yayınlamalı ve
 composition root bu cleanup'ı çağırmalıdır.
@@ -1042,6 +1088,7 @@ WebView genel amaçlı güvenlik sandbox'ı olarak değerlendirilmemelidir.
 | IPC normal concurrent lane | 64 in-flight çağrı, toplam 64 MiB accepted arguments |
 | IPC cancellation fast lane | 8 in-flight çağrı, toplam 1 MiB accepted arguments |
 | IPC marshaled response envelope | 64 MiB hard |
+| Desktop HTTP request body | 16 MiB hard |
 | Desktop HTTP response body | 16 MiB hard |
 | Desktop HTTP timeout | 1 ms–5 dakika |
 | OpenAPI import | 16 MiB, 10.000 endpoint, 8 cached spec |
@@ -1364,6 +1411,7 @@ sınırı maddelerini atlamayın.
 | Go standart kütüphanesi SSE | Protokol bağımlılığını kaldırmak ve limitleri sahiplenmek | Yalnız ihtiyaç duyulan SSE yüzeyi desteklenir |
 | Native collection dosyası + CAS | Çakışmayı ve yarım yazmayı görünür kılmak | Lock, revision, atomic replace ve migration gerekir |
 | Explicit HTTP transport sahipliği | Idle connection kaynaklarını constructor/caller arasında belirsiz bırakmamak | Yalnız internally-created transport owner tarafından kapatılır |
+| Ortak policy-driven HTTP executor | Interactive ve runner wire davranışının ayrışmasını, duplicate header kaybını ve string hata sınıflandırmasını önlemek | Adapter'lar variable/report/UI işini korur; header, framing, limit, compression ve typed transport hataları `internal/httpexec` içinde tek kaynaktır |
 | CLI için paylaşılan domain paketleri | CI ve desktop davranışını yakın tutmak | CLI ince bir I/O adaptörü olarak kalır |
 
 Bu kararların değiştirilmesi mümkündür; ancak değişiklik yeni bağımlılık,

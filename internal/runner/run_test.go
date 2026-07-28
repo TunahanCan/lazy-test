@@ -57,7 +57,9 @@ func TestRunInterpolatesScopesExecutesSequentiallyAndEvaluatesAssertions(t *test
 		Requests: []Request{
 			{
 				ID: "first", Name: "Create", Method: " post ", URL: "{{baseUrl}}/items",
-				Headers:   map[string]string{"Authorization": "Bearer {{token}}"},
+				Headers: []Header{
+					{Enabled: true, Key: "Authorization", Value: "Bearer {{token}}"},
+				},
 				Body:      `{"source":"{{source}}"}`,
 				Variables: map[string]string{"source": "request"},
 				Assertions: []assertions.Assertion{
@@ -98,7 +100,9 @@ func TestRunInterpolatesScopesExecutesSequentiallyAndEvaluatesAssertions(t *test
 		t.Fatalf("sender order = %#v", received)
 	}
 	if received[0].Method != http.MethodPost ||
-		received[0].Headers.Get("Authorization") != "Bearer runtime-token" ||
+		len(received[0].Headers) != 1 ||
+		received[0].Headers[0].Name != "Authorization" ||
+		received[0].Headers[0].Value != "Bearer runtime-token" ||
 		string(received[0].Body) != `{"source":"request"}` {
 		t.Fatalf("prepared first request = %#v, body %q", received[0], received[0].Body)
 	}
@@ -179,6 +183,38 @@ func TestRunEnforcesInterpolatedBodyAndCustomSenderResponseLimits(t *testing.T) 
 	}
 	if got := report.Results[1].Failure; got == nil || got.Code != FailureResponseBodyTooLarge {
 		t.Fatalf("response limit failure = %#v", got)
+	}
+}
+
+func TestFailureFromSendErrorClassifiesSharedExecutorErrors(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		err  error
+		code string
+	}{
+		{
+			err:  ErrUnsupportedContentEncoding,
+			code: FailureUnsupportedEncoding,
+		},
+		{
+			err:  ErrTooManyContentEncodings,
+			code: FailureTooManyEncodings,
+		},
+		{
+			err:  ErrResponseDecodeFailed,
+			code: FailureResponseDecodeFailed,
+		},
+	}
+	for _, test := range tests {
+		failure := failureFromSendError(
+			test.err,
+			nil,
+			DefaultRequestTimeoutMS,
+			DefaultLimits(),
+		)
+		if failure == nil || failure.Code != test.code {
+			t.Fatalf("failureFromSendError(%v) = %#v", test.err, failure)
+		}
 	}
 }
 

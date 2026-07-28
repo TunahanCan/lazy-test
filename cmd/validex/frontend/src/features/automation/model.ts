@@ -10,6 +10,7 @@ const defaultTranslate: Translate = (key, values) =>
 
 export const sampleCollection = JSON.stringify(
   {
+    version: 2,
     name: "Local smoke",
     variables: {
       baseUrl: "http://localhost:8080",

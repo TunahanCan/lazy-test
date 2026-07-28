@@ -42,6 +42,12 @@ export const automationToolsMessages = defineMessages(
       "The response body exceeds the safe size limit.",
     "automation.runner.failure.response_headers_too_large":
       "The response headers exceed the safe size limit.",
+    "automation.runner.failure.unsupported_content_encoding":
+      "The response uses a Content-Encoding that Validex cannot decode.",
+    "automation.runner.failure.too_many_content_encodings":
+      "The response contains too many nested compression layers.",
+    "automation.runner.failure.response_decode_failed":
+      "The response body does not match its declared Content-Encoding.",
     "automation.runner.failure.request_timeout":
       "The request did not finish within its timeout.",
     "automation.runner.failure.request_canceled":
@@ -60,6 +66,21 @@ export const automationToolsMessages = defineMessages(
     "automation.runner.collectionHelp":
       "JSON collection definition. Requests run from top to bottom.",
     "automation.runner.loadSample": "Load sample",
+    "automation.runner.savedCollection.label": "Saved collection",
+    "automation.runner.savedCollection.placeholder": "Choose a collection",
+    "automation.runner.savedCollection.emptyOption":
+      "No saved collections",
+    "automation.runner.savedCollection.option":
+      "{name} · {count} requests",
+    "automation.runner.savedCollection.load": "Load into editor",
+    "automation.runner.savedCollection.help":
+      "Loads a copy from your library. Runtime variables stay separate, and the JSON remains editable.",
+    "automation.runner.savedCollection.emptyHelp":
+      "Create and save a collection in Requests, then return here to run it.",
+    "automation.runner.savedCollection.loaded":
+      "{name} loaded with {count} requests. Review or edit the JSON before running.",
+    "automation.runner.savedCollection.missing":
+      "The selected collection is no longer available. Choose another collection.",
     "automation.runner.variables": "Runtime variable override JSON",
     "automation.runner.variablesHelp":
       "Optional JSON object. Values override variables in the collection for this run only.",
@@ -520,6 +541,12 @@ export const automationToolsMessages = defineMessages(
       "Response body güvenli boyut sınırını aşıyor.",
     "automation.runner.failure.response_headers_too_large":
       "Response header’ları güvenli boyut sınırını aşıyor.",
+    "automation.runner.failure.unsupported_content_encoding":
+      "Response, Validex’in açamadığı bir Content-Encoding kullanıyor.",
+    "automation.runner.failure.too_many_content_encodings":
+      "Response çok fazla iç içe sıkıştırma katmanı içeriyor.",
+    "automation.runner.failure.response_decode_failed":
+      "Response body, bildirilen Content-Encoding ile eşleşmiyor.",
     "automation.runner.failure.request_timeout":
       "Request belirtilen timeout süresinde tamamlanmadı.",
     "automation.runner.failure.request_canceled":
@@ -538,6 +565,22 @@ export const automationToolsMessages = defineMessages(
     "automation.runner.collectionHelp":
       "JSON collection tanımı. Request’ler yukarıdan aşağıya sırayla çalışır.",
     "automation.runner.loadSample": "Örneği yükle",
+    "automation.runner.savedCollection.label": "Kayıtlı koleksiyon",
+    "automation.runner.savedCollection.placeholder":
+      "Bir koleksiyon seçin",
+    "automation.runner.savedCollection.emptyOption":
+      "Kayıtlı koleksiyon yok",
+    "automation.runner.savedCollection.option":
+      "{name} · {count} request",
+    "automation.runner.savedCollection.load": "Editöre yükle",
+    "automation.runner.savedCollection.help":
+      "Kitaplığınızdaki koleksiyonun bir kopyasını yükler. Çalıştırma değişkenleri ayrı kalır ve JSON düzenlenebilir.",
+    "automation.runner.savedCollection.emptyHelp":
+      "Requests ekranında bir koleksiyon oluşturup kaydedin, ardından çalıştırmak için buraya dönün.",
+    "automation.runner.savedCollection.loaded":
+      "{name}, {count} request ile yüklendi. Çalıştırmadan önce JSON’u inceleyebilir veya düzenleyebilirsiniz.",
+    "automation.runner.savedCollection.missing":
+      "Seçilen koleksiyon artık bulunamıyor. Başka bir koleksiyon seçin.",
     "automation.runner.variables": "Çalıştırma değişkenleri · JSON",
     "automation.runner.variablesHelp":
       "İsteğe bağlı JSON object. Değerler yalnız bu çalıştırmada collection variable’larını geçersiz kılar.",

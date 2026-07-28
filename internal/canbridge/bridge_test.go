@@ -19,6 +19,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"validex/internal/httpexec"
 )
 
 func TestResolveVariablesReportsMissingKeys(t *testing.T) {
@@ -276,6 +278,42 @@ func TestSendRequestDoesNotAddOptionalHeaders(t *testing.T) {
 		if got := headers.Get(name); got != "" {
 			t.Errorf("%s was added implicitly: %q", name, got)
 		}
+	}
+}
+
+func TestSendRequestStopsAtFirstRedirect(t *testing.T) {
+	t.Parallel()
+	var targetCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(
+		response http.ResponseWriter,
+		request *http.Request,
+	) {
+		if request.URL.Path == "/target" {
+			targetCalls.Add(1)
+			response.WriteHeader(http.StatusNoContent)
+			return
+		}
+		http.Redirect(response, request, "/target", http.StatusFound)
+	}))
+	defer server.Close()
+
+	result := NewBridge().SendRequest(RequestInput{
+		ID:        "redirect-stop",
+		Method:    http.MethodGet,
+		URL:       server.URL + "/start",
+		TimeoutMS: 2_000,
+	})
+	if result.Error != nil {
+		t.Fatalf("unexpected error: %#v", result.Error)
+	}
+	if result.Response == nil ||
+		result.Response.StatusCode != http.StatusFound ||
+		targetCalls.Load() != 0 {
+		t.Fatalf(
+			"response/target calls = %#v/%d",
+			result.Response,
+			targetCalls.Load(),
+		)
 	}
 }
 
@@ -810,51 +848,6 @@ func TestSendRequestReportsMalformedCompressedResponse(t *testing.T) {
 	}
 }
 
-func TestDecodeContentEncodedBodyEnforcesDecodedLimit(t *testing.T) {
-	payload := gzipTestPayload(t, bytes.Repeat([]byte("a"), 1_024))
-	decoded, tooLarge, failedEncoding, err := decodeContentEncodedBody(
-		context.Background(),
-		payload,
-		[]string{"gzip"},
-		32,
-	)
-	if err != nil {
-		t.Fatalf("decodeContentEncodedBody() error = %v", err)
-	}
-	if decoded != nil || !tooLarge || failedEncoding != "gzip" {
-		t.Fatalf(
-			"decodeContentEncodedBody() = %q, %v, %q; want nil, true, gzip",
-			decoded,
-			tooLarge,
-			failedEncoding,
-		)
-	}
-}
-
-func TestDecodeContentEncodedBodyHonorsContextCancellation(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	payload := gzipTestPayload(t, []byte("response"))
-
-	decoded, tooLarge, failedEncoding, err := decodeContentEncodedBody(
-		ctx,
-		payload,
-		[]string{"gzip"},
-		maxHTTPResponseBodyBytes,
-	)
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("decode error = %v, want context.Canceled", err)
-	}
-	if decoded != nil || tooLarge || failedEncoding != "gzip" {
-		t.Fatalf(
-			"decode result = %q, %v, %q; want nil, false, gzip",
-			decoded,
-			tooLarge,
-			failedEncoding,
-		)
-	}
-}
-
 func TestValidHostHeaderValueAcceptsCommonAuthorities(t *testing.T) {
 	for _, host := range []string{
 		"api.example.test",
@@ -864,7 +857,7 @@ func TestValidHostHeaderValueAcceptsCommonAuthorities(t *testing.T) {
 		"[2001:db8::1]:443",
 		"[fe80::1%en0]:8080",
 	} {
-		if !validHostHeaderValue(host) {
+		if !httpexec.ValidHostHeaderValue(host) {
 			t.Errorf("validHostHeaderValue(%q) = false", host)
 		}
 	}
@@ -1344,16 +1337,6 @@ func TestSendRequestRejectsDeclaredOversizedResponse(t *testing.T) {
 	}
 	if !strings.Contains(result.Error.Message, "16 MiB") || result.Error.Technical != "" {
 		t.Fatalf("unexpected oversized response error: %#v", result.Error)
-	}
-}
-
-func TestReadHTTPResponseBodyDetectsUndeclaredOverflow(t *testing.T) {
-	raw, tooLarge, err := readHTTPResponseBody(strings.NewReader("12345"), 4)
-	if err != nil {
-		t.Fatalf("readHTTPResponseBody() error = %v", err)
-	}
-	if raw != nil || !tooLarge {
-		t.Fatalf("readHTTPResponseBody() = %q, %v; want nil, true", raw, tooLarge)
 	}
 }
 

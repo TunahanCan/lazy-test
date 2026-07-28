@@ -2,11 +2,12 @@ package runner
 
 import (
 	"fmt"
-	"net/http"
 	"net/url"
 	"regexp"
 	"sort"
 	"strings"
+
+	"validex/internal/httpexec"
 )
 
 var variablePattern = regexp.MustCompile(`\{\{\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*\}\}`)
@@ -31,41 +32,82 @@ func prepareRequest(request Request, variables map[string]string, limits Limits)
 	}
 
 	missing := make(map[string]struct{})
-	resolvedURL, urlMissing, err := interpolateBounded(request.URL, scopedVariables, maxURLBytes)
-	if err != nil {
-		return PreparedRequest{}, invalidRequest("request URL " + err.Error())
+	resolvedURL := request.URL
+	var err error
+	if !request.LiteralValues {
+		var urlMissing []string
+		resolvedURL, urlMissing, err = interpolateBounded(
+			request.URL,
+			scopedVariables,
+			maxURLBytes,
+		)
+		if err != nil {
+			return PreparedRequest{}, invalidRequest("request URL " + err.Error())
+		}
+		addMissing(missing, urlMissing)
+	} else if int64(len(resolvedURL)) > maxURLBytes {
+		return PreparedRequest{}, invalidRequest(
+			fmt.Sprintf("request URL exceeds %d bytes", maxURLBytes),
+		)
 	}
-	addMissing(missing, urlMissing)
 
-	resolvedBody, bodyMissing, err := interpolateBounded(request.Body, scopedVariables, limits.MaxRequestBodyBytes)
-	if err != nil {
+	resolvedBody := request.Body
+	if !request.LiteralValues {
+		var bodyMissing []string
+		resolvedBody, bodyMissing, err = interpolateBounded(
+			request.Body,
+			scopedVariables,
+			limits.MaxRequestBodyBytes,
+		)
+		if err != nil {
+			return PreparedRequest{}, &preparationError{failure: Failure{
+				Code:    FailureRequestBodyTooLarge,
+				Message: fmt.Sprintf("Request body exceeds %d bytes after variable interpolation.", limits.MaxRequestBodyBytes),
+				Hint:    "Reduce the body or interpolated variable values.",
+			}}
+		}
+		addMissing(missing, bodyMissing)
+	} else if int64(len(resolvedBody)) > limits.MaxRequestBodyBytes {
 		return PreparedRequest{}, &preparationError{failure: Failure{
 			Code:    FailureRequestBodyTooLarge,
-			Message: fmt.Sprintf("Request body exceeds %d bytes after variable interpolation.", limits.MaxRequestBodyBytes),
-			Hint:    "Reduce the body or interpolated variable values.",
+			Message: fmt.Sprintf("Request body exceeds %d bytes.", limits.MaxRequestBodyBytes),
+			Hint:    "Reduce the body.",
 		}}
 	}
-	addMissing(missing, bodyMissing)
 
-	headers := make(http.Header, len(request.Headers))
-	headerNames := make([]string, 0, len(request.Headers))
-	for name := range request.Headers {
-		headerNames = append(headerNames, name)
-	}
-	sort.Strings(headerNames)
-	for _, name := range headerNames {
+	headers := make([]httpexec.HeaderField, 0, len(request.Headers))
+	for _, header := range request.Headers {
+		if !header.Enabled {
+			continue
+		}
+		name := header.Key
 		if !validHTTPToken(name) {
 			return PreparedRequest{}, invalidRequest(fmt.Sprintf("header name %q is invalid", name))
 		}
-		value, headerMissing, err := interpolateBounded(request.Headers[name], scopedVariables, maxHeaderValueBytes)
-		if err != nil {
-			return PreparedRequest{}, invalidRequest(fmt.Sprintf("header %q exceeds %d bytes", name, maxHeaderValueBytes))
+		value := header.Value
+		if !request.LiteralValues {
+			var headerMissing []string
+			value, headerMissing, err = interpolateBounded(
+				header.Value,
+				scopedVariables,
+				maxHeaderValueBytes,
+			)
+			if err != nil {
+				return PreparedRequest{}, invalidRequest(fmt.Sprintf("header %q exceeds %d bytes", name, maxHeaderValueBytes))
+			}
+			addMissing(missing, headerMissing)
+		} else if len(value) > maxHeaderValueBytes {
+			return PreparedRequest{}, invalidRequest(
+				fmt.Sprintf("header %q exceeds %d bytes", name, maxHeaderValueBytes),
+			)
 		}
 		if strings.ContainsAny(value, "\r\n") {
 			return PreparedRequest{}, invalidRequest(fmt.Sprintf("header %q contains a line break", name))
 		}
-		addMissing(missing, headerMissing)
-		headers.Set(name, value)
+		headers = append(headers, httpexec.HeaderField{
+			Name:  name,
+			Value: value,
+		})
 	}
 
 	if len(missing) > 0 {
@@ -87,13 +129,25 @@ func prepareRequest(request Request, variables map[string]string, limits Limits)
 	if parsedURL.User != nil {
 		return PreparedRequest{}, invalidRequest("request URL cannot contain user information")
 	}
+	if parsedURL.Fragment != "" || strings.Contains(resolvedURL, "#") {
+		return PreparedRequest{}, invalidRequest(
+			"request URL cannot contain a fragment",
+		)
+	}
+	if !httpexec.MethodAllowsBody(method) {
+		resolvedBody = ""
+	}
+	reportURL := redactReportURL(request.URL, scopedVariables)
+	if request.LiteralValues {
+		reportURL = redactRawQuery(resolvedURL)
+	}
 
 	return PreparedRequest{
 		ID:                  request.ID,
 		Name:                request.Name,
 		Method:              method,
 		URL:                 resolvedURL,
-		ReportURL:           redactReportURL(request.URL, scopedVariables),
+		ReportURL:           reportURL,
 		Headers:             headers,
 		Body:                []byte(resolvedBody),
 		RequestBodyLimit:    limits.MaxRequestBodyBytes,

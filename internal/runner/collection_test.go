@@ -19,7 +19,10 @@ func TestParseCollectionDecodesStableJSONModelAndPreservesNumbers(t *testing.T) 
 			"name": "Health",
 			"method": "GET",
 			"url": "{{baseUrl}}/health",
-			"headers": {"Accept": "application/json"},
+			"headers": {
+				"X-Trace": "enabled",
+				"Accept": "application/json"
+			},
 			"timeoutMs": 2500,
 			"assertions": [{
 				"target": "status",
@@ -36,9 +39,65 @@ func TestParseCollectionDecodesStableJSONModelAndPreservesNumbers(t *testing.T) 
 	if collection.Version != 1 || collection.Name != "smoke" || len(collection.Requests) != 1 {
 		t.Fatalf("collection = %#v", collection)
 	}
+	headers := collection.Requests[0].Headers
+	if len(headers) != 2 || !headers[0].Enabled ||
+		headers[0].Key != "Accept" ||
+		headers[0].Value != "application/json" ||
+		headers[1].Key != "X-Trace" {
+		t.Fatalf("legacy headers = %#v", headers)
+	}
 	expected, ok := collection.Requests[0].Assertions[0].Expected.(json.Number)
 	if !ok || expected.String() != "9007199254740993" {
 		t.Fatalf("expected value = %#v, want precise json.Number", collection.Requests[0].Assertions[0].Expected)
+	}
+}
+
+func TestParseCollectionV2PreservesOrderedHeadersAndLiteralValues(t *testing.T) {
+	t.Parallel()
+	data := []byte(`{
+		"version": 2,
+		"name": "saved collection",
+		"requests": [{
+			"id": "create",
+			"method": "POST",
+			"url": "https://example.test/items?template={{name}}",
+			"literalValues": true,
+			"headers": [
+				{"enabled": true, "key": "X-Repeated", "value": "{{first}}"},
+				{"enabled": false, "key": "", "value": ""},
+				{"enabled": true, "key": "x-repeated", "value": "{{second}}"}
+			],
+			"body": "{\"value\":\"{{body}}\"}"
+		}]
+	}`)
+
+	collection, err := ParseCollection(data, Limits{})
+	if err != nil {
+		t.Fatalf("ParseCollection() error = %v", err)
+	}
+	request := collection.Requests[0]
+	if !request.LiteralValues || len(request.Headers) != 3 {
+		t.Fatalf("request = %#v", request)
+	}
+	prepared, err := prepareRequest(
+		request,
+		map[string]string{
+			"name": "changed", "first": "changed",
+			"second": "changed", "body": "changed",
+		},
+		DefaultLimits(),
+	)
+	if err != nil {
+		t.Fatalf("prepareRequest() error = %v", err)
+	}
+	if prepared.URL != request.URL ||
+		string(prepared.Body) != request.Body ||
+		len(prepared.Headers) != 2 ||
+		prepared.Headers[0].Name != "X-Repeated" ||
+		prepared.Headers[0].Value != "{{first}}" ||
+		prepared.Headers[1].Name != "x-repeated" ||
+		prepared.Headers[1].Value != "{{second}}" {
+		t.Fatalf("prepared request = %#v, body %q", prepared, prepared.Body)
 	}
 }
 
@@ -53,6 +112,33 @@ func TestParseCollectionRejectsMalformedUnknownTrailingAndUnsafeInput(t *testing
 		{
 			name: "unknown field",
 			data: `{"requests":[],"unexpected":true}`,
+			want: "unknown field",
+		},
+		{
+			name: "unsupported version",
+			data: `{"version":3,"requests":[]}`,
+			want: "version 3 is not supported",
+		},
+		{
+			name: "v1 ordered headers",
+			data: `{"version":1,"requests":[{
+				"method":"GET","url":"https://example.test","headers":[]
+			}]}`,
+			want: "require collection version 2",
+		},
+		{
+			name: "v2 legacy headers",
+			data: `{"version":2,"requests":[{
+				"method":"GET","url":"https://example.test","headers":{}
+			}]}`,
+			want: "version 2 requires an ordered header array",
+		},
+		{
+			name: "unknown ordered header field",
+			data: `{"version":2,"requests":[{
+				"method":"GET","url":"https://example.test",
+				"headers":[{"key":"X-Test","value":"yes","unexpected":true}]
+			}]}`,
 			want: "unknown field",
 		},
 		{

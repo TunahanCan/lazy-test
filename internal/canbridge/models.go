@@ -1,6 +1,8 @@
 package canbridge
 
-// KeyValue preserves header order and allows repeated header names.
+// KeyValue preserves editor order and repeated header values. The shared
+// net/http executor preserves value order for a canonical name, but does not
+// promise global wire order across different header names.
 type KeyValue struct {
 	Enabled     bool   `json:"enabled"`
 	Key         string `json:"key"`
