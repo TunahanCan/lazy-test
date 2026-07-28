@@ -16,6 +16,7 @@ import {
   normalizedLibraryName,
 } from "../.typescript-build/esm/features/collections/model.js";
 import { issueFrom } from "../.typescript-build/esm/features/protocols/model.js";
+import { parseMockServerPort } from "../.typescript-build/esm/features/mock-server/model.js";
 import { createPersistedStore, createStore } from "../.typescript-build/esm/core/store.js";
 import { translate } from "../.typescript-build/esm/i18n/messages.js";
 import {
@@ -119,6 +120,14 @@ test("request schema accepts templated HTTP URLs and TRACE", () => {
       }).success,
       true,
     );
+  }
+});
+
+test("manual mock server ports accept only the TCP port range", () => {
+  assert.equal(parseMockServerPort("4010"), 4010);
+  assert.equal(parseMockServerPort(" 65535 "), 65535);
+  for (const value of ["", "0", "65536", "40.1", "four-thousand"]) {
+    assert.equal(parseMockServerPort(value), null);
   }
 });
 

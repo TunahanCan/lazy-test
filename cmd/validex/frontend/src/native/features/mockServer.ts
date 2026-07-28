@@ -28,6 +28,7 @@ import {
   isMockSnapshot,
   mockHTTPMethods,
   operationError,
+  parseMockServerPort,
   parseRoutes,
   toEditableRoute,
   type EditableRoute,
@@ -94,7 +95,8 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
   let routes: EditableRoute[] = [];
   let hits: MockHit[] = [];
   let selectedID = "";
-  let port = 0;
+  let portMode: "auto" | "manual" = "auto";
+  let manualPort = "4010";
   let enableCors = false;
   let dirty = false;
   let busy = "refresh";
@@ -105,6 +107,10 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
 
   const selectedRoute = (): EditableRoute | null =>
     routes.find((route) => route.id === selectedID) ?? null;
+
+  const parsedManualPort = (): number | null => {
+    return parseMockServerPort(manualPort);
+  };
 
   const activeRequest = () => {
     const state = workspaceStore.getState();
@@ -402,6 +408,8 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
 
   const pageMarkup = (): TrustedHTMLFragment => {
     const isBusy = Boolean(busy);
+    const portLocked = Boolean(server?.running) || isBusy;
+    const manualPortValid = parsedManualPort() !== null;
     return html`
       <section
         class="tool-page"
@@ -451,21 +459,57 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
             19,
             busy ? "spin" : "",
           )}
-          <label class="mock-server-port-field">
+          <div class="mock-server-port-field">
             <span>${t("mock.port")}</span>
-            <input
-              class="mock-server-port-input"
-              aria-label="${t("mock.portAria")}"
-              type="number"
-              min="0"
-              max="65535"
-              value="${port}"
-              data-field="port"
-              data-focus="field:port"
-              aria-describedby="mock-server-port-help"
-              ${disabledAttribute(Boolean(server?.running) || isBusy)}
-            />
-          </label>
+            <div
+              class="mock-server-port-mode"
+              role="group"
+              aria-label="${t("mock.portModeAria")}"
+            >
+              <button
+                type="button"
+                class="${portMode === "auto" ? "active" : ""}"
+                data-action="port-auto"
+                data-focus="action:port-auto"
+                aria-pressed="${portMode === "auto" ? "true" : "false"}"
+                ${disabledAttribute(portLocked)}
+              >
+                ${t("mock.portAuto")}
+              </button>
+              <button
+                type="button"
+                class="${portMode === "manual" ? "active" : ""}"
+                data-action="port-manual"
+                data-focus="action:port-manual"
+                aria-pressed="${portMode === "manual" ? "true" : "false"}"
+                ${disabledAttribute(portLocked)}
+              >
+                ${t("mock.portManual")}
+              </button>
+            </div>
+          </div>
+          ${portMode === "manual"
+            ? html`
+                <label class="mock-server-manual-port">
+                  <span>${t("mock.portNumber")}</span>
+                  <input
+                    class="mock-server-port-input"
+                    aria-label="${t("mock.portAria")}"
+                    type="number"
+                    inputmode="numeric"
+                    min="1"
+                    max="65535"
+                    step="1"
+                    value="${manualPort}"
+                    data-field="port"
+                    data-focus="field:port"
+                    aria-describedby="mock-server-port-help"
+                    aria-invalid="${manualPortValid ? "false" : "true"}"
+                    ${disabledAttribute(portLocked)}
+                  />
+                </label>
+              `
+            : ""}
           <label class="mock-server-cors-toggle">
             <input
               type="checkbox"
@@ -477,7 +521,11 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
             ${t("mock.cors")}
           </label>
           <span class="mock-server-port-hint" id="mock-server-port-help">
-            ${t("mock.portHint")}
+            ${portMode === "auto"
+              ? t("mock.portHintAuto")
+              : manualPortValid
+                ? t("mock.portHintManual")
+                : t("mock.portInvalid")}
           </span>
           <div class="mock-server-controls-actions">
             ${server?.running
@@ -513,8 +561,16 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
                     class="${buttonClass("primary")}"
                     data-action="start"
                     data-focus="action:start"
-                    title="${dirty ? t("mock.startBlocked") : ""}"
-                    ${disabledAttribute(isBusy || dirty)}
+                    title="${dirty
+                      ? t("mock.startBlocked")
+                      : portMode === "manual" && !manualPortValid
+                        ? t("mock.portInvalid")
+                        : ""}"
+                    ${disabledAttribute(
+                      isBusy ||
+                        dirty ||
+                        (portMode === "manual" && !manualPortValid),
+                    )}
                   >
                     ${icon(
                       busy === "start" ? "spinner" : "play",
@@ -943,16 +999,38 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
     render();
   };
 
+  const syncPortValidationUI = (): void => {
+    if (portMode !== "manual") return;
+    const valid = parsedManualPort() !== null;
+    root
+      .querySelector<HTMLInputElement>('[data-field="port"]')
+      ?.setAttribute("aria-invalid", valid ? "false" : "true");
+    const hint = root.querySelector<HTMLElement>("#mock-server-port-help");
+    if (hint) {
+      hint.textContent = t(
+        valid ? "mock.portHintManual" : "mock.portInvalid",
+      );
+    }
+    const start = root.querySelector<HTMLButtonElement>(
+      '[data-action="start"]',
+    );
+    if (start) {
+      start.disabled = Boolean(busy) || dirty || !valid;
+      start.title = dirty
+        ? t("mock.startBlocked")
+        : valid
+          ? ""
+          : t("mock.portInvalid");
+    }
+  };
+
   const handleField = (
     target: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement,
   ): void => {
     switch (target.dataset.field) {
       case "port":
-        port = Math.max(
-          0,
-          Math.min(65_535, Number(target.value) || 0),
-        );
-        render();
+        manualPort = target.value;
+        syncPortValidationUI();
         break;
       case "cors":
         enableCors = (target as HTMLInputElement).checked;
@@ -996,6 +1074,21 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
       return;
     }
     switch (target.dataset.action) {
+      case "port-auto":
+        portMode = "auto";
+        notice = null;
+        render();
+        break;
+      case "port-manual":
+        portMode = "manual";
+        notice = null;
+        render();
+        requestAnimationFrame(() => {
+          root
+            .querySelector<HTMLInputElement>('[data-focus="field:port"]')
+            ?.select();
+        });
+        break;
       case "add-route":
         addRoute();
         break;
@@ -1015,11 +1108,30 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
         void copyURL();
         break;
       case "start":
-        void runOperation(
-          "start",
-          () => backend.startMockServer({ port, enableCors }),
-          t("mock.start.success"),
-        );
+        {
+          const requestedPort =
+            portMode === "manual" ? parsedManualPort() : 0;
+          if (requestedPort === null) {
+            notice = {
+              tone: "error",
+              issue: {
+                title: t("mock.portInvalidTitle"),
+                message: t("mock.portInvalid"),
+              },
+            };
+            render();
+            break;
+          }
+          void runOperation(
+            "start",
+            () =>
+              backend.startMockServer({
+                port: requestedPort,
+                enableCors,
+              }),
+            t("mock.start.success"),
+          );
+        }
         break;
       case "stop":
         void runOperation(

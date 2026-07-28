@@ -259,8 +259,18 @@ export const automationToolsMessages = defineMessages(
     "mock.server.controls": "Mock server controls",
     "mock.port": "Port",
     "mock.portAria": "Mock server port",
+    "mock.portModeAria": "Mock server port selection",
+    "mock.portAuto": "Automatic",
+    "mock.portManual": "Choose port",
+    "mock.portNumber": "Port number",
     "mock.cors": "Allow browser CORS",
-    "mock.portHint": "Port 0 automatically selects an available port.",
+    "mock.portHintAuto":
+      "Validex will find an available local port automatically.",
+    "mock.portHintManual":
+      "The server will use this exact local port.",
+    "mock.portInvalidTitle": "Choose a valid port",
+    "mock.portInvalid":
+      "Enter a whole number from 1 through 65535.",
     "mock.action.stop": "Stop",
     "mock.action.start": "Start",
     "mock.action.add": "Add",
@@ -727,8 +737,18 @@ export const automationToolsMessages = defineMessages(
     "mock.server.controls": "Mock sunucu denetimleri",
     "mock.port": "Port",
     "mock.portAria": "Mock sunucu portu",
+    "mock.portModeAria": "Mock sunucu port seçimi",
+    "mock.portAuto": "Otomatik",
+    "mock.portManual": "Port seç",
+    "mock.portNumber": "Port numarası",
     "mock.cors": "Tarayıcı CORS’una izin ver",
-    "mock.portHint": "Port 0, boş bir portu otomatik seçer.",
+    "mock.portHintAuto":
+      "Validex kullanılabilir bir yerel portu otomatik bulur.",
+    "mock.portHintManual":
+      "Sunucu tam olarak bu yerel portu kullanır.",
+    "mock.portInvalidTitle": "Geçerli bir port seçin",
+    "mock.portInvalid":
+      "1 ile 65535 arasında bir tam sayı girin.",
     "mock.action.stop": "Durdur",
     "mock.action.start": "Başlat",
     "mock.action.add": "Ekle",

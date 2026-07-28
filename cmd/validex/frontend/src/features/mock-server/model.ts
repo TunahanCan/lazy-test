@@ -36,6 +36,14 @@ export const mockHTTPMethods = HTTP_METHODS;
 const defaultTranslate: Translate = (key, values) =>
   translate("tr", key, values);
 
+export function parseMockServerPort(value: string): number | null {
+  if (!/^\d+$/.test(value.trim())) return null;
+  const port = Number(value);
+  return Number.isInteger(port) && port >= 1 && port <= 65_535
+    ? port
+    : null;
+}
+
 const mockErrorTranslations = {
   mock_routes_invalid: "mock.error.routes",
   mock_already_running: "mock.error.alreadyRunning",
