@@ -1,4 +1,4 @@
-import { defineMessages } from "./defineMessages";
+import { defineMessages } from "./defineMessages.js";
 
 export const requestMessages = defineMessages(
   {
@@ -15,6 +15,7 @@ export const requestMessages = defineMessages(
     "requests.welcome.quickToolsDescription":
       "Go directly to the workspace you need.",
     "requests.welcome.openTool": "Open {tool}",
+    "requests.welcome.dismissNotice": "Dismiss import notice",
     "requests.welcome.searchCommands": "Search commands",
     "requests.welcome.reopenTab": "Reopen tab",
 
@@ -23,7 +24,9 @@ export const requestMessages = defineMessages(
     "requests.tabs.localDraft": "Local draft",
     "requests.tabs.running": "Request running",
     "requests.tabs.error": "Request error",
+    "requests.tabs.pinned": "Pinned",
     "requests.tabs.closeNamed": "Close {name} tab",
+    "requests.tabs.renameNamed": "Rename {name}",
     "requests.tabs.cancelBeforeClose":
       "Cancel the request before closing the tab",
     "requests.tabs.rename": "Rename",
@@ -38,7 +41,7 @@ export const requestMessages = defineMessages(
     "requests.tabs.new": "New request tab",
     "requests.tabs.closeDraftTitle": "Close draft tab?",
     "requests.tabs.closeDraftDescription":
-      "“{name}” was saved locally. Closing it will remove it from the active workspace.",
+      "“{name}” has changes that are not saved to a collection. Closing it will discard those changes from the active workspace.",
     "requests.tabs.closeDraftHint":
       "You can reopen the most recently closed tab from the command palette.",
     "requests.tabs.cancel": "Cancel",
@@ -49,17 +52,23 @@ export const requestMessages = defineMessages(
     "requests.tabs.requestName": "Request name",
     "requests.tabs.newName": "New request name",
     "requests.tabs.updateName": "Update name",
+    "requests.tabs.nameUpdated": "Request renamed to {name}",
 
     "requests.workbench.section.params": "Params",
     "requests.workbench.section.headers": "Headers",
     "requests.workbench.section.body": "Body",
     "requests.workbench.section.variables": "Variables",
+    "requests.workbench.composer": "Request composer",
     "requests.workbench.urlPlaceholder":
       "https://api.example.com/v1/users or {{baseUrl}}/v1/users",
     "requests.workbench.url": "Request URL",
     "requests.workbench.missingVariable": "Missing variable",
     "requests.workbench.cancel": "Cancel",
+    "requests.workbench.canceling": "Canceling…",
     "requests.workbench.send": "Send",
+    "requests.workbench.sendShortcut": "Send request (Ctrl+Enter)",
+    "requests.workbench.urlHelp":
+      "Enter an HTTP or HTTPS address. You can use variables such as {{baseUrl}}.",
     "requests.workbench.completeVariables":
       "Provide values for the missing variables",
     "requests.workbench.enterValidURL": "Enter a valid HTTP or HTTPS URL",
@@ -74,6 +83,10 @@ export const requestMessages = defineMessages(
     "requests.workbench.saveDialogTitle": "Save to a collection",
     "requests.workbench.saveDialogDescription":
       "Keep this request available after its tab is closed.",
+    "requests.workbench.saveDialogHelp":
+      "Choose an existing collection or enter a name to create a new one.",
+    "requests.workbench.collectionRequired":
+      "Choose a collection or enter a new collection name.",
     "requests.workbench.requestName": "Request name",
     "requests.workbench.collection": "Collection",
     "requests.workbench.selectCollection": "Select a collection",
@@ -90,11 +103,17 @@ export const requestMessages = defineMessages(
     "requests.workbench.settings": "Request settings",
     "requests.workbench.queryCount.one": "Params, {count} query parameter",
     "requests.workbench.queryCount.many": "Params, {count} query parameters",
+    "requests.workbench.headerCount.one": "Headers, {count} enabled header",
+    "requests.workbench.headerCount.many":
+      "Headers, {count} enabled headers",
     "requests.workbench.templateVariables": "Template variables",
     "requests.workbench.workspace": "Workspace",
     "requests.workbench.bodyUnavailable":
       "{method} requests do not send a body. Choose POST, PUT, PATCH, or DELETE to use a body.",
     "requests.workbench.resize": "Resize request and response areas",
+    "requests.workbench.resizeInstructions":
+      "Use the arrow keys to resize. Home sets the minimum and End sets the maximum.",
+    "requests.workbench.resizeValue": "Response area: {value}%",
 
     "requests.validation.urlRequired": "Request URL is required.",
     "requests.validation.urlWhitespace":
@@ -189,6 +208,9 @@ export const requestMessages = defineMessages(
     "requests.editor.query.description":
       "Detected from the URL · changes are written directly to the URL.",
     "requests.editor.query.add": "Add param",
+    "requests.editor.query.added": "Query parameter added",
+    "requests.editor.query.removed": "Query parameter removed",
+    "requests.editor.column.description": "Description",
     "requests.editor.column.key": "Key",
     "requests.editor.column.value": "Value",
     "requests.editor.column.type": "Type",
@@ -226,6 +248,14 @@ export const requestMessages = defineMessages(
     "requests.editor.variables.invalidName":
       "The variable name must start with a letter or _.",
     "requests.editor.variables.duplicate": "This variable already exists.",
+    "requests.editor.variables.added": "{key} variable added",
+    "requests.editor.variables.overrideRemoved":
+      "{key} override removed; the environment default is active.",
+    "requests.editor.variables.scope": "{name} environment",
+    "requests.editor.variables.secretHint":
+      "Secret values stay hidden on screen. Reference them as {{variable}}.",
+    "requests.editor.variables.showSecret": "Show {key}",
+    "requests.editor.variables.hideSecret": "Hide {key}",
     "requests.editor.type.secret": "Secret",
     "requests.editor.type.string": "String",
     "requests.editor.source.override": "{scope} override",
@@ -240,14 +270,18 @@ export const requestMessages = defineMessages(
     "requests.editor.headers.description":
       "Repeated header names are supported.",
     "requests.editor.headers.add": "Add header",
+    "requests.editor.headers.added": "Header added",
+    "requests.editor.headers.removed": "Header removed",
     "requests.editor.headers.enabledAt": "Header {index} enabled",
     "requests.editor.headers.namePlaceholder": "Header name",
     "requests.editor.headers.nameAt": "Header {index} name",
     "requests.editor.headers.valuePlaceholder": "Value or {{variable}}",
     "requests.editor.headers.valueAt": "Header {index} value",
+    "requests.editor.headers.descriptionAt": "Header {index} description",
     "requests.editor.headers.delete": "Delete header",
     "requests.editor.headers.empty":
       "No headers added. Validex does not add headers to the request automatically.",
+    "requests.editor.headers.descriptionPlaceholder": "Optional note",
 
     "requests.editor.body.title": "JSON / raw body",
     "requests.editor.body.format": "Format",
@@ -256,6 +290,11 @@ export const requestMessages = defineMessages(
       "The JSON syntax is invalid. Fix the incorrect line.",
     "requests.editor.body.minifyFailed":
       "Couldn’t minify JSON; check the syntax.",
+    "requests.editor.body.description":
+      "Send JSON, text, XML, or another raw payload supported by the endpoint.",
+    "requests.editor.body.placeholder": "Enter the request body",
+    "requests.editor.body.formatted": "JSON body formatted.",
+    "requests.editor.body.minified": "JSON body minified.",
     "requests.editor.body.loading": "Preparing editor…",
 
     "requests.response.section.body": "Body",
@@ -267,7 +306,9 @@ export const requestMessages = defineMessages(
     "requests.response.viewerLoading": "Preparing response viewer…",
     "requests.response.formatted": "Formatted response",
     "requests.response.copied": "Copied",
+    "requests.response.traceCopied": "Trace ID copied",
     "requests.response.copyBody": "Copy body",
+    "requests.response.copyRaw": "Copy raw response",
     "requests.response.noHeaders.title": "This response has no headers",
     "requests.response.noHeaders.description":
       "Headers returned by the server will appear here.",
@@ -298,6 +339,8 @@ export const requestMessages = defineMessages(
     "requests.response.contract.truncated": "first 1000 shown",
     "requests.response.contract.driftDescription":
       "The response is usable, but the following fields do not match the OpenAPI schema.",
+    "requests.response.contract.truncatedDescription":
+      "The comparison found more differences; only the first 1000 are shown.",
     "requests.response.contract.jsonPath": "JSON path",
     "requests.response.contract.difference": "Difference",
     "requests.response.contract.expected": "Expected",
@@ -328,17 +371,31 @@ export const requestMessages = defineMessages(
     "requests.response.timeline.reused": "Existing connection reused.",
     "requests.response.timeline.slow":
       "{percent}% of the total time was spent waiting for the server response.",
+    "requests.response.timeline.empty":
+      "Timing phases were not available for this response.",
     "requests.response.label": "Response",
     "requests.response.unknownContentType": "Unknown content type",
+    "requests.response.status": "Status: {value}",
+    "requests.response.duration": "Duration: {value}",
+    "requests.response.size": "Response size: {value}",
+    "requests.response.contentType": "Content type: {value}",
+    "requests.response.protocol": "Protocol: {value}",
     "requests.response.sending": "Sending…",
     "requests.response.canceled": "Canceled",
     "requests.response.failed": "Request failed",
     "requests.response.traceCopy": "Copy Trace ID",
+    "requests.response.traceShort": "Trace {value}",
+    "requests.response.remoteAddress": "Remote address: {value}",
+    "requests.response.tlsVersion": "TLS: {value}",
     "requests.response.views": "Response views",
     "requests.response.loading.title": "Sending request…",
     "requests.response.loading.description":
       "You can stop it with the Cancel button above.",
     "requests.response.technicalDetails": "Technical details",
+    "requests.response.tryAgain": "Send again",
+    "requests.response.rawEmpty.title": "The response body is empty",
+    "requests.response.rawEmpty.description":
+      "The server returned no raw response content.",
     "requests.response.empty.title": "No response yet",
     "requests.response.empty.description":
       "After you send the request, its status, duration, body, headers, and detailed timeline will appear here.",
@@ -372,6 +429,7 @@ export const requestMessages = defineMessages(
     "requests.welcome.quickToolsDescription":
       "İhtiyacınız olan çalışma alanına doğrudan geçin.",
     "requests.welcome.openTool": "{tool} aracını aç",
+    "requests.welcome.dismissNotice": "İçe aktarma bildirimini kapat",
     "requests.welcome.searchCommands": "Komutlarda ara",
     "requests.welcome.reopenTab": "Sekmeyi yeniden aç",
 
@@ -380,7 +438,9 @@ export const requestMessages = defineMessages(
     "requests.tabs.localDraft": "Yerel taslak",
     "requests.tabs.running": "İstek çalışıyor",
     "requests.tabs.error": "İstek hatası",
+    "requests.tabs.pinned": "Sabitlenmiş",
     "requests.tabs.closeNamed": "{name} sekmesini kapat",
+    "requests.tabs.renameNamed": "{name} isteğini yeniden adlandır",
     "requests.tabs.cancelBeforeClose":
       "Sekmeyi kapatmadan önce isteği iptal edin",
     "requests.tabs.rename": "Yeniden adlandır",
@@ -395,7 +455,7 @@ export const requestMessages = defineMessages(
     "requests.tabs.new": "Yeni istek sekmesi",
     "requests.tabs.closeDraftTitle": "Taslak sekme kapatılsın mı?",
     "requests.tabs.closeDraftDescription":
-      "“{name}” yerel olarak kaydedildi. Kapatırsanız etkin çalışma alanından kaldırılacak.",
+      "“{name}” koleksiyona kaydedilmemiş değişiklikler içeriyor. Kapatırsanız bu değişiklikler etkin çalışma alanından silinecek.",
     "requests.tabs.closeDraftHint":
       "Son kapatılan sekmeyi komut paletinden yeniden açabilirsiniz.",
     "requests.tabs.cancel": "İptal",
@@ -406,17 +466,23 @@ export const requestMessages = defineMessages(
     "requests.tabs.requestName": "İstek adı",
     "requests.tabs.newName": "Yeni istek adı",
     "requests.tabs.updateName": "Adı güncelle",
+    "requests.tabs.nameUpdated": "İsteğin adı {name} olarak değiştirildi",
 
     "requests.workbench.section.params": "Parametreler",
     "requests.workbench.section.headers": "Header’lar",
     "requests.workbench.section.body": "Body",
     "requests.workbench.section.variables": "Değişkenler",
+    "requests.workbench.composer": "İstek oluşturucu",
     "requests.workbench.urlPlaceholder":
       "https://api.example.com/v1/users veya {{baseUrl}}/v1/users",
     "requests.workbench.url": "İstek URL’si",
     "requests.workbench.missingVariable": "Eksik değişken",
     "requests.workbench.cancel": "İptal",
+    "requests.workbench.canceling": "İptal ediliyor…",
     "requests.workbench.send": "Gönder",
+    "requests.workbench.sendShortcut": "İsteği gönder (Ctrl+Enter)",
+    "requests.workbench.urlHelp":
+      "HTTP veya HTTPS adresi girin. {{baseUrl}} gibi değişkenler kullanabilirsiniz.",
     "requests.workbench.completeVariables":
       "Eksik değişken değerlerini tamamlayın",
     "requests.workbench.enterValidURL":
@@ -432,6 +498,10 @@ export const requestMessages = defineMessages(
     "requests.workbench.saveDialogTitle": "Koleksiyona kaydet",
     "requests.workbench.saveDialogDescription":
       "Sekmesi kapandıktan sonra da bu isteğe erişin.",
+    "requests.workbench.saveDialogHelp":
+      "Mevcut bir koleksiyon seçin veya yeni koleksiyon oluşturmak için ad girin.",
+    "requests.workbench.collectionRequired":
+      "Bir koleksiyon seçin veya yeni koleksiyon adı girin.",
     "requests.workbench.requestName": "İstek adı",
     "requests.workbench.collection": "Koleksiyon",
     "requests.workbench.selectCollection": "Koleksiyon seç",
@@ -449,11 +519,16 @@ export const requestMessages = defineMessages(
     "requests.workbench.queryCount.one": "Parametreler, {count} sorgu parametresi",
     "requests.workbench.queryCount.many":
       "Parametreler, {count} sorgu parametresi",
+    "requests.workbench.headerCount.one": "Header’lar, {count} etkin header",
+    "requests.workbench.headerCount.many": "Header’lar, {count} etkin header",
     "requests.workbench.templateVariables": "Şablon değişkenleri",
     "requests.workbench.workspace": "Çalışma alanı",
     "requests.workbench.bodyUnavailable":
       "{method} istekleri body göndermez. Body kullanmak için POST, PUT, PATCH veya DELETE seçin.",
     "requests.workbench.resize": "İstek ve yanıt alanlarını yeniden boyutlandır",
+    "requests.workbench.resizeInstructions":
+      "Yeniden boyutlandırmak için ok tuşlarını kullanın. Home en küçük, End en büyük boyutu ayarlar.",
+    "requests.workbench.resizeValue": "Yanıt alanı: %{value}",
 
     "requests.validation.urlRequired": "İstek URL’si gerekli.",
     "requests.validation.urlWhitespace":
@@ -550,6 +625,9 @@ export const requestMessages = defineMessages(
     "requests.editor.query.description":
       "URL’den algılandı · değişiklikler doğrudan URL’ye yazılır.",
     "requests.editor.query.add": "Parametre ekle",
+    "requests.editor.query.added": "Sorgu parametresi eklendi",
+    "requests.editor.query.removed": "Sorgu parametresi silindi",
+    "requests.editor.column.description": "Açıklama",
     "requests.editor.column.key": "Anahtar",
     "requests.editor.column.value": "Değer",
     "requests.editor.column.type": "Tür",
@@ -588,6 +666,14 @@ export const requestMessages = defineMessages(
     "requests.editor.variables.invalidName":
       "Değişken adı harf veya _ ile başlamalıdır.",
     "requests.editor.variables.duplicate": "Bu değişken zaten mevcut.",
+    "requests.editor.variables.added": "{key} değişkeni eklendi",
+    "requests.editor.variables.overrideRemoved":
+      "{key} override’ı kaldırıldı; ortam varsayılanı etkin.",
+    "requests.editor.variables.scope": "{name} ortamı",
+    "requests.editor.variables.secretHint":
+      "Gizli değerler ekranda saklanır. Bunlara {{variable}} biçiminde referans verin.",
+    "requests.editor.variables.showSecret": "{key} değerini göster",
+    "requests.editor.variables.hideSecret": "{key} değerini gizle",
     "requests.editor.type.secret": "Gizli",
     "requests.editor.type.string": "Metin",
     "requests.editor.source.override": "{scope} override",
@@ -602,14 +688,18 @@ export const requestMessages = defineMessages(
     "requests.editor.headers.description":
       "Tekrarlanan header adları desteklenir.",
     "requests.editor.headers.add": "Header ekle",
+    "requests.editor.headers.added": "Header eklendi",
+    "requests.editor.headers.removed": "Header silindi",
     "requests.editor.headers.enabledAt": "{index}. header etkin",
     "requests.editor.headers.namePlaceholder": "Header adı",
     "requests.editor.headers.nameAt": "{index}. header adı",
     "requests.editor.headers.valuePlaceholder": "Değer veya {{variable}}",
     "requests.editor.headers.valueAt": "{index}. header değeri",
+    "requests.editor.headers.descriptionAt": "{index}. header açıklaması",
     "requests.editor.headers.delete": "Header’ı sil",
     "requests.editor.headers.empty":
       "Header eklenmedi. Validex isteğe otomatik header eklemez.",
+    "requests.editor.headers.descriptionPlaceholder": "İsteğe bağlı not",
 
     "requests.editor.body.title": "JSON / raw body",
     "requests.editor.body.format": "Biçimlendir",
@@ -618,6 +708,11 @@ export const requestMessages = defineMessages(
       "JSON sözdizimi geçerli değil. Hatalı satırı düzeltin.",
     "requests.editor.body.minifyFailed":
       "JSON küçültülemedi; sözdizimini kontrol edin.",
+    "requests.editor.body.description":
+      "Endpoint’in desteklediği JSON, metin, XML veya başka bir ham payload gönderin.",
+    "requests.editor.body.placeholder": "İstek body’sini girin",
+    "requests.editor.body.formatted": "JSON body biçimlendirildi.",
+    "requests.editor.body.minified": "JSON body küçültüldü.",
     "requests.editor.body.loading": "Editör hazırlanıyor…",
 
     "requests.response.section.body": "Body",
@@ -629,7 +724,9 @@ export const requestMessages = defineMessages(
     "requests.response.viewerLoading": "Yanıt görüntüleyici hazırlanıyor…",
     "requests.response.formatted": "Biçimlendirilmiş yanıt",
     "requests.response.copied": "Kopyalandı",
+    "requests.response.traceCopied": "Trace ID kopyalandı",
     "requests.response.copyBody": "Body’yi kopyala",
+    "requests.response.copyRaw": "Ham yanıtı kopyala",
     "requests.response.noHeaders.title": "Bu yanıt header içermiyor",
     "requests.response.noHeaders.description":
       "Sunucudan header döndüğünde burada listelenir.",
@@ -659,6 +756,8 @@ export const requestMessages = defineMessages(
     "requests.response.contract.truncated": "ilk 1000 gösteriliyor",
     "requests.response.contract.driftDescription":
       "Yanıt kullanılabilir; aşağıdaki alanlar OpenAPI şemasıyla uyuşmuyor.",
+    "requests.response.contract.truncatedDescription":
+      "Karşılaştırmada daha fazla fark bulundu; yalnızca ilk 1000 tanesi gösteriliyor.",
     "requests.response.contract.jsonPath": "JSON path",
     "requests.response.contract.difference": "Fark",
     "requests.response.contract.expected": "Beklenen",
@@ -689,17 +788,31 @@ export const requestMessages = defineMessages(
     "requests.response.timeline.reused": "Mevcut bağlantı yeniden kullanıldı.",
     "requests.response.timeline.slow":
       "Toplam sürenin %{percent} kadarı sunucu yanıtını beklerken geçti.",
+    "requests.response.timeline.empty":
+      "Bu yanıt için zamanlama aşamaları alınamadı.",
     "requests.response.label": "Yanıt",
     "requests.response.unknownContentType": "Bilinmeyen content type",
+    "requests.response.status": "Status: {value}",
+    "requests.response.duration": "Süre: {value}",
+    "requests.response.size": "Yanıt boyutu: {value}",
+    "requests.response.contentType": "Content type: {value}",
+    "requests.response.protocol": "Protokol: {value}",
     "requests.response.sending": "Gönderiliyor…",
     "requests.response.canceled": "İptal edildi",
     "requests.response.failed": "İstek başarısız",
     "requests.response.traceCopy": "Trace ID’yi kopyala",
+    "requests.response.traceShort": "Trace {value}",
+    "requests.response.remoteAddress": "Uzak adres: {value}",
+    "requests.response.tlsVersion": "TLS: {value}",
     "requests.response.views": "Yanıt görünümleri",
     "requests.response.loading.title": "İstek gönderiliyor…",
     "requests.response.loading.description":
       "Üstteki İptal düğmesiyle durdurabilirsiniz.",
     "requests.response.technicalDetails": "Teknik ayrıntılar",
+    "requests.response.tryAgain": "Yeniden gönder",
+    "requests.response.rawEmpty.title": "Yanıt body’si boş",
+    "requests.response.rawEmpty.description":
+      "Sunucu ham yanıt içeriği döndürmedi.",
     "requests.response.empty.title": "Henüz yanıt yok",
     "requests.response.empty.description":
       "İsteği gönderdiğinizde status, süre, body, header ve ayrıntılı zaman çizelgesi burada görünecek.",

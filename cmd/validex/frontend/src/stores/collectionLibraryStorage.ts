@@ -1,7 +1,6 @@
-import { useSyncExternalStore } from "react";
-import type { StateStorage } from "zustand/middleware";
-import { backend } from "../lib/backend";
-import type { UserError } from "../lib/types";
+import type { StateStorage } from "../core/store.js";
+import { backend } from "../lib/backend.js";
+import type { UserError } from "../lib/types.js";
 
 export const COLLECTION_LIBRARY_PERSISTENCE_PHASE = {
   LOADING: "loading",
@@ -111,14 +110,6 @@ export function subscribeCollectionLibraryPersistence(
 
 export function getCollectionLibraryPersistenceSnapshot() {
   return persistenceSnapshot;
-}
-
-export function useCollectionLibraryPersistence() {
-  return useSyncExternalStore(
-    subscribeCollectionLibraryPersistence,
-    getCollectionLibraryPersistenceSnapshot,
-    getCollectionLibraryPersistenceSnapshot,
-  );
 }
 
 export function beginCollectionLibraryHydration() {
@@ -276,7 +267,7 @@ export function retryCollectionLibraryWrite(): Promise<boolean> {
 
 export function createCollectionLibraryStorage(
   emptyDocument: string,
-): StateStorage<void | Promise<void>> {
+): StateStorage {
   return {
     getItem(name) {
       latestStorageName = name;

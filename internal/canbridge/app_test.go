@@ -12,7 +12,7 @@ import (
 	"time"
 	"unsafe"
 
-	webview "github.com/webview/webview_go"
+	"validex/internal/nativewebview"
 )
 
 func TestAppOriginRestrictsDevelopmentBridgeToViteLoopback(t *testing.T) {
@@ -54,6 +54,158 @@ func TestCanbridgeStartupBannerAdvertisesSelectedURLAndPort(t *testing.T) {
 		if !strings.Contains(banner, expected) {
 			t.Fatalf("banner does not contain %q:\n%s", expected, banner)
 		}
+	}
+}
+
+func TestDecodeBindingStringArguments(t *testing.T) {
+	t.Parallel()
+
+	arguments, err := decodeBindingStringArguments(
+		`["capability","callback","Bootstrap","[]"]`,
+		4,
+	)
+	if err != nil {
+		t.Fatalf("decodeBindingStringArguments() error = %v", err)
+	}
+	expected := []string{"capability", "callback", "Bootstrap", "[]"}
+	if len(arguments) != len(expected) {
+		t.Fatalf("arguments = %#v, want %#v", arguments, expected)
+	}
+	for index := range expected {
+		if arguments[index] != expected[index] {
+			t.Fatalf("arguments = %#v, want %#v", arguments, expected)
+		}
+	}
+
+	for _, test := range []struct {
+		name        string
+		requestJSON string
+		count       int
+		wantError   string
+	}{
+		{
+			name:        "not an array",
+			requestJSON: `{"capability":"test"}`,
+			count:       4,
+			wantError:   "must be a JSON array",
+		},
+		{
+			name:        "malformed JSON",
+			requestJSON: `["capability"`,
+			count:       4,
+			wantError:   "decode native binding request JSON",
+		},
+		{
+			name:        "wrong argument count",
+			requestJSON: `["capability","callback","Bootstrap"]`,
+			count:       4,
+			wantError:   "expects 4 string arguments, received 3",
+		},
+		{
+			name:        "non-string argument",
+			requestJSON: `["capability",42,"Bootstrap","[]"]`,
+			count:       4,
+			wantError:   "argument 2 must be a string",
+		},
+		{
+			name:        "null argument",
+			requestJSON: `["capability",null,"Bootstrap","[]"]`,
+			count:       4,
+			wantError:   "argument 2 must be a string",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := decodeBindingStringArguments(
+				test.requestJSON,
+				test.count,
+			)
+			if err == nil || !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("error = %v, want containing %q", err, test.wantError)
+			}
+		})
+	}
+}
+
+func TestIPCBindingAdaptersDecodeAndForwardRequests(t *testing.T) {
+	view := &fakeWebView{evaluated: make(chan string, 1)}
+	runtime := &ipcRuntime{
+		webview:    view,
+		bridge:     NewBridge(),
+		capability: "test-capability",
+	}
+
+	if err := runtime.dispatchBinding(
+		`["test-capability","adapter-callback","Bootstrap","[]"]`,
+	); err != nil {
+		t.Fatalf("dispatchBinding() error = %v", err)
+	}
+	select {
+	case script := <-view.evaluated:
+		if !strings.Contains(script, `"callbackId":"adapter-callback"`) ||
+			!strings.Contains(script, `"workspaceId":"validex-workspace"`) {
+			t.Fatalf("unexpected callback script: %s", script)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("dispatch binding callback was not delivered")
+	}
+	runtime.concurrentCalls.Wait()
+
+	if err := runtime.logBrowserMessageBinding(
+		`["test-capability","info","native adapter ready"]`,
+	); err != nil {
+		t.Fatalf("logBrowserMessageBinding() error = %v", err)
+	}
+}
+
+func TestIPCBindingAdaptersRejectInvalidArguments(t *testing.T) {
+	t.Parallel()
+
+	runtime := &ipcRuntime{capability: "test-capability"}
+	for _, test := range []struct {
+		name      string
+		handler   nativewebview.BindingHandler
+		request   string
+		wantError string
+	}{
+		{
+			name:      "dispatcher wrong count",
+			handler:   runtime.dispatchBinding,
+			request:   `["test-capability","callback","Bootstrap"]`,
+			wantError: "dispatcher request",
+		},
+		{
+			name:      "dispatcher non-string",
+			handler:   runtime.dispatchBinding,
+			request:   `["test-capability","callback","Bootstrap",1]`,
+			wantError: "argument 4 must be a string",
+		},
+		{
+			name:      "logger malformed JSON",
+			handler:   runtime.logBrowserMessageBinding,
+			request:   `["test-capability"`,
+			wantError: "logger request",
+		},
+		{
+			name:      "logger wrong count",
+			handler:   runtime.logBrowserMessageBinding,
+			request:   `["test-capability","info"]`,
+			wantError: "expects 3 string arguments, received 2",
+		},
+		{
+			name:      "logger non-string",
+			handler:   runtime.logBrowserMessageBinding,
+			request:   `["test-capability","info",false]`,
+			wantError: "argument 3 must be a string",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			err := test.handler(test.request)
+			if err == nil || !strings.Contains(err.Error(), test.wantError) {
+				t.Fatalf("error = %v, want containing %q", err, test.wantError)
+			}
+		})
 	}
 }
 
@@ -476,18 +628,17 @@ func (picker *blockingLifecycleFilePicker) Open(
 	return "", ctx.Err()
 }
 
-func (*fakeWebView) Run()                           {}
-func (*fakeWebView) Terminate()                     {}
-func (*fakeWebView) Destroy()                       {}
-func (*fakeWebView) Window() unsafe.Pointer         { return nil }
-func (*fakeWebView) SetTitle(string)                {}
-func (*fakeWebView) SetSize(int, int, webview.Hint) {}
-func (*fakeWebView) Navigate(string)                {}
-func (*fakeWebView) SetHtml(string)                 {}
-func (*fakeWebView) Init(string)                    {}
-func (view *fakeWebView) Eval(script string)        { view.evaluated <- script }
-func (*fakeWebView) Bind(string, interface{}) error { return nil }
-func (*fakeWebView) Unbind(string) error            { return nil }
+func (*fakeWebView) Run()                                 {}
+func (*fakeWebView) Destroy()                             {}
+func (*fakeWebView) Window() unsafe.Pointer               { return nil }
+func (*fakeWebView) SetTitle(string)                      {}
+func (*fakeWebView) SetSize(int, int, nativewebview.Hint) {}
+func (*fakeWebView) Navigate(string)                      {}
+func (*fakeWebView) Init(string)                          {}
+func (view *fakeWebView) Eval(script string)              { view.evaluated <- script }
+func (*fakeWebView) Bind(string, nativewebview.BindingHandler) error {
+	return nil
+}
 func (view *fakeWebView) Dispatch(callback func()) {
 	if view.dispatch != nil {
 		view.dispatch(callback)

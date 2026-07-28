@@ -1,4 +1,4 @@
-import { defineMessages } from "./defineMessages";
+import { defineMessages } from "./defineMessages.js";
 
 export const diagnosticsProtocolsMessages = defineMessages(
   {
@@ -10,13 +10,28 @@ export const diagnosticsProtocolsMessages = defineMessages(
       "Analyze API responses, tokens, and runtime data in one workspace.",
     "diagnostics.toolsLabel": "Diagnostics tools",
     "diagnostics.status.busy": "Working…",
+    "diagnostics.status.busyDetail":
+      "Keep this workspace open while Validex prepares the result.",
     "diagnostics.status.ready": "Ready",
     "diagnostics.mode.spring": "Spring Error",
+    "diagnostics.mode.springDescription":
+      "Turn a Spring HTTP error response into a readable cause and troubleshooting checklist.",
     "diagnostics.mode.jwt": "JWT",
+    "diagnostics.mode.jwtDescription":
+      "Decode token claims locally and review expiry, roles, and scopes without verifying the signature.",
     "diagnostics.mode.runtime": "Runtime",
+    "diagnostics.mode.runtimeDescription":
+      "Inspect read-only Spring Actuator health and metrics, then compare them with a baseline.",
     "diagnostics.mode.environments": "Environments",
+    "diagnostics.mode.environmentsDescription":
+      "Send the same request to two or more targets and compare status, headers, and JSON bodies.",
     "diagnostics.mode.threadLogs": "Thread & Logs",
+    "diagnostics.mode.threadLogsDescription":
+      "Find blocked JVM threads or isolate application log lines by trace identifier.",
     "diagnostics.mode.coverage": "Coverage",
+    "diagnostics.mode.coverageDescription":
+      "Match known API endpoints with observed calls to expose untested paths.",
+    "diagnostics.field.timeoutMilliseconds": "Timeout (ms)",
     "diagnostics.operation.stale":
       "The input or tool changed; the previous operation result was ignored.",
     "diagnostics.error.operationTitle": "Diagnostics operation failed",
@@ -277,7 +292,7 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "diagnostics.environment.bodyTruncated":
       "Body truncated at the size limit",
     "diagnostics.environment.defaultBaseline": "Baseline",
-    "diagnostics.environment.defaultCandidate": "Ortam",
+    "diagnostics.environment.defaultCandidate": "Environment",
     "diagnostics.environment.same": "same",
     "diagnostics.environment.different": "different",
     "diagnostics.environment.matched": "Matched",
@@ -302,6 +317,9 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "diagnostics.environment.relativePath": "Relative path",
     "diagnostics.environment.name": "Name",
     "diagnostics.environment.baseURL": "Base URL",
+    "diagnostics.environment.defaultName.local": "Local",
+    "diagnostics.environment.defaultName.test": "Test",
+    "diagnostics.environment.defaultName.staging": "Staging",
     "diagnostics.environment.legend": "Environment {number}",
     "diagnostics.environment.ignorePaths": "Ignored JSONPaths",
     "diagnostics.environment.requestBody": "Request body",
@@ -485,7 +503,13 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "protocol.sse.connectionDescription":
       "Connect to an HTTP event-stream endpoint",
     "protocol.sse.url": "Event stream URL",
+    "protocol.sse.urlHelp":
+      "Use a complete HTTP or HTTPS URL that returns text/event-stream.",
     "protocol.sse.maxEvents": "Maximum events",
+    "protocol.sse.timeoutHelp":
+      "The stream closes after 1–600 seconds.",
+    "protocol.sse.eventLimitHelp":
+      "Keep between 1 and 10,000 events in this result.",
     "protocol.headers": "Request headers · JSON",
     "protocol.headersHint": "Every header value must be text.",
     "protocol.skipCertificate": "Skip certificate verification",
@@ -499,6 +523,15 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "protocol.sse.events": "Events",
     "protocol.sse.resultDescription":
       "Event, ID, retry, and data fields are shown separately",
+    "protocol.sse.completed":
+      "Connection completed with HTTP {status}; {count} events received.",
+    "protocol.sse.partialResult":
+      "The stream stopped with an issue; {count} events were preserved.",
+    "protocol.sse.eventTable": "Received server-sent events",
+    "protocol.sse.column.event": "Event",
+    "protocol.sse.column.id": "ID",
+    "protocol.sse.column.retry": "Retry",
+    "protocol.sse.column.data": "Data",
     "protocol.responseHeaders": "Response headers",
     "protocol.sse.emptyStreamTitle": "The stream sent no events",
     "protocol.sse.emptyStreamDescription":
@@ -517,13 +550,28 @@ export const diagnosticsProtocolsMessages = defineMessages(
       "API yanıtlarını, token’ları ve çalışma zamanı verilerini tek çalışma alanında analiz edin.",
     "diagnostics.toolsLabel": "Tanılama araçları",
     "diagnostics.status.busy": "İşlem sürüyor…",
+    "diagnostics.status.busyDetail":
+      "Validex sonucu hazırlarken bu çalışma alanını açık tutun.",
     "diagnostics.status.ready": "Hazır",
     "diagnostics.mode.spring": "Spring Hatası",
+    "diagnostics.mode.springDescription":
+      "Spring HTTP hata response’unu okunabilir nedene ve çözüm kontrol listesine dönüştürün.",
     "diagnostics.mode.jwt": "JWT",
+    "diagnostics.mode.jwtDescription":
+      "İmzayı doğrulamadan token claim’lerini yerel olarak çözün; süre, rol ve scope’ları inceleyin.",
     "diagnostics.mode.runtime": "Çalışma Zamanı",
+    "diagnostics.mode.runtimeDescription":
+      "Salt okunur Spring Actuator health ve metric verilerini inceleyip baseline ile karşılaştırın.",
     "diagnostics.mode.environments": "Ortamlar",
+    "diagnostics.mode.environmentsDescription":
+      "Aynı request’i iki veya daha fazla hedefe gönderip status, header ve JSON body’lerini karşılaştırın.",
     "diagnostics.mode.threadLogs": "İş Parçacıkları ve Loglar",
+    "diagnostics.mode.threadLogsDescription":
+      "Blocked JVM thread’lerini bulun veya uygulama log satırlarını trace kimliğiyle ayıklayın.",
     "diagnostics.mode.coverage": "Kapsama",
+    "diagnostics.mode.coverageDescription":
+      "Test edilmemiş path’leri görmek için bilinen API endpoint’lerini gözlemlenen çağrılarla eşleştirin.",
+    "diagnostics.field.timeoutMilliseconds": "Zaman aşımı (ms)",
     "diagnostics.operation.stale":
       "Girdi veya araç değişti; önceki işlemin sonucu yok sayıldı.",
     "diagnostics.error.operationTitle": "Tanılama işlemi tamamlanamadı",
@@ -578,7 +626,7 @@ export const diagnosticsProtocolsMessages = defineMessages(
       "{line}. observed count pozitif bir tam sayı olmalı.",
 
     "diagnostics.spring.category": "Kategori",
-    "diagnostics.spring.category.problemDetail": "Problem detail",
+    "diagnostics.spring.category.problemDetail": "Problem ayrıntısı",
     "diagnostics.spring.category.validation": "Doğrulama",
     "diagnostics.spring.category.unauthorized": "Kimlik doğrulanmadı",
     "diagnostics.spring.category.forbidden": "Erişim yasak",
@@ -587,14 +635,14 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "diagnostics.spring.category.serverError": "Sunucu hatası",
     "diagnostics.spring.category.httpError": "HTTP hatası",
     "diagnostics.spring.format": "Spring biçimi",
-    "diagnostics.spring.traceRequestID": "Trace / Request ID",
+    "diagnostics.spring.traceRequestID": "Trace / İstek kimliği",
     "diagnostics.spring.exception": "İstisna",
     "diagnostics.spring.instance": "Instance",
     "diagnostics.spring.beanValidation": "Bean Validation",
     "diagnostics.spring.recognized": "Tanındı",
-    "diagnostics.spring.genericResponse": "Genel HTTP response",
+    "diagnostics.spring.genericResponse": "Genel HTTP yanıtı",
     "diagnostics.spring.notFound": "Bulunamadı",
-    "diagnostics.spring.exceptionMissing": "Response içinde yok",
+    "diagnostics.spring.exceptionMissing": "Yanıtta yok",
     "diagnostics.spring.fieldCount": "{count} alan hatası ayrıştırıldı",
     "diagnostics.spring.field": "Alan",
     "diagnostics.spring.message": "Mesaj",
@@ -611,7 +659,7 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "diagnostics.spring.defaultTitle.conflict": "Kaynak çakışması",
     "diagnostics.spring.defaultTitle.serverError": "Sunucu hatası",
     "diagnostics.spring.defaultTitle.httpError": "HTTP hatası",
-    "diagnostics.spring.noDetails": "Response ayrıntı içermiyor.",
+    "diagnostics.spring.noDetails": "Yanıt ayrıntı içermiyor.",
     "diagnostics.spring.advice.problemDetail.1":
       "type ve instance alanlarını aynı hata ailesindeki yanıtlarla karşılaştırın.",
     "diagnostics.spring.advice.problemDetail.2":
@@ -654,25 +702,25 @@ export const diagnosticsProtocolsMessages = defineMessages(
       "Trace ID ile aynı isteğin loglarını arayın ve Runtime snapshot’ını inceleyin.",
     "diagnostics.spring.activeTab":
       "Aktif sekme: {name} · HTTP {status}",
-    "diagnostics.spring.responseTitle": "Spring hata response’u",
+    "diagnostics.spring.responseTitle": "Spring hata yanıtı",
     "diagnostics.spring.inputHint":
-      "Response yapıştırın veya aktif request’ten alın",
-    "diagnostics.spring.loadActive": "Aktif response’u al",
-    "diagnostics.spring.bodyLabel": "Spring error response body",
-    "diagnostics.spring.headersLabel": "Response headers",
+      "Yanıtı yapıştırın veya etkin istekten alın",
+    "diagnostics.spring.loadActive": "Etkin yanıtı al",
+    "diagnostics.spring.bodyLabel": "Spring hata yanıtı gövdesi",
+    "diagnostics.spring.headersLabel": "Yanıt üstbilgileri",
     "diagnostics.spring.httpStatus": "HTTP durumu",
     "diagnostics.spring.analyze": "Hatayı analiz et",
     "diagnostics.spring.emptyTitle": "Analiz bekleniyor",
     "diagnostics.spring.emptyDescription":
-      "ProblemDetail, Bean Validation ve 4xx/5xx response’ları okunabilir bir özete dönüştürün.",
+      "ProblemDetail, Bean Validation ve 4xx/5xx yanıtlarını okunabilir bir özete dönüştürün.",
     "diagnostics.spring.noActiveResponse":
-      "Aktif request sekmesinde analiz edilecek bir response yok.",
-    "diagnostics.spring.activeRequest": "Aktif request",
-    "diagnostics.spring.responseLoaded": "{name} response’u yüklendi.",
+      "Etkin istek sekmesinde analiz edilecek bir yanıt yok.",
+    "diagnostics.spring.activeRequest": "Etkin istek",
+    "diagnostics.spring.responseLoaded": "{name} yanıtı yüklendi.",
     "diagnostics.spring.bodyRequired":
-      "Analiz için response body girin.",
+      "Analiz için yanıt gövdesi girin.",
     "diagnostics.spring.success":
-      "Spring hata response’u yerel olarak analiz edildi.",
+      "Spring hata yanıtı yerel olarak analiz edildi.",
 
     "diagnostics.jwt.localWarning":
       "Token yalnızca yerel olarak çözüldü. İmza ve token güvenilirliği doğrulanmadı.",
@@ -683,15 +731,15 @@ export const diagnosticsProtocolsMessages = defineMessages(
       "Signature bölümü mevcut fakat cryptographic doğrulama yapılmadı.",
     "diagnostics.jwt.signatureMissing": "Token signature bölümü boş.",
     "diagnostics.jwt.algorithm": "Algoritma",
-    "diagnostics.jwt.subject": "Subject",
-    "diagnostics.jwt.issuer": "Issuer",
-    "diagnostics.jwt.audience": "Audience",
+    "diagnostics.jwt.subject": "Konu (sub)",
+    "diagnostics.jwt.issuer": "Yayınlayan (iss)",
+    "diagnostics.jwt.audience": "Hedef kitle (aud)",
     "diagnostics.jwt.roles": "Roller",
     "diagnostics.jwt.scopes": "Scope’lar",
     "diagnostics.jwt.tokenLabel": "JWT token",
-    "diagnostics.jwt.issuedAt": "Issued at",
-    "diagnostics.jwt.expires": "Expires",
-    "diagnostics.jwt.notBefore": "Not before",
+    "diagnostics.jwt.issuedAt": "Düzenlenme zamanı (iat)",
+    "diagnostics.jwt.expires": "Bitiş zamanı (exp)",
+    "diagnostics.jwt.notBefore": "Geçerlilik başlangıcı (nbf)",
     "diagnostics.jwt.noRoles": "Role claim bulunamadı.",
     "diagnostics.jwt.noScopes": "Scope claim bulunamadı.",
     "diagnostics.jwt.details": "Header ve payload",
@@ -714,25 +762,25 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "diagnostics.runtime.baselineEyebrow": "BASELINE",
     "diagnostics.runtime.mappingsEyebrow": "MAPPINGS",
     "diagnostics.runtime.applicationContext": "uygulama context’i",
-    "diagnostics.runtime.components": "{count} component",
-    "diagnostics.runtime.noSnapshotTime": "Snapshot zamanı yok",
+    "diagnostics.runtime.components": "{count} bileşen",
+    "diagnostics.runtime.noSnapshotTime": "Anlık görüntü zamanı yok",
     "diagnostics.runtime.deltaCount": "{count} delta",
     "diagnostics.runtime.none": "Yok",
     "diagnostics.runtime.comparison": "Önce / sonra karşılaştırması",
     "diagnostics.runtime.baselineHint": "Baseline alabilirsiniz",
     "diagnostics.runtime.disabled": "Kapalı",
     "diagnostics.runtime.notRequested": "İstenmedi",
-    "diagnostics.runtime.healthComponents": "Health components",
+    "diagnostics.runtime.healthComponents": "Sağlık bileşenleri",
     "diagnostics.runtime.healthDescription":
       "Actuator health ağacının üst seviyesi",
-    "diagnostics.runtime.component": "Component",
+    "diagnostics.runtime.component": "Bileşen",
     "diagnostics.runtime.status": "Durum",
     "diagnostics.runtime.metric": "Metrik",
     "diagnostics.runtime.delta": "Fark",
-    "diagnostics.runtime.metricSnapshot": "Metric snapshot",
+    "diagnostics.runtime.metricSnapshot": "Metrik anlık görüntüsü",
     "diagnostics.runtime.metricDescription":
       "Seçili JVM ve dependency metrikleri",
-    "diagnostics.runtime.statistic": "Statistic",
+    "diagnostics.runtime.statistic": "İstatistik",
     "diagnostics.runtime.value": "Değer",
     "diagnostics.runtime.unit": "Birim",
     "diagnostics.runtime.noMeasurement": "Ölçüm yok",
@@ -743,9 +791,9 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "diagnostics.runtime.after": "Sonra",
     "diagnostics.runtime.metricFailures":
       "Bazı metric endpoint’leri açık değil: {names}",
-    "diagnostics.runtime.baseURL": "Actuator base URL",
+    "diagnostics.runtime.baseURL": "Actuator temel URL’si",
     "diagnostics.runtime.includeMappings": "Mappings’i de oku",
-    "diagnostics.runtime.headers": "Headers",
+    "diagnostics.runtime.headers": "Üstbilgiler",
     "diagnostics.runtime.metricNames": "Metric isimleri",
     "diagnostics.runtime.captureBaseline": "Baseline al",
     "diagnostics.runtime.captureSnapshot": "Snapshot al",
@@ -775,22 +823,22 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "diagnostics.environment.error": "Hata",
     "diagnostics.environment.shortLabel": "ORTAM {number}",
     "diagnostics.environment.summary":
-      "Durum {status} · Body {body}",
+      "Durum {status} · Gövde {body}",
     "diagnostics.environment.status": "Durum",
-    "diagnostics.environment.path": "Path",
+    "diagnostics.environment.path": "Yol",
     "diagnostics.environment.baselineColumn": "Baseline",
     "diagnostics.environment.environmentColumn": "Ortam",
     "diagnostics.environment.missingURL": "URL yok",
     "diagnostics.environment.bodyTruncated":
-      "Body boyut sınırında kesildi",
+      "Gövde boyut sınırında kesildi",
     "diagnostics.environment.defaultBaseline": "Baseline",
-    "diagnostics.environment.defaultCandidate": "Environment",
+    "diagnostics.environment.defaultCandidate": "Ortam",
     "diagnostics.environment.same": "aynı",
     "diagnostics.environment.different": "farklı",
     "diagnostics.environment.matched": "Eşleşti",
     "diagnostics.environment.hasDifference": "Fark var",
-    "diagnostics.environment.bodyMode": "Body modu",
-    "diagnostics.environment.headerDifference": "Header farkı",
+    "diagnostics.environment.bodyMode": "Gövde modu",
+    "diagnostics.environment.headerDifference": "Üstbilgi farkı",
     "diagnostics.environment.noDifference": "Yok",
     "diagnostics.environment.firstDifferences": " · ilk 1000 fark",
     "diagnostics.environment.jsonDifference": "JSON farkı",
@@ -804,11 +852,14 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "diagnostics.environment.emptyDescription":
       "En az iki ortam için karşılaştırmayı çalıştırın.",
     "diagnostics.environment.responseBody": "{name} yanıt gövdesi",
-    "diagnostics.environment.emptyBody": "Body boş.",
-    "diagnostics.environment.method": "Method",
-    "diagnostics.environment.relativePath": "Relative path",
+    "diagnostics.environment.emptyBody": "Gövde boş.",
+    "diagnostics.environment.method": "Metot",
+    "diagnostics.environment.relativePath": "Göreli yol",
     "diagnostics.environment.name": "Ad",
-    "diagnostics.environment.baseURL": "Base URL",
+    "diagnostics.environment.baseURL": "Temel URL",
+    "diagnostics.environment.defaultName.local": "Yerel",
+    "diagnostics.environment.defaultName.test": "Test",
+    "diagnostics.environment.defaultName.staging": "Ön üretim",
     "diagnostics.environment.legend": "Ortam {number}",
     "diagnostics.environment.ignorePaths": "Yok sayılan JSONPath’ler",
     "diagnostics.environment.requestBody": "İstek gövdesi",
@@ -821,9 +872,9 @@ export const diagnosticsProtocolsMessages = defineMessages(
       "İlk ortam referans olarak kullanılır.",
     "diagnostics.environment.noResultTitle": "Ortam sonucu yok",
     "diagnostics.environment.noResultDescription":
-      "Aynı isteğin durum, header ve JSON farklarını yan yana inceleyin.",
+      "Aynı isteğin durum, üstbilgi ve JSON farklarını yan yana inceleyin.",
     "diagnostics.environment.twoRequired":
-      "Karşılaştırma için en az iki ortam base URL’si girin.",
+      "Karşılaştırma için en az iki ortamın temel URL’sini girin.",
     "diagnostics.environment.unsafeWarning":
       "{method} birden fazla ortamda veri değiştirebilir. Önce açık izin kutusunu işaretleyin.",
     "diagnostics.environment.success": "{count} ortam karşılaştırıldı.",
@@ -831,39 +882,39 @@ export const diagnosticsProtocolsMessages = defineMessages(
       "Ortam karşılaştırması tamamlanamadı.",
 
     "diagnostics.thread.deadlockWarning":
-      "JVM dump içinde açık deadlock işareti bulundu. İlgili thread ve lock zincirlerini hemen inceleyin.",
-    "diagnostics.thread.eyebrow": "THREAD’LER",
-    "diagnostics.thread.threadColumn": "Thread",
+      "JVM dökümünde açık bir deadlock işareti bulundu. İlgili iş parçacığı ve kilit zincirlerini hemen inceleyin.",
+    "diagnostics.thread.eyebrow": "İŞ PARÇACIKLARI",
+    "diagnostics.thread.threadColumn": "İş parçacığı",
     "diagnostics.thread.stateColumn": "Durum",
-    "diagnostics.thread.dumpTitle": "JVM thread dump",
+    "diagnostics.thread.dumpTitle": "JVM iş parçacığı dökümü",
     "diagnostics.thread.limited": "Sonuç sınırlandırıldı",
     "diagnostics.thread.complete": "Tam analiz",
-    "diagnostics.thread.count": "thread",
-    "diagnostics.thread.blockedTitle": "Blocked / lock bekleyen thread’ler",
+    "diagnostics.thread.count": "iş parçacığı",
+    "diagnostics.thread.blockedTitle": "Engellenen / kilit bekleyen iş parçacıkları",
     "diagnostics.thread.findingCount": "{count} bulgu",
     "diagnostics.thread.clue": "İpucu",
     "diagnostics.thread.unnamed": "adsız",
-    "diagnostics.thread.noLockDetails": "Lock detayı yok",
-    "diagnostics.thread.repeatedTitle": "Tekrar eden stack’ler",
+    "diagnostics.thread.noLockDetails": "Kilit ayrıntısı yok",
+    "diagnostics.thread.repeatedTitle": "Tekrar eden yığınlar",
     "diagnostics.thread.repeatedDescription":
-      "Benzer işte yığılmış thread grupları",
-    "diagnostics.thread.group": "{count} thread · {names}",
-    "diagnostics.thread.noFrames": "Stack frame yok",
-    "diagnostics.thread.deadlockClues": "Deadlock / lock ipuçları ({count})",
-    "diagnostics.thread.toolsLabel": "Thread ve log araçları",
-    "diagnostics.thread.dumpTab": "Thread dump",
+      "Benzer işte yığılmış iş parçacığı grupları",
+    "diagnostics.thread.group": "{count} iş parçacığı · {names}",
+    "diagnostics.thread.noFrames": "Yığın çerçevesi yok",
+    "diagnostics.thread.deadlockClues": "Deadlock / kilit ipuçları ({count})",
+    "diagnostics.thread.toolsLabel": "İş parçacığı ve log araçları",
+    "diagnostics.thread.dumpTab": "İş parçacığı dökümü",
     "diagnostics.thread.logTab": "Trace log araması",
-    "diagnostics.thread.dumpHint": "jstack biçimindeki metin dump’ını yapıştırın",
-    "diagnostics.thread.dumpLabel": "JVM thread dump",
-    "diagnostics.thread.analyze": "Thread’leri analiz et",
-    "diagnostics.thread.emptyTitle": "Thread analizi bekleniyor",
+    "diagnostics.thread.dumpHint": "jstack biçimindeki metin dökümünü yapıştırın",
+    "diagnostics.thread.dumpLabel": "JVM iş parçacığı dökümü",
+    "diagnostics.thread.analyze": "İş parçacıklarını analiz et",
+    "diagnostics.thread.emptyTitle": "İş parçacığı analizi bekleniyor",
     "diagnostics.thread.emptyDescription":
-      "Blocked thread, deadlock ipucu ve tekrar eden stack’leri bulun.",
+      "Engellenen iş parçacıklarını, deadlock ipuçlarını ve tekrar eden yığınları bulun.",
     "diagnostics.thread.required":
-      "Analiz için thread dump metni yapıştırın.",
-    "diagnostics.thread.success": "{count} thread analiz edildi.",
+      "Analiz için iş parçacığı dökümü yapıştırın.",
+    "diagnostics.thread.success": "{count} iş parçacığı analiz edildi.",
     "diagnostics.thread.failure":
-      "Thread dump analizi tamamlanamadı.",
+      "İş parçacığı dökümü analizi tamamlanamadı.",
 
     "diagnostics.log.title": "Uygulama logu",
     "diagnostics.log.description":
@@ -897,11 +948,11 @@ export const diagnosticsProtocolsMessages = defineMessages(
       "Bu oran yalnız sağlanan observed call listesine dayanır; kod coverage veya test coverage değildir.",
     "diagnostics.coverage.endpoints": "Endpoint’ler",
     "diagnostics.coverage.method": "Yöntem",
-    "diagnostics.coverage.path": "Path",
+    "diagnostics.coverage.path": "Yol",
     "diagnostics.coverage.matchDescription":
-      "Known route → observed hit eşleşmesi",
+      "Bilinen rota → gözlemlenen çağrı eşleşmesi",
     "diagnostics.coverage.hit": "Hit",
-    "diagnostics.coverage.observedPath": "Observed path",
+    "diagnostics.coverage.observedPath": "Gözlemlenen yol",
     "diagnostics.coverage.notSeen": "Henüz görülmedi",
     "diagnostics.coverage.unknownCalls":
       "Known listesinde olmayan çağrılar",
@@ -981,8 +1032,8 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "protocol.validation.or": " veya ",
     "protocol.validation.hostname":
       "{label} adresinde sunucu adı eksik.",
-    "protocol.label.header": "Header",
-    "protocol.label.timeout": "Timeout",
+    "protocol.label.header": "Üstbilgi",
+    "protocol.label.timeout": "Zaman aşımı",
     "protocol.label.eventLimit": "Olay sınırı",
     "protocol.unit.seconds": "sn",
     "protocol.metric.duration": "Süre",
@@ -990,14 +1041,20 @@ export const diagnosticsProtocolsMessages = defineMessages(
 
     "protocol.sse.connection": "SSE bağlantısı",
     "protocol.sse.connectionDescription":
-      "HTTP event-stream endpoint’ine bağlanın",
-    "protocol.sse.url": "Event stream URL",
+      "HTTP event-stream uç noktasına bağlanın",
+    "protocol.sse.url": "Olay akışı URL’si",
+    "protocol.sse.urlHelp":
+      "text/event-stream döndüren eksiksiz bir HTTP veya HTTPS URL kullanın.",
     "protocol.sse.maxEvents": "En fazla olay",
-    "protocol.headers": "Request headers · JSON",
-    "protocol.headersHint": "Her header değeri metin olmalı.",
+    "protocol.sse.timeoutHelp":
+      "Akış 1–600 saniye sonra kapatılır.",
+    "protocol.sse.eventLimitHelp":
+      "Bu sonuçta 1–10.000 olay saklayın.",
+    "protocol.headers": "İstek üstbilgileri · JSON",
+    "protocol.headersHint": "Her üstbilgi değeri metin olmalı.",
     "protocol.skipCertificate": "Sertifika doğrulamasını atla",
     "protocol.sse.certificateHint":
-      "Yalnız yerel, self-signed HTTPS geliştirme sunucularında kullanın.",
+      "Yalnızca yerel, kendinden imzalı HTTPS geliştirme sunucularında kullanın.",
     "protocol.sse.listening": "Dinleniyor…",
     "protocol.sse.listen": "Akışı dinle",
     "protocol.sse.limitHint":
@@ -1005,11 +1062,20 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "protocol.sse.resultLabel": "SSE sonucu",
     "protocol.sse.events": "Olaylar",
     "protocol.sse.resultDescription":
-      "Event, ID, retry ve data alanları ayrı gösterilir",
-    "protocol.responseHeaders": "Response headers",
+      "event, ID, retry ve data alanları ayrı gösterilir",
+    "protocol.sse.completed":
+      "Bağlantı HTTP {status} ile tamamlandı; {count} olay alındı.",
+    "protocol.sse.partialResult":
+      "Akış bir sorunla durdu; alınan {count} olay korundu.",
+    "protocol.sse.eventTable": "Alınan sunucu kaynaklı olaylar",
+    "protocol.sse.column.event": "Olay",
+    "protocol.sse.column.id": "ID",
+    "protocol.sse.column.retry": "Retry",
+    "protocol.sse.column.data": "Veri",
+    "protocol.responseHeaders": "Yanıt üstbilgileri",
     "protocol.sse.emptyStreamTitle": "Akış olay göndermedi",
     "protocol.sse.emptyStreamDescription":
-      "Bağlantı kuruldu ancak stream kapanmadan önce event alınmadı.",
+      "Bağlantı kuruldu ancak akış kapanmadan önce olay alınmadı.",
     "protocol.noConnectionTitle": "Henüz bağlantı yok",
     "protocol.sse.noConnectionDescription":
       "URL ve sınırları belirleyip “Akışı dinle” seçeneğini kullanın.",

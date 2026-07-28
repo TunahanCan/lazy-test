@@ -1,12 +1,12 @@
-import type { SpringErrorAnalysis } from "../../lib/developerTools";
-import type { Locale, TranslationKey } from "../../i18n";
-import type { Translate } from "../../i18n/LocaleProvider";
+import type { SpringErrorAnalysis } from "../../lib/developerTools.js";
+import type { Locale, TranslationKey } from "../../i18n/messages.js";
+import type { Translate } from "../../i18n/locale.js";
 import type {
   CoverageInput,
   EnvironmentCompareResult,
   ResponseEnvelope,
   UserError,
-} from "../../lib/types";
+} from "../../lib/types.js";
 
 export type DiagnosticsMode =
   | "spring"

@@ -1,7 +1,6 @@
-import type { FieldErrors, Resolver } from "react-hook-form";
-import { HTTP_METHODS } from "./http";
-import { isMaskedSecretValue } from "./secrets";
-import type { HTTPMethod, RequestTab } from "./types";
+import { HTTP_METHODS } from "./http.js";
+import { isMaskedSecretValue } from "./secrets.js";
+import type { HTTPMethod, RequestTab } from "./types.js";
 
 const variableExpression = /\{\{\s*[A-Za-z_][A-Za-z0-9_.-]*\s*}}/g;
 const variableAtStartExpression =
@@ -130,27 +129,6 @@ export const requestSchema = {
     if (issues.length > 0) return { success: false, error: { issues } };
     return { success: true, data: value as RequestFormValues };
   },
-};
-
-export const requestFormResolver: Resolver<RequestFormValues> = (values) => {
-  const parsed = requestSchema.safeParse(values);
-  if (parsed.success) return { values: parsed.data, errors: {} };
-
-  const errors = {} as FieldErrors<RequestFormValues>;
-  for (const issue of parsed.error.issues) {
-    if (issue.field === "root") {
-      errors.root ??= {
-        request: { type: "validate", message: issue.message },
-      };
-      continue;
-    }
-    if (!errors[issue.field]) {
-      Object.assign(errors, {
-        [issue.field]: { type: "validate", message: issue.message },
-      });
-    }
-  }
-  return { values: {}, errors };
 };
 
 export function missingVariables(

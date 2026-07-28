@@ -1,4 +1,4 @@
-import type { HTTPMethod, KeyValue, RequestTab } from "../../lib/types";
+import type { HTTPMethod, KeyValue, RequestTab } from "../../lib/types.js";
 
 export const COLLECTION_NAME_LENGTH_LIMITS = [1, 80] as const;
 export const SAVED_REQUEST_NAME_LENGTH_LIMITS = [1, 120] as const;

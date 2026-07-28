@@ -18,7 +18,7 @@ var assets embed.FS
 var appIconPNG []byte
 
 func main() {
-	devURL := flag.String("dev-url", os.Getenv("CANBRIDGE_DEV_URL"), "Vite development server URL")
+	devURL := flag.String("dev-url", os.Getenv("CANBRIDGE_DEV_URL"), "frontend development server URL")
 	debug := flag.Bool("debug", false, "enable native WebView developer tools")
 	flag.Parse()
 

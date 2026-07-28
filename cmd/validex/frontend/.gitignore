@@ -1,8 +1,7 @@
-node_modules/
 dist/*
 !dist/.gitkeep
+.dev-dist/
+.typescript-build/
 coverage/
 *.local
 *.tsbuildinfo
-vite.config.js
-vite.config.d.ts

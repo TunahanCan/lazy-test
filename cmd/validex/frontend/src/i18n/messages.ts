@@ -1,7 +1,7 @@
-import { automationToolsMessages } from "./messages/automationTools";
-import { coreMessages } from "./messages/core";
-import { diagnosticsProtocolsMessages } from "./messages/diagnosticsProtocols";
-import { requestMessages } from "./messages/requests";
+import { automationToolsMessages } from "./messages/automationTools.js";
+import { coreMessages } from "./messages/core.js";
+import { diagnosticsProtocolsMessages } from "./messages/diagnosticsProtocols.js";
+import { requestMessages } from "./messages/requests.js";
 
 export const supportedLocales = ["tr", "en"] as const;
 

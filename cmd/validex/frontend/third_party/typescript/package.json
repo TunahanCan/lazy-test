@@ -1,0 +1,16 @@
+{
+  "name": "typescript",
+  "version": "5.9.3",
+  "private": true,
+  "type": "commonjs",
+  "main": "./lib/typescript.js",
+  "typings": "./lib/typescript.d.ts",
+  "bin": {
+    "tsc": "./bin/tsc"
+  },
+  "engines": {
+    "node": ">=14.17"
+  },
+  "license": "Apache-2.0",
+  "_validexNotice": "Upstream package metadata was reduced for an npm-free vendored build; compiler and declaration sources are unchanged."
+}

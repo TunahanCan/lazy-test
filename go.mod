@@ -4,11 +4,8 @@ go 1.24.0
 
 require (
 	github.com/getkin/kin-openapi v0.133.0
-	github.com/webview/webview_go v0.0.0-20240831120633-6173450d4dd6
 	golang.org/x/sys v0.40.0
 )
-
-replace github.com/webview/webview_go => github.com/lvlrt/webview_go v0.0.0-20250119213827-fc6fe8152db0
 
 require (
 	github.com/go-openapi/jsonpointer v0.22.4 // indirect

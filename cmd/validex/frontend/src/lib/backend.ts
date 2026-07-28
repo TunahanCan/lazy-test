@@ -24,7 +24,7 @@ import {
   type SSEInput,
   type SSEResult,
   type ThreadDumpResult,
-} from "./types";
+} from "./types.js";
 import {
   normalizeActuatorInspectResult,
   normalizeContractCheckResult,
@@ -35,7 +35,7 @@ import {
   normalizeMockServerSnapshot,
   normalizeSSEResult,
   normalizeThreadDumpResult,
-} from "./bridge-contract";
+} from "./bridge-contract.js";
 
 interface CanbridgeAPI {
   Bootstrap(): Promise<BootstrapData>;
@@ -76,6 +76,7 @@ interface CanbridgeAPI {
 
 declare global {
   interface Window {
+    __VALIDEX_DEV__?: boolean;
     canbridge?: {
       Bridge?: CanbridgeAPI;
     };
@@ -123,7 +124,7 @@ export const backend = {
   async bootstrap(): Promise<BootstrapData> {
     const native = nativeBridge();
     if (native) return native.Bootstrap();
-    if (import.meta.env.DEV) return developmentBootstrap;
+    if (window.__VALIDEX_DEV__) return developmentBootstrap;
     throw new Error("canbridge backend binding is unavailable.");
   },
 

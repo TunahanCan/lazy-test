@@ -19,7 +19,13 @@ export const coreEnglish = {
   "chrome.openCommandPalette": "Open command palette",
   "chrome.new": "New",
   "chrome.newRequest": "New request",
+  "chrome.newRequestShortcut": "New request (Command or Control + N)",
   "chrome.importOpenAPI": "Import OpenAPI",
+  "chrome.importOpenAPIPending": "Importing OpenAPI…",
+  "chrome.importSuccess.one":
+    "{title} {version} imported. {count} endpoint is ready.",
+  "chrome.importSuccess.many":
+    "{title} {version} imported. {count} endpoints are ready.",
   "chrome.untitledRequest": "Untitled request",
   "chrome.layoutAndSettings": "Layout and settings",
   "chrome.requestLayout": "REQUEST LAYOUT",
@@ -39,6 +45,7 @@ export const coreEnglish = {
   "chrome.dismissNotification": "Dismiss notification",
   "common.copy": "Copy",
   "common.copied": "Copied",
+  "common.copyFailed": "Clipboard is not available.",
   "common.technicalDetails": "Technical details",
   "common.httpMethod": "HTTP method {method}",
 
@@ -88,20 +95,32 @@ export const coreEnglish = {
   "sidebar.newRequestInCollection": "New request in collection",
   "sidebar.collectionRequestCount.one": "{count} request",
   "sidebar.collectionRequestCount.many": "{count} requests",
-  "sidebar.expandCollection": "Expand {name}",
-  "sidebar.collapseCollection": "Collapse {name}",
+  "sidebar.expandCollection": "Expand {name}, {count}",
+  "sidebar.collapseCollection": "Collapse {name}, {count}",
   "sidebar.importedOpenAPI": "Imported OpenAPI",
   "sidebar.endpointCount.one": "{count} endpoint",
   "sidebar.endpointCount.many": "{count} endpoints",
   "sidebar.searchRequests": "Search collections and requests",
   "sidebar.searchAPIs": "Search APIs",
+  "sidebar.searchResultCount.one": "{count} matching item",
+  "sidebar.searchResultCount.many": "{count} matching items",
+  "sidebar.openSavedRequest":
+    "Open {method} request {name}. URL: {url}",
+  "sidebar.openEndpoint": "Open {method} endpoint {name}. URL: {url}",
   "sidebar.noSearchResult": "No matching request found",
+  "sidebar.noAPISearchResult": "No matching endpoint found",
   "sidebar.noImportedOpenAPI": "No OpenAPI file imported yet",
+  "sidebar.noAPIEndpoints": "No endpoints found in this specification",
+  "sidebar.noAPIEndpointsHint":
+    "Import another OpenAPI file that defines at least one endpoint.",
   "sidebar.noOpenRequest": "No collections yet",
   "sidebar.tryDifferentSearch": "Try a different search term.",
-  "sidebar.importOpenAPIHint": "Import your OpenAPI file from the New menu.",
+  "sidebar.importOpenAPIHint":
+    "Import an OpenAPI file to browse and open its endpoints here.",
   "sidebar.createFirstRequestHint":
     "Create a collection, then save related API requests together.",
+  "sidebar.readOnlyAction":
+    "Collection editing is unavailable until the storage conflict is resolved.",
   "sidebar.libraryLoading": "Loading saved collections…",
   "sidebar.libraryLoadFailed": "Saved collections couldn’t be loaded",
   "sidebar.libraryUpgradeRequired":
@@ -116,6 +135,7 @@ export const coreEnglish = {
   "palette.description": "Find application commands with fuzzy search.",
   "palette.search": "Search {workspace} commands…",
   "palette.searchAria": "Search command palette",
+  "palette.results": "Matching commands",
   "palette.noResult": "No command found for “{query}”.",
   "palette.available.one": "{count} available command",
   "palette.available.many": "{count} available commands",
@@ -147,6 +167,7 @@ export const coreEnglish = {
   "status.savedRequest": "Saved to collection",
   "status.requestReady": "Request ready",
   "status.noActiveRequest": "No active request",
+  "status.barLabel": "Application status",
 
   "context.panel": "Request context",
   "context.views": "Context views",
@@ -154,6 +175,8 @@ export const coreEnglish = {
   "context.auth": "Auth",
   "context.activeEnvironment": "ACTIVE ENVIRONMENT",
   "context.copyVariable": "Copy {key} value",
+  "context.copyVariableReference": "Copy {key} variable reference",
+  "context.secretHidden": "Secret value hidden",
   "context.noVariables":
     "The active environment does not contain any variables.",
   "context.hideSecrets": "Hide secret values",
@@ -165,6 +188,9 @@ export const coreEnglish = {
   "context.authorizationMissing": "Authorization incomplete",
   "context.authorizationDisabled": "Authorization disabled",
   "context.noAuth": "No Auth",
+  "context.noActiveRequest": "No request selected",
+  "context.noActiveRequestDescription":
+    "Open or create a request to configure its authentication.",
   "context.authorizationHeader": "Authorization header",
   "context.authEnabledHidden": "Enabled · value hidden",
   "context.authEnabledIncomplete": "Enabled, but the value is incomplete",
@@ -187,6 +213,10 @@ export const coreEnglish = {
   "shell.closeSidePanel": "Close side panel",
   "shell.closeRequestPanel": "Close request panel",
   "shell.closeContextPanel": "Close context panel",
+  "shell.toolLoadFailed.title": "Tool couldn’t be opened",
+  "shell.toolLoadFailed.message":
+    "The browser module for this tool could not be loaded.",
+  "shell.toolLoadFailed.retry": "Try again",
   "shell.cancelNotFound.title": "Running request not found",
   "shell.cancelNotFound.message":
     "The backend did not find an active operation for this request.",
@@ -219,7 +249,13 @@ export const coreTurkish = {
   "chrome.openCommandPalette": "Komut paletini aç",
   "chrome.new": "Yeni",
   "chrome.newRequest": "Yeni istek",
+  "chrome.newRequestShortcut": "Yeni istek (Command veya Control + N)",
   "chrome.importOpenAPI": "OpenAPI içe aktar",
+  "chrome.importOpenAPIPending": "OpenAPI içe aktarılıyor…",
+  "chrome.importSuccess.one":
+    "{title} {version} içe aktarıldı. {count} endpoint hazır.",
+  "chrome.importSuccess.many":
+    "{title} {version} içe aktarıldı. {count} endpoint hazır.",
   "chrome.untitledRequest": "Adsız istek",
   "chrome.layoutAndSettings": "Düzen ve ayarlar",
   "chrome.requestLayout": "İSTEK DÜZENİ",
@@ -239,6 +275,7 @@ export const coreTurkish = {
   "chrome.dismissNotification": "Bildirimi kapat",
   "common.copy": "Kopyala",
   "common.copied": "Kopyalandı",
+  "common.copyFailed": "Pano kullanılamadı.",
   "common.technicalDetails": "Teknik ayrıntı",
   "common.httpMethod": "HTTP metodu {method}",
 
@@ -289,21 +326,35 @@ export const coreTurkish = {
   "sidebar.newRequestInCollection": "Koleksiyonda yeni istek",
   "sidebar.collectionRequestCount.one": "{count} istek",
   "sidebar.collectionRequestCount.many": "{count} istek",
-  "sidebar.expandCollection": "{name} koleksiyonunu genişlet",
-  "sidebar.collapseCollection": "{name} koleksiyonunu daralt",
+  "sidebar.expandCollection":
+    "{name} koleksiyonunu genişlet, {count}",
+  "sidebar.collapseCollection":
+    "{name} koleksiyonunu daralt, {count}",
   "sidebar.importedOpenAPI": "İçe aktarılan OpenAPI",
   "sidebar.endpointCount.one": "{count} endpoint",
   "sidebar.endpointCount.many": "{count} endpoint",
   "sidebar.searchRequests": "Koleksiyon ve isteklerde ara",
   "sidebar.searchAPIs": "API’lerde ara",
+  "sidebar.searchResultCount.one": "{count} eşleşen öğe",
+  "sidebar.searchResultCount.many": "{count} eşleşen öğe",
+  "sidebar.openSavedRequest":
+    "{method} {name} isteğini aç. URL: {url}",
+  "sidebar.openEndpoint":
+    "{method} {name} endpoint’ini aç. URL: {url}",
   "sidebar.noSearchResult": "Eşleşen istek bulunamadı",
+  "sidebar.noAPISearchResult": "Eşleşen endpoint bulunamadı",
   "sidebar.noImportedOpenAPI": "Henüz OpenAPI içe aktarılmadı",
+  "sidebar.noAPIEndpoints": "Bu tanımda endpoint bulunamadı",
+  "sidebar.noAPIEndpointsHint":
+    "En az bir endpoint tanımlayan başka bir OpenAPI dosyası içe aktarın.",
   "sidebar.noOpenRequest": "Henüz koleksiyon yok",
   "sidebar.tryDifferentSearch": "Farklı bir arama terimi deneyin.",
   "sidebar.importOpenAPIHint":
-    "Yeni menüsünden OpenAPI dosyanızı içe aktarın.",
+    "Endpoint’leri burada görüntüleyip açmak için bir OpenAPI dosyası içe aktarın.",
   "sidebar.createFirstRequestHint":
     "Bir koleksiyon oluşturup ilişkili API isteklerini birlikte kaydedin.",
+  "sidebar.readOnlyAction":
+    "Depolama çakışması çözülene kadar koleksiyon düzenleme kullanılamaz.",
   "sidebar.libraryLoading": "Kayıtlı koleksiyonlar yükleniyor…",
   "sidebar.libraryLoadFailed": "Kayıtlı koleksiyonlar yüklenemedi",
   "sidebar.libraryUpgradeRequired":
@@ -318,6 +369,7 @@ export const coreTurkish = {
   "palette.description": "Uygulama komutlarını akıllı aramayla bulun.",
   "palette.search": "{workspace} komutlarında ara…",
   "palette.searchAria": "Komut paletinde ara",
+  "palette.results": "Eşleşen komutlar",
   "palette.noResult": "“{query}” için eşleşen komut bulunamadı.",
   "palette.available.one": "{count} kullanılabilir komut",
   "palette.available.many": "{count} kullanılabilir komut",
@@ -349,6 +401,7 @@ export const coreTurkish = {
   "status.savedRequest": "Koleksiyona kaydedildi",
   "status.requestReady": "İstek hazır",
   "status.noActiveRequest": "Etkin istek yok",
+  "status.barLabel": "Uygulama durumu",
 
   "context.panel": "İstek bağlamı",
   "context.views": "Bağlam görünümleri",
@@ -356,6 +409,8 @@ export const coreTurkish = {
   "context.auth": "Kimlik doğrulama",
   "context.activeEnvironment": "ETKİN ORTAM",
   "context.copyVariable": "{key} değerini kopyala",
+  "context.copyVariableReference": "{key} değişken referansını kopyala",
+  "context.secretHidden": "Gizli değer gizlendi",
   "context.noVariables": "Etkin ortam herhangi bir değişken içermiyor.",
   "context.hideSecrets": "Gizli değerleri gizle",
   "context.showSecrets": "Gizli değerleri göster",
@@ -366,6 +421,9 @@ export const coreTurkish = {
   "context.authorizationMissing": "Yetkilendirme eksik",
   "context.authorizationDisabled": "Yetkilendirme kapalı",
   "context.noAuth": "Kimlik doğrulama yok",
+  "context.noActiveRequest": "İstek seçilmedi",
+  "context.noActiveRequestDescription":
+    "Kimlik doğrulamayı yapılandırmak için bir istek açın veya oluşturun.",
   "context.authorizationHeader": "Authorization header’ı",
   "context.authEnabledHidden": "Etkin · değer gizli",
   "context.authEnabledIncomplete": "Etkin ancak değer tamamlanmamış",
@@ -388,6 +446,10 @@ export const coreTurkish = {
   "shell.closeSidePanel": "Yan paneli kapat",
   "shell.closeRequestPanel": "İstek panelini kapat",
   "shell.closeContextPanel": "Bağlam panelini kapat",
+  "shell.toolLoadFailed.title": "Araç açılamadı",
+  "shell.toolLoadFailed.message":
+    "Bu araca ait tarayıcı modülü yüklenemedi.",
+  "shell.toolLoadFailed.retry": "Yeniden dene",
   "shell.cancelNotFound.title": "Çalışan istek bulunamadı",
   "shell.cancelNotFound.message":
     "Backend bu istek için etkin bir işlem bulamadı.",

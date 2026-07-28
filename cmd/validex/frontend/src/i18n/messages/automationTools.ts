@@ -1,4 +1,4 @@
-import { defineMessages } from "./defineMessages";
+import { defineMessages } from "./defineMessages.js";
 
 export const automationToolsMessages = defineMessages(
   {
@@ -57,8 +57,12 @@ export const automationToolsMessages = defineMessages(
     "automation.runner.editor.title": "Collection JSON",
     "automation.runner.editor.description":
       "Request, variable, and assertion definition",
+    "automation.runner.collectionHelp":
+      "JSON collection definition. Requests run from top to bottom.",
     "automation.runner.loadSample": "Load sample",
     "automation.runner.variables": "Runtime variable override JSON",
+    "automation.runner.variablesHelp":
+      "Optional JSON object. Values override variables in the collection for this run only.",
     "automation.runner.run": "Run collection",
     "automation.runner.constraints":
       "Sequential · bounded response · failure report",
@@ -81,6 +85,8 @@ export const automationToolsMessages = defineMessages(
     "automation.network.dns.empty": "No DNS resolution was recorded.",
     "automation.network.dns.noIP": "No IP address found",
     "automation.network.redirect.title": "Redirect chain",
+    "automation.network.redirect.empty":
+      "No HTTP connection step was recorded.",
     "automation.network.finalURL": "Final URL",
     "automation.network.urlProtocol":
       "URL must start with http:// or https://.",
@@ -91,8 +97,14 @@ export const automationToolsMessages = defineMessages(
     "automation.network.target.title": "Network target",
     "automation.network.target.description":
       "DNS timing for each host and redirect timing for every HTTP step",
+    "automation.network.urlHelp":
+      "Use a complete HTTP or HTTPS address, including its protocol.",
     "automation.network.timeout": "Timeout (s)",
+    "automation.network.timeoutHelp":
+      "Maximum time for the complete analysis: 1–300 seconds.",
     "automation.network.redirectLimit": "Redirect limit",
+    "automation.network.redirectHelp":
+      "Stops the analysis after 1–50 HTTP redirect responses.",
     "automation.network.allowSelfSigned":
       "Allow a self-signed TLS certificate",
     "automation.network.allowSelfSignedHint":
@@ -244,6 +256,7 @@ export const automationToolsMessages = defineMessages(
     "mock.state.refreshing": "Reading server status",
     "mock.state.activeRoutes": "{enabled}/{total} routes active",
     "mock.state.localConnection": "Local connection",
+    "mock.server.controls": "Mock server controls",
     "mock.port": "Port",
     "mock.portAria": "Mock server port",
     "mock.cors": "Allow browser CORS",
@@ -251,6 +264,7 @@ export const automationToolsMessages = defineMessages(
     "mock.action.stop": "Stop",
     "mock.action.start": "Start",
     "mock.action.add": "Add",
+    "mock.action.importOpenAPI": "Import OpenAPI",
     "mock.action.delete": "Delete",
     "mock.action.apply": "Apply changes",
     "mock.action.addFirst": "Add first route",
@@ -267,28 +281,41 @@ export const automationToolsMessages = defineMessages(
     "mock.routes.aria": "Mock route list",
     "mock.routes.title": "Routes",
     "mock.routes.count":
-      "{count} definitions · selections are kept in memory",
+      "{count} definitions · edit, then apply changes",
     "mock.routes.empty.title": "No routes yet",
     "mock.routes.empty.description":
       "Add a route or import response examples from an OpenAPI file.",
     "mock.routes.dirty": "Unapplied changes",
     "mock.routes.synced": "Synced with server",
+    "mock.route.enabled": "Enabled route",
+    "mock.route.disabled": "Disabled route",
     "mock.editor.aria": "Selected mock route",
     "mock.editor.empty": "Select a route to edit",
+    "mock.editor.emptyDescription":
+      "Choose a route from the list or add a new definition.",
     "mock.editor.description": "Deterministic HTTP response",
     "mock.editor.useResponse":
       "Copy the active request's latest response to this route",
     "mock.editor.noResponse":
       "The active request tab has no response",
+    "mock.delete.title": "Delete mock route?",
+    "mock.delete.description":
+      "{method} {path} will be removed from the editable route list.",
+    "mock.delete.confirm": "Delete route",
     "mock.field.method": "Method",
     "mock.field.path": "Path",
+    "mock.field.pathHint":
+      "Begin with /; use {name} segments for path parameters.",
     "mock.field.status": "Status",
     "mock.field.delay": "Delay (ms)",
     "mock.field.enabled": "Enabled",
     "mock.field.headers": "Headers · JSON object",
     "mock.field.headersAria": "Response headers JSON",
+    "mock.field.headersHint":
+      "Optional JSON object with text header names and values.",
     "mock.field.body": "Response body · JSON",
     "mock.field.bodyAria": "Response body",
+    "mock.field.bodyHint": "A valid JSON value returned as the response body.",
     "mock.hits.title": "Hit history",
     "mock.hits.summary":
       "{total} total requests · showing the latest {visible}",
@@ -317,6 +344,7 @@ export const automationToolsMessages = defineMessages(
     "mock.import.success":
       "OpenAPI response examples were converted into mock routes.",
     "mock.copy.success": "Mock server URL copied to the clipboard.",
+    "mock.copy.urlAria": "Copy mock server URL {url}",
     "mock.copy.failed": "Clipboard is not available.",
     "mock.stop.success": "Mock server stopped.",
     "mock.start.success":
@@ -370,6 +398,16 @@ export const automationToolsMessages = defineMessages(
     "json.tab.query": "JSONPath",
     "json.tab.schema": "Schema",
     "json.tab.dto": "Java DTO → JSON",
+    "json.mode.format.description":
+      "Pretty-print, minify, or sort JSON keys without sending data off this device.",
+    "json.mode.diff.description":
+      "Compare two JSON documents and optionally ignore changing fields.",
+    "json.mode.query.description":
+      "Read one value or branch with a focused JSONPath expression.",
+    "json.mode.schema.description":
+      "Infer a reusable JSON Schema from a representative example.",
+    "json.mode.dto.description":
+      "Create a realistic JSON example from a Java record or response class.",
     "json.difference.same":
       "The JSON documents match with the selected ignore rules.",
     "json.difference.aria": "JSON differences",
@@ -377,6 +415,8 @@ export const automationToolsMessages = defineMessages(
     "json.difference.removed": "Removed",
     "json.difference.changed": "Changed",
     "json.difference.type": "Type changed",
+    "json.difference.before": "Before",
+    "json.difference.after": "After",
     "json.notice.noDifference": "No differences found.",
     "json.notice.differences": "{count} differences found.",
     "json.notice.queryReady": "JSONPath result is ready.",
@@ -397,6 +437,8 @@ export const automationToolsMessages = defineMessages(
     "json.action.minify": "Minify",
     "json.action.sort": "Sort keys",
     "json.action.query": "Query",
+    "json.query.pathHelp":
+      "Start with $; for example $.users[0].name.",
     "json.action.schema": "Create schema",
     "json.action.mock": "Create mock JSON",
     "json.dto.hint": "You can copy the output into a mock route body.",
@@ -405,6 +447,8 @@ export const automationToolsMessages = defineMessages(
     "json.diff.targetAria": "JSON to compare",
     "json.diff.ignore": "Ignored JSONPaths",
     "json.diff.ignoreAria": "JSONPath expressions to ignore",
+    "json.diff.ignoreHelp":
+      "Enter one JSONPath per line or separate paths with commas.",
     "json.action.compare": "Compare",
     "json.result.title": "Result",
     "json.result.description": "The operation result appears here",
@@ -478,11 +522,15 @@ export const automationToolsMessages = defineMessages(
     "automation.runner.success": "Collection ve tüm assertion’lar başarılı.",
     "automation.runner.failureCount":
       "{count} request veya assertion başarısız oldu.",
-    "automation.runner.editor.title": "Collection JSON",
+    "automation.runner.editor.title": "Koleksiyon JSON’u",
     "automation.runner.editor.description":
       "Request, variable ve assertion tanımı",
+    "automation.runner.collectionHelp":
+      "JSON collection tanımı. Request’ler yukarıdan aşağıya sırayla çalışır.",
     "automation.runner.loadSample": "Örneği yükle",
-    "automation.runner.variables": "Runtime variable override JSON",
+    "automation.runner.variables": "Çalıştırma değişkenleri · JSON",
+    "automation.runner.variablesHelp":
+      "İsteğe bağlı JSON object. Değerler yalnız bu çalıştırmada collection variable’larını geçersiz kılar.",
     "automation.runner.run": "Collection’ı çalıştır",
     "automation.runner.constraints":
       "Sıralı · sınırlı yanıt · hata raporu",
@@ -500,12 +548,14 @@ export const automationToolsMessages = defineMessages(
       "DNS çözümünü ve HTTP redirect zincirini birlikte inceleyin.",
     "automation.network.summary.dnsHosts": "DNS host",
     "automation.network.summary.httpSteps": "HTTP adımı",
-    "automation.network.summary.finalStatus": "Final status",
+    "automation.network.summary.finalStatus": "Son durum",
     "automation.network.dns.title": "DNS çözümleri",
     "automation.network.dns.empty": "DNS çözümü kaydedilmedi.",
     "automation.network.dns.noIP": "IP bulunamadı",
     "automation.network.redirect.title": "Redirect zinciri",
-    "automation.network.finalURL": "Final URL",
+    "automation.network.redirect.empty":
+      "HTTP bağlantı adımı kaydedilmedi.",
+    "automation.network.finalURL": "Son URL",
     "automation.network.urlProtocol":
       "URL http:// veya https:// ile başlamalı.",
     "automation.network.failedFallback":
@@ -515,10 +565,16 @@ export const automationToolsMessages = defineMessages(
     "automation.network.target.title": "Ağ hedefi",
     "automation.network.target.description":
       "Her host için DNS ve her HTTP adımı için redirect ölçümü",
-    "automation.network.timeout": "Timeout (s)",
-    "automation.network.redirectLimit": "Redirect sınırı",
+    "automation.network.urlHelp":
+      "Protokolüyle birlikte eksiksiz bir HTTP veya HTTPS adresi kullanın.",
+    "automation.network.timeout": "Zaman aşımı (sn)",
+    "automation.network.timeoutHelp":
+      "Analizin tamamı için en uzun süre: 1–300 saniye.",
+    "automation.network.redirectLimit": "Yönlendirme sınırı",
+    "automation.network.redirectHelp":
+      "Analizi 1–50 HTTP redirect response’undan sonra durdurur.",
     "automation.network.allowSelfSigned":
-      "Self-signed TLS sertifikasına izin ver",
+      "Kendinden imzalı TLS sertifikasına izin ver",
     "automation.network.allowSelfSignedHint":
       "Yalnız yerel geliştirme hedeflerinde kullanın.",
     "automation.network.analyze": "Ağı analiz et",
@@ -656,95 +712,112 @@ export const automationToolsMessages = defineMessages(
     "automation.cli.summary":
       "Aynı araçları headless CLI’da kullan",
 
-    "mock.eyebrow": "YEREL · YALNIZ LOOPBACK",
+    "mock.eyebrow": "YEREL · YALNIZCA GERİ DÖNGÜ",
     "mock.title": "Mock Sunucu",
     "mock.description.before":
-      "OpenAPI örneklerinden veya kendi route’larınızdan gerçek HTTP yanıtları üretin. Sunucu yalnızca",
+      "OpenAPI örneklerinden veya kendi rotalarınızdan gerçek HTTP yanıtları üretin. Sunucu yalnızca",
     "mock.description.after":
       "üzerinde dinler; ağınızdaki diğer cihazlara açılmaz.",
     "mock.state.processing": "İşleniyor…",
     "mock.state.running": "Çalışıyor",
     "mock.state.stopped": "Durduruldu",
     "mock.state.refreshing": "Sunucu durumu okunuyor",
-    "mock.state.activeRoutes": "{enabled}/{total} route aktif",
+    "mock.state.activeRoutes": "{enabled}/{total} rota etkin",
     "mock.state.localConnection": "Yerel bağlantı",
+    "mock.server.controls": "Mock sunucu denetimleri",
     "mock.port": "Port",
-    "mock.portAria": "Mock server port",
-    "mock.cors": "Browser CORS’a izin ver",
+    "mock.portAria": "Mock sunucu portu",
+    "mock.cors": "Tarayıcı CORS’una izin ver",
     "mock.portHint": "Port 0, boş bir portu otomatik seçer.",
     "mock.action.stop": "Durdur",
     "mock.action.start": "Başlat",
     "mock.action.add": "Ekle",
+    "mock.action.importOpenAPI": "OpenAPI içe aktar",
     "mock.action.delete": "Sil",
     "mock.action.apply": "Değişiklikleri uygula",
-    "mock.action.addFirst": "İlk route’u ekle",
-    "mock.action.activeResponse": "Aktif response",
+    "mock.action.addFirst": "İlk rotayı ekle",
+    "mock.action.activeResponse": "Etkin yanıt",
     "mock.action.clearHistory": "Geçmişi temizle",
-    "mock.startBlocked": "Önce route değişikliklerini uygulayın.",
+    "mock.startBlocked": "Önce rota değişikliklerini uygulayın.",
     "mock.dirtyNotice":
-      "Route değişiklikleri henüz sunucuya uygulanmadı. Başlatmadan önce “Değişiklikleri uygula” düğmesini kullanın.",
+      "Rota değişiklikleri henüz sunucuya uygulanmadı. Başlatmadan önce “Değişiklikleri uygula” düğmesini kullanın.",
     "mock.technicalDetails": "Teknik ayrıntı",
     "mock.lastError.title":
-      "Mock server son işlemi tamamlayamadı",
+      "Mock sunucu son işlemi tamamlayamadı",
     "mock.lastError.description":
       "Sunucunun son hata ayrıntısını inceleyin.",
-    "mock.routes.aria": "Mock route listesi",
-    "mock.routes.title": "Routes",
+    "mock.routes.aria": "Mock rota listesi",
+    "mock.routes.title": "Rotalar",
     "mock.routes.count":
-      "{count} tanım · seçimler bellekte tutulur",
-    "mock.routes.empty.title": "Henüz route yok",
+      "{count} tanım · düzenleyip değişiklikleri uygulayın",
+    "mock.routes.empty.title": "Henüz rota yok",
     "mock.routes.empty.description":
-      "Bir route ekleyin veya OpenAPI dosyasındaki response örneklerini içe aktarın.",
+      "Bir rota ekleyin veya OpenAPI dosyasındaki yanıt örneklerini içe aktarın.",
     "mock.routes.dirty": "Uygulanmamış değişiklik var",
     "mock.routes.synced": "Sunucuyla eşitlendi",
-    "mock.editor.aria": "Seçili mock route",
-    "mock.editor.empty": "Düzenlemek için bir route seçin",
-    "mock.editor.description": "Deterministik HTTP response",
+    "mock.route.enabled": "Etkin rota",
+    "mock.route.disabled": "Devre dışı rota",
+    "mock.editor.aria": "Seçili mock rota",
+    "mock.editor.empty": "Düzenlemek için bir rota seçin",
+    "mock.editor.emptyDescription":
+      "Listeden bir rota seçin veya yeni bir tanım ekleyin.",
+    "mock.editor.description": "Öngörülebilir HTTP yanıtı",
     "mock.editor.useResponse":
-      "Aktif request’in son response’unu bu route’a aktar",
+      "Etkin isteğin son yanıtını bu rotaya aktar",
     "mock.editor.noResponse":
-      "Aktif request sekmesinde response yok",
-    "mock.field.method": "Method",
-    "mock.field.path": "Path",
-    "mock.field.status": "Status",
-    "mock.field.delay": "Delay (ms)",
+      "Etkin istek sekmesinde yanıt yok",
+    "mock.delete.title": "Mock rota silinsin mi?",
+    "mock.delete.description":
+      "{method} {path} düzenlenebilir rota listesinden kaldırılacak.",
+    "mock.delete.confirm": "Rotayı sil",
+    "mock.field.method": "Metot",
+    "mock.field.path": "Yol",
+    "mock.field.pathHint":
+      "/ ile başlayın; yol parametreleri için {name} bölümlerini kullanın.",
+    "mock.field.status": "Durum",
+    "mock.field.delay": "Gecikme (ms)",
     "mock.field.enabled": "Aktif",
-    "mock.field.headers": "Headers · JSON object",
-    "mock.field.headersAria": "Response headers JSON",
-    "mock.field.body": "Response body · JSON",
-    "mock.field.bodyAria": "Response body",
+    "mock.field.headers": "Yanıt üstbilgileri · JSON nesnesi",
+    "mock.field.headersAria": "JSON yanıt üstbilgileri",
+    "mock.field.headersHint":
+      "Metin üstbilgi adları ve değerlerinden oluşan isteğe bağlı JSON nesnesi.",
+    "mock.field.body": "Yanıt gövdesi · JSON",
+    "mock.field.bodyAria": "Yanıt gövdesi",
+    "mock.field.bodyHint":
+      "Yanıt gövdesi olarak döndürülecek geçerli bir JSON değeri.",
     "mock.hits.title": "Hit geçmişi",
     "mock.hits.summary":
       "{total} toplam istek · son {visible} kayıt gösteriliyor",
     "mock.hits.empty":
       "Henüz istek alınmadı. Sunucuyu başlatıp yukarıdaki URL’ye bir HTTP isteği gönderin.",
     "mock.hits.column.time": "Saat",
-    "mock.hits.column.method": "Method",
-    "mock.hits.column.path": "Path",
-    "mock.hits.column.route": "Route",
-    "mock.hits.column.status": "Status",
+    "mock.hits.column.method": "Metot",
+    "mock.hits.column.path": "Yol",
+    "mock.hits.column.route": "Rota",
+    "mock.hits.column.status": "Durum",
     "mock.hits.column.duration": "Süre",
     "mock.hits.matched": "Eşleşti",
     "mock.hits.notMatched": "Eşleşmedi",
     "mock.refresh.failed":
-      "Mock server durumu masaüstü backend’inden okunamadı.",
+      "Mock sunucu durumu masaüstü arka ucundan okunamadı.",
     "mock.operation.failed":
-      "Mock server işlemi masaüstü backend’inde tamamlanamadı.",
+      "Mock sunucu işlemi masaüstü arka ucunda tamamlanamadı.",
     "mock.activeResponse.invalid":
-      "Aktif response JSON değil; mock route body’sine aktarılamadı.",
+      "Etkin yanıt JSON değil; mock rota gövdesine aktarılamadı.",
     "mock.activeResponse.copied":
-      "{name} response’u seçili mock route’a aktarıldı. Uygulamak için değişiklikleri kaydedin.",
-    "mock.routes.invalid.title": "Route doğrulanamadı",
-    "mock.routes.applied": "{count} route mock sunucuya uygulandı.",
+      "{name} yanıtı seçili mock rotaya aktarıldı. Uygulamak için değişiklikleri kaydedin.",
+    "mock.routes.invalid.title": "Rota doğrulanamadı",
+    "mock.routes.applied": "{count} rota mock sunucuya uygulandı.",
     "mock.import.confirm":
-      "Uygulanmamış route değişiklikleri OpenAPI içe aktarımıyla değişebilir. Devam edilsin mi?",
+      "Uygulanmamış rota değişiklikleri OpenAPI içe aktarımıyla değişebilir. Devam edilsin mi?",
     "mock.import.success":
-      "OpenAPI response örnekleri mock route’lara dönüştürüldü.",
-    "mock.copy.success": "Mock server URL’si panoya kopyalandı.",
+      "OpenAPI yanıt örnekleri mock rotalara dönüştürüldü.",
+    "mock.copy.success": "Mock sunucu URL’si panoya kopyalandı.",
+    "mock.copy.urlAria": "{url} mock sunucu URL’sini kopyala",
     "mock.copy.failed": "Pano kullanılamadı.",
-    "mock.stop.success": "Mock server durduruldu.",
+    "mock.stop.success": "Mock sunucu durduruldu.",
     "mock.start.success":
-      "Mock server loopback adresinde başlatıldı.",
+      "Mock sunucu geri döngü adresinde başlatıldı.",
     "mock.history.cleared": "Hit geçmişi temizlendi.",
     "mock.backend.title": "Validex backend bağlantısı kesildi",
     "mock.backend.hint":
@@ -794,6 +867,16 @@ export const automationToolsMessages = defineMessages(
     "json.tab.query": "JSONPath",
     "json.tab.schema": "Şema",
     "json.tab.dto": "Java DTO → JSON",
+    "json.mode.format.description":
+      "Veriyi cihazdan çıkarmadan JSON’u okunaklı biçimlendirin, küçültün veya anahtarları sıralayın.",
+    "json.mode.diff.description":
+      "İki JSON içeriğini karşılaştırın ve değişken alanları isteğe bağlı olarak yok sayın.",
+    "json.mode.query.description":
+      "Odaklı bir JSONPath ifadesiyle tek bir değeri veya dalı okuyun.",
+    "json.mode.schema.description":
+      "Temsili bir örnekten yeniden kullanılabilir JSON Schema üretin.",
+    "json.mode.dto.description":
+      "Java record veya response class’tan gerçekçi bir JSON örneği oluşturun.",
     "json.difference.same":
       "JSON içerikleri seçilen ignore kurallarıyla aynı.",
     "json.difference.aria": "JSON farkları",
@@ -801,6 +884,8 @@ export const automationToolsMessages = defineMessages(
     "json.difference.removed": "Silindi",
     "json.difference.changed": "Değişti",
     "json.difference.type": "Tip değişti",
+    "json.difference.before": "Önce",
+    "json.difference.after": "Sonra",
     "json.notice.noDifference": "Fark bulunamadı.",
     "json.notice.differences": "{count} fark bulundu.",
     "json.notice.queryReady": "JSONPath sonucu hazır.",
@@ -811,16 +896,18 @@ export const automationToolsMessages = defineMessages(
     "json.notice.dtoCreated":
       "Response DTO’dan mock JSON örneği oluşturuldu.",
     "json.input.source": "A · Kaynak",
-    "json.input.dto": "Java response DTO",
-    "json.input.json": "JSON input",
+    "json.input.dto": "Java yanıt DTO’su",
+    "json.input.json": "JSON girdisi",
     "json.input.dtoDescription":
       "Record veya field içeren class yapıştırın",
     "json.input.jsonDescription": "JSON yapıştırın veya yazın",
     "json.action.clear": "Temizle",
-    "json.action.format": "Format",
-    "json.action.minify": "Minify",
+    "json.action.format": "Biçimlendir",
+    "json.action.minify": "Küçült",
     "json.action.sort": "Anahtarları sırala",
     "json.action.query": "Sorgula",
+    "json.query.pathHelp":
+      "$ ile başlayın; örneğin $.users[0].name.",
     "json.action.schema": "Schema oluştur",
     "json.action.mock": "Mock JSON oluştur",
     "json.dto.hint":
@@ -830,6 +917,8 @@ export const automationToolsMessages = defineMessages(
     "json.diff.targetAria": "Karşılaştırılacak JSON",
     "json.diff.ignore": "Ignore JSONPath’leri",
     "json.diff.ignoreAria": "Yok sayılacak JSONPath ifadeleri",
+    "json.diff.ignoreHelp":
+      "Her satıra bir JSONPath yazın veya ifadeleri virgülle ayırın.",
     "json.action.compare": "Karşılaştır",
     "json.result.title": "Sonuç",
     "json.result.description": "İşlem sonucu burada görünür",

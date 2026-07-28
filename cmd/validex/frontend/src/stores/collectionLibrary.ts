@@ -1,5 +1,7 @@
-import { create } from "zustand";
-import { createJSONStorage, persist } from "zustand/middleware";
+import {
+  createStore,
+  type Store,
+} from "../core/store.js";
 import {
   COLLECTION_NAME_LENGTH_LIMITS,
   SAVED_REQUEST_NAME_LENGTH_LIMITS,
@@ -10,16 +12,16 @@ import {
   type RequestCollection,
   type SavedRequest,
   type SavedRequestSnapshot,
-} from "../features/collections/model";
-import { HTTP_METHODS } from "../lib/http";
-import { isSafeSecretReference, isSecretKey } from "../lib/secrets";
-import type { HTTPMethod, KeyValue } from "../lib/types";
+} from "../features/collections/model.js";
+import { HTTP_METHODS } from "../lib/http.js";
+import { isSafeSecretReference, isSecretKey } from "../lib/secrets.js";
+import type { HTTPMethod, KeyValue } from "../lib/types.js";
 import {
-  beginCollectionLibraryHydration,
   createCollectionLibraryStorage,
   finishCollectionLibraryHydration,
+  getCollectionLibraryPersistenceSnapshot,
   UnsupportedCollectionLibraryVersionError,
-} from "./collectionLibraryStorage";
+} from "./collectionLibraryStorage.js";
 
 export const collectionLibraryStorageKey = "validex:collection-library";
 export const collectionLibraryStorageVersion = 1;
@@ -35,8 +37,8 @@ const emptyCollectionLibraryDocument = JSON.stringify({
   version: collectionLibraryStorageVersion,
 });
 
-const collectionLibraryPersistStorage = createJSONStorage(() =>
-  createCollectionLibraryStorage(emptyCollectionLibraryDocument),
+const collectionLibraryPersistStorage = createCollectionLibraryStorage(
+  emptyCollectionLibraryDocument,
 );
 
 function loadExpandedCollectionIds(): string[] {
@@ -357,9 +359,8 @@ export function selectOrderedRequests(
     .sort(bySortOrder);
 }
 
-export const useCollectionLibraryStore = create<CollectionLibraryState>()(
-  persist(
-    (set, get) => ({
+const baseCollectionLibraryStore = createStore<CollectionLibraryState>(
+  (set, get) => ({
       collections: [],
       requests: [],
       expandedCollectionIds: loadExpandedCollectionIds(),
@@ -619,48 +620,136 @@ export const useCollectionLibraryStore = create<CollectionLibraryState>()(
         return request ? createOpenRequestSnapshot(request) : undefined;
       },
     }),
-    {
-      name: collectionLibraryStorageKey,
-      version: collectionLibraryStorageVersion,
-      storage: collectionLibraryPersistStorage,
-      onRehydrateStorage: () => {
-        beginCollectionLibraryHydration();
-        return (_state, error) =>
-          finishCollectionLibraryHydration(error);
-      },
-      migrate: (persistedState, persistedVersion) => {
+);
+
+export interface CollectionLibraryStore
+  extends Store<CollectionLibraryState> {
+  readonly hydrated: Promise<void>;
+  persist: {
+    clearStorage(): Promise<void>;
+    rehydrate(): Promise<void>;
+  };
+}
+
+function collectionLibraryDocument(
+  state: CollectionLibraryState,
+): string {
+  return JSON.stringify({
+    state: {
+      collections: state.collections.map(persistedCollection),
+      requests: state.requests.map(persistedRequest),
+    },
+    version: collectionLibraryStorageVersion,
+  });
+}
+
+function mergeHydratedLibrary(
+  persistedState: unknown,
+  currentState: CollectionLibraryState,
+): CollectionLibraryState {
+  const hydrated = hydrateLibraryData(persistedState);
+  const collectionIds = new Set(
+    hydrated.collections.map((collection) => collection.id),
+  );
+  const expandedCollectionIds = [
+    ...new Set(
+      (
+        currentState.expandedCollectionIds.length > 0
+          ? currentState.expandedCollectionIds
+          : hydrated.expandedCollectionIds
+      ).filter((id) => collectionIds.has(id)),
+    ),
+  ];
+  persistExpandedCollectionIds(expandedCollectionIds);
+  return {
+    ...currentState,
+    ...hydrated,
+    expandedCollectionIds,
+  };
+}
+
+let hydrationPromise: Promise<void> = Promise.resolve();
+let hydrationInProgress = false;
+let persistenceEnabled = false;
+
+function persistCollectionLibrary(state: CollectionLibraryState): void {
+  if (hydrationInProgress || !persistenceEnabled) return;
+  try {
+    const write = collectionLibraryPersistStorage.setItem(
+      collectionLibraryStorageKey,
+      collectionLibraryDocument(state),
+    );
+    if (write) {
+      void Promise.resolve(write).catch((error) => {
+        console.error("Could not persist collection library", error);
+      });
+    }
+  } catch (error) {
+    console.error("Could not persist collection library", error);
+  }
+}
+
+function rehydrateCollectionLibrary(): Promise<void> {
+  if (hydrationInProgress) return hydrationPromise;
+  hydrationInProgress = true;
+  persistenceEnabled = false;
+  hydrationPromise = (async () => {
+    try {
+      const rawDocument = await collectionLibraryPersistStorage.getItem(
+        collectionLibraryStorageKey,
+      );
+      if (rawDocument) {
+        const document = JSON.parse(rawDocument) as {
+          state?: unknown;
+          version?: unknown;
+        };
+        const persistedVersion =
+          typeof document.version === "number" &&
+          Number.isInteger(document.version)
+            ? document.version
+            : 0;
         if (persistedVersion > collectionLibraryStorageVersion) {
           throw new UnsupportedCollectionLibraryVersionError(
             persistedVersion,
           );
         }
-        return hydrateLibraryData(persistedState);
-      },
-      merge: (persistedState, currentState) => {
-        const hydrated = hydrateLibraryData(persistedState);
-        const collectionIds = new Set(
-          hydrated.collections.map((collection) => collection.id),
-        );
-        const expandedCollectionIds = [
-          ...new Set(
-            (
-              currentState.expandedCollectionIds.length > 0
-                ? currentState.expandedCollectionIds
-                : hydrated.expandedCollectionIds
-            ).filter((id) => collectionIds.has(id)),
+        baseCollectionLibraryStore.setState(
+          mergeHydratedLibrary(
+            document.state,
+            baseCollectionLibraryStore.getState(),
           ),
-        ];
-        persistExpandedCollectionIds(expandedCollectionIds);
-        return {
-          ...currentState,
-          ...hydrated,
-          expandedCollectionIds,
-        };
-      },
-      partialize: (state) => ({
-        collections: state.collections.map(persistedCollection),
-        requests: state.requests.map(persistedRequest),
-      }),
+          true,
+        );
+      }
+      finishCollectionLibraryHydration();
+    } catch (error) {
+      finishCollectionLibraryHydration(error);
+    } finally {
+      hydrationInProgress = false;
+      persistenceEnabled =
+        getCollectionLibraryPersistenceSnapshot().hydrated;
+    }
+  })();
+  return hydrationPromise;
+}
+
+baseCollectionLibraryStore.subscribe((state) => {
+  persistCollectionLibrary(state);
+});
+
+export const collectionLibraryStore: CollectionLibraryStore = {
+  ...baseCollectionLibraryStore,
+  get hydrated() {
+    return hydrationPromise;
+  },
+  persist: {
+    async clearStorage() {
+      await collectionLibraryPersistStorage.removeItem?.(
+        collectionLibraryStorageKey,
+      );
     },
-  ),
-);
+    rehydrate: rehydrateCollectionLibrary,
+  },
+};
+
+void collectionLibraryStore.persist.rehydrate();

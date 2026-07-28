@@ -1,5 +1,5 @@
-import { translate } from "../../i18n";
-import type { Translate } from "../../i18n/LocaleProvider";
+import { translate } from "../../i18n/messages.js";
+import type { Translate } from "../../i18n/locale.js";
 
 export type AutomationMode = "runner" | "network" | "openapi";
 

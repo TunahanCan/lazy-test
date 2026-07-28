@@ -18,24 +18,26 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: cmd/validex/frontend/package-lock.json
 
-      - name: Install frontend dependencies
-        working-directory: cmd/validex/frontend
-        run: npm ci
+      - name: Verify vendored TypeScript
+        working-directory: cmd/validex/frontend/third_party/typescript
+        run: sha256sum -c SHA256SUMS
 
       - name: Check frontend
         working-directory: cmd/validex/frontend
         run: |
-          npm run typecheck
-          npm test
-          npm run build
+          node scripts/typecheck.mjs
+          node scripts/build.mjs
+          node --test
 
       - name: Test Go packages
         run: |
           go test ./...
           go vet ./...
+
+      - name: Verify vendored native sources
+        working-directory: internal/nativewebview
+        run: sha256sum -c SHA256SUMS
 
   native-macos:
     runs-on: macos-latest
@@ -50,13 +52,80 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: cmd/validex/frontend/package-lock.json
 
       - name: Test native bridge
         run: |
-          go test -tags canbridge ./internal/canbridge ./cmd/validex
-          go vet -tags canbridge ./internal/canbridge ./cmd/validex
+          go test -tags canbridge ./internal/nativewebview ./internal/canbridge ./cmd/validex
+          go vet -tags canbridge ./internal/nativewebview ./internal/canbridge ./cmd/validex
 
       - name: Build native application
         run: make build
+
+      - name: Verify desktop notices
+        run: test -f cmd/validex/build/bin/Validex.app/Contents/Resources/THIRD_PARTY_NOTICES.md
+
+  native-linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build frontend
+        working-directory: cmd/validex/frontend
+        run: node scripts/build.mjs
+
+      - name: Install native WebView development libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            g++ \
+            pkg-config \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev
+
+      - name: Test and build native application
+        run: |
+          go test -tags canbridge ./internal/nativewebview ./internal/canbridge ./cmd/validex
+          go vet -tags canbridge ./internal/nativewebview ./internal/canbridge ./cmd/validex
+          go build -tags canbridge -o "${RUNNER_TEMP}/validex" ./cmd/validex
+
+  native-windows:
+    runs-on: windows-2022
+    env:
+      CGO_ENABLED: "1"
+      CC: gcc
+      CXX: g++
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build frontend
+        working-directory: cmd/validex/frontend
+        run: node scripts/build.mjs
+
+      - name: Verify MinGW toolchain
+        run: |
+          gcc --version
+          g++ --version
+
+      - name: Test and build native application
+        run: |
+          go test -tags canbridge ./internal/nativewebview ./internal/canbridge ./cmd/validex
+          go vet -tags canbridge ./internal/nativewebview ./internal/canbridge ./cmd/validex
+          go build -tags canbridge -ldflags="-H windowsgui" -o "${env:RUNNER_TEMP}\validex.exe" ./cmd/validex

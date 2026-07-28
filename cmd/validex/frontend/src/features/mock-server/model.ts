@@ -2,10 +2,10 @@ import type {
   MockRoute,
   MockServerSnapshot,
   UserError,
-} from "../../lib/types";
-import { HTTP_METHODS } from "../../lib/http";
-import { translate, type Locale } from "../../i18n";
-import type { Translate } from "../../i18n/LocaleProvider";
+} from "../../lib/types.js";
+import { HTTP_METHODS } from "../../lib/http.js";
+import { translate, type Locale } from "../../i18n/messages.js";
+import type { Translate } from "../../i18n/locale.js";
 
 export interface EditableRoute extends Omit<MockRoute, "headers"> {
   headersText: string;

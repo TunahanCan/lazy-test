@@ -16,10 +16,11 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
-	webview "github.com/webview/webview_go"
+	"validex/internal/nativewebview"
 )
 
 const (
@@ -46,7 +47,7 @@ type AppOptions struct {
 }
 
 type ipcRuntime struct {
-	webview    webview.WebView
+	webview    nativewebview.WebView
 	bridge     *Bridge
 	capability string
 
@@ -135,7 +136,7 @@ func Run(options AppOptions) error {
 	Startup(options.Bridge)(appContext)
 
 	prepareNativeApplication(options.AppID, options.Title)
-	nativeView := webview.New(options.Debug)
+	nativeView := nativewebview.New(options.Debug)
 	if nativeView == nil {
 		cancelApp()
 		Shutdown(options.Bridge)(context.Background())
@@ -156,10 +157,10 @@ func Run(options AppOptions) error {
 		Shutdown(options.Bridge)(context.Background())
 	}()
 
-	if err := nativeView.Bind(nativeDispatchName, runtime.dispatch); err != nil {
+	if err := nativeView.Bind(nativeDispatchName, runtime.dispatchBinding); err != nil {
 		return fmt.Errorf("bind native canbridge dispatcher: %w", err)
 	}
-	if err := nativeView.Bind(nativeLogName, runtime.logBrowserMessage); err != nil {
+	if err := nativeView.Bind(nativeLogName, runtime.logBrowserMessageBinding); err != nil {
 		return fmt.Errorf("bind native canbridge logger: %w", err)
 	}
 	log.Print(canbridgeStartupBanner(
@@ -170,14 +171,82 @@ func Run(options AppOptions) error {
 	))
 	nativeView.Init(browserRuntime(capability, allowedOrigin, options.Debug))
 	nativeView.SetTitle(options.Title)
-	nativeView.SetSize(options.Width, options.Height, webview.HintNone)
+	nativeView.SetSize(options.Width, options.Height, nativewebview.HintNone)
 	if options.MinWidth > 0 && options.MinHeight > 0 {
-		nativeView.SetSize(options.MinWidth, options.MinHeight, webview.HintMin)
+		nativeView.SetSize(options.MinWidth, options.MinHeight, nativewebview.HintMin)
 	}
 
 	nativeView.Navigate(targetURL)
 	nativeView.Run()
 	return nil
+}
+
+func (runtime *ipcRuntime) dispatchBinding(requestJSON string) error {
+	arguments, err := decodeBindingStringArguments(requestJSON, 4)
+	if err != nil {
+		return fmt.Errorf("decode native canbridge dispatcher request: %w", err)
+	}
+	return runtime.dispatch(
+		arguments[0],
+		arguments[1],
+		arguments[2],
+		arguments[3],
+	)
+}
+
+func (runtime *ipcRuntime) logBrowserMessageBinding(requestJSON string) error {
+	arguments, err := decodeBindingStringArguments(requestJSON, 3)
+	if err != nil {
+		return fmt.Errorf("decode native canbridge logger request: %w", err)
+	}
+	return runtime.logBrowserMessage(
+		arguments[0],
+		arguments[1],
+		arguments[2],
+	)
+}
+
+func decodeBindingStringArguments(
+	requestJSON string,
+	expectedCount int,
+) ([]string, error) {
+	trimmedRequest := strings.TrimSpace(requestJSON)
+	if trimmedRequest == "" || trimmedRequest[0] != '[' {
+		return nil, errors.New("native binding request must be a JSON array")
+	}
+
+	var encodedArguments []json.RawMessage
+	if err := json.Unmarshal([]byte(trimmedRequest), &encodedArguments); err != nil {
+		return nil, fmt.Errorf("decode native binding request JSON: %w", err)
+	}
+	if len(encodedArguments) != expectedCount {
+		return nil, fmt.Errorf(
+			"native binding request expects %d string arguments, received %d",
+			expectedCount,
+			len(encodedArguments),
+		)
+	}
+
+	arguments := make([]string, len(encodedArguments))
+	for index, encodedArgument := range encodedArguments {
+		var value any
+		if err := json.Unmarshal(encodedArgument, &value); err != nil {
+			return nil, fmt.Errorf(
+				"decode native binding argument %d: %w",
+				index+1,
+				err,
+			)
+		}
+		argument, ok := value.(string)
+		if !ok {
+			return nil, fmt.Errorf(
+				"native binding argument %d must be a string",
+				index+1,
+			)
+		}
+		arguments[index] = argument
+	}
+	return arguments, nil
 }
 
 func (runtime *ipcRuntime) logBrowserMessage(

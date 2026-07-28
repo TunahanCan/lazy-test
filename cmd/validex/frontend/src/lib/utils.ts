@@ -41,9 +41,13 @@ export function formatDuration(milliseconds: number): string {
   return `${(milliseconds / 1000).toFixed(2)} s`;
 }
 
-export function fuzzyMatch(value: string, query: string): boolean {
-  const haystack = value.toLocaleLowerCase("tr");
-  const needle = query.trim().toLocaleLowerCase("tr");
+export function fuzzyMatch(
+  value: string,
+  query: string,
+  locale = "en",
+): boolean {
+  const haystack = value.toLocaleLowerCase(locale);
+  const needle = query.trim().toLocaleLowerCase(locale);
   if (!needle) return true;
   let cursor = 0;
   for (const character of needle) {

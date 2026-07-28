@@ -1,6 +1,6 @@
-import type { UserError } from "../../lib/types";
-import type { Locale, TranslationKey } from "../../i18n";
-import type { Translate } from "../../i18n/LocaleProvider";
+import type { UserError } from "../../lib/types.js";
+import type { Locale, TranslationKey } from "../../i18n/messages.js";
+import type { Translate } from "../../i18n/locale.js";
 
 export interface ProtocolIssue {
   title: string;

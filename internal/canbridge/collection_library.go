@@ -13,7 +13,7 @@ const (
 )
 
 // CollectionLibraryLoadResult is deliberately string-based. The frontend owns
-// migration and sanitization of the versioned Zustand schema. Native code owns
+// migration and sanitization of the versioned legacy frontend schema. Native code owns
 // only the durability, concurrency and outer-document validation boundaries.
 //
 // This separation is intentional: the native repository is not a secret

@@ -1,5 +1,7 @@
-import { create } from "zustand";
-import { createJSONStorage, persist } from "zustand/middleware";
+import {
+  createPersistedStore,
+  localStorageStateStorage,
+} from "../core/store.js";
 import type {
   HTTPMethod,
   ImportSpecResult,
@@ -8,11 +10,11 @@ import type {
   ResponsePlacement,
   ThemePreference,
   WorkspaceView,
-} from "../lib/types";
+} from "../lib/types.js";
 import {
   isSecretKey,
   isSafeSecretReference,
-} from "../lib/secrets";
+} from "../lib/secrets.js";
 
 export const workspaceStorageKey = "validex:workspace:validex-workspace";
 
@@ -196,7 +198,7 @@ export interface SavedRequestLink {
   body: string;
 }
 
-interface WorkspaceState {
+export interface WorkspaceState {
   workspaceID: string;
   activeEnvironmentID: string;
   environmentVariables: Record<string, Record<string, string>>;
@@ -328,9 +330,8 @@ function isUntouchedStarterRequest(tabs: RequestTab[] | undefined): boolean {
   );
 }
 
-export const useWorkspaceStore = create<WorkspaceState>()(
-  persist(
-    (set, get) => ({
+export const workspaceStore = createPersistedStore<WorkspaceState>(
+  (set, get) => ({
       workspaceID: "validex-workspace",
       activeEnvironmentID: "none",
       environmentVariables: {},
@@ -585,70 +586,69 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           return changed ? { tabs, recentlyClosed } : state;
         }),
     }),
-    {
-      name: workspaceStorageKey,
-      version: 7,
-      storage: createJSONStorage(() => localStorage),
-      migrate: (persistedState, persistedVersion) => {
-        const state = persistedState as Partial<WorkspaceState>;
-        const resetLegacyDemo =
-          persistedVersion === 0 && isUntouchedLegacyDemoRequest(state.tabs);
-        const resetBlankStarter =
-          persistedVersion < 4 && isUntouchedStarterRequest(state.tabs);
-        const resetToWelcome = resetLegacyDemo || resetBlankStarter;
-        const tabs = resetToWelcome
-          ? []
-          : (state.tabs ?? []).map(persistedTab);
-        return {
-          ...state,
-          workspaceID: "validex-workspace",
-          activeEnvironmentID: resetToWelcome
-            ? "none"
-            : (state.activeEnvironmentID ?? "none"),
-          environmentVariables: withoutSecretVariables(
-            state.environmentVariables ?? {},
-          ),
-          tabs,
-          activeTabID: resetToWelcome
-            ? ""
-            : (state.activeTabID ?? tabs[0]?.id ?? ""),
-          recentlyClosed: (state.recentlyClosed ?? []).map(persistedTab),
-          activeView:
-            state.activeView === "mock" ||
-            state.activeView === "json" ||
-            state.activeView === "diagnostics" ||
-            state.activeView === "protocols" ||
-            state.activeView === "automation"
-              ? state.activeView
-              : "requests",
-          leftVisible: resetToWelcome
-            ? false
-            : (state.leftVisible ?? true),
-          rightVisible: resetToWelcome
-            ? false
-            : (state.rightVisible ?? false),
-          sidebarSection: "requests",
-          latestImportedSpec: undefined,
-        } as WorkspaceState;
-      },
-      partialize: (state) => ({
-        workspaceID: state.workspaceID,
-        activeEnvironmentID: state.activeEnvironmentID,
+  {
+    name: workspaceStorageKey,
+    version: 7,
+    storage: localStorageStateStorage(),
+    migrate: (persistedState, persistedVersion) => {
+      const state = persistedState as Partial<WorkspaceState>;
+      const resetLegacyDemo =
+        persistedVersion === 0 && isUntouchedLegacyDemoRequest(state.tabs);
+      const resetBlankStarter =
+        persistedVersion < 4 && isUntouchedStarterRequest(state.tabs);
+      const resetToWelcome = resetLegacyDemo || resetBlankStarter;
+      const tabs = resetToWelcome
+        ? []
+        : (state.tabs ?? []).map(persistedTab);
+      return {
+        ...state,
+        workspaceID: "validex-workspace",
+        activeEnvironmentID: resetToWelcome
+          ? "none"
+          : (state.activeEnvironmentID ?? "none"),
         environmentVariables: withoutSecretVariables(
-          state.environmentVariables,
+          state.environmentVariables ?? {},
         ),
-        tabs: state.tabs.map(persistedTab),
-        activeTabID: state.activeTabID,
-        recentlyClosed: state.recentlyClosed.map(persistedTab),
-        leftVisible: state.leftVisible,
-        rightVisible: state.rightVisible,
-        leftWidth: state.leftWidth,
-        rightWidth: state.rightWidth,
-        responseSize: state.responseSize,
-        responsePlacement: state.responsePlacement,
-        activeView: state.activeView,
-        theme: state.theme,
-      }),
+        tabs,
+        activeTabID: resetToWelcome
+          ? ""
+          : (state.activeTabID ?? tabs[0]?.id ?? ""),
+        recentlyClosed: (state.recentlyClosed ?? []).map(persistedTab),
+        activeView:
+          state.activeView === "mock" ||
+          state.activeView === "json" ||
+          state.activeView === "diagnostics" ||
+          state.activeView === "protocols" ||
+          state.activeView === "automation"
+            ? state.activeView
+            : "requests",
+        leftVisible: resetToWelcome
+          ? false
+          : (state.leftVisible ?? true),
+        rightVisible: resetToWelcome
+          ? false
+          : (state.rightVisible ?? false),
+        sidebarSection: "requests",
+        latestImportedSpec: undefined,
+      } as WorkspaceState;
     },
-  ),
+    partialize: (state) => ({
+      workspaceID: state.workspaceID,
+      activeEnvironmentID: state.activeEnvironmentID,
+      environmentVariables: withoutSecretVariables(
+        state.environmentVariables,
+      ),
+      tabs: state.tabs.map(persistedTab),
+      activeTabID: state.activeTabID,
+      recentlyClosed: state.recentlyClosed.map(persistedTab),
+      leftVisible: state.leftVisible,
+      rightVisible: state.rightVisible,
+      leftWidth: state.leftWidth,
+      rightWidth: state.rightWidth,
+      responseSize: state.responseSize,
+      responsePlacement: state.responsePlacement,
+      activeView: state.activeView,
+      theme: state.theme,
+    }),
+  },
 );

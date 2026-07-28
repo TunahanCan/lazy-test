@@ -1,6 +1,6 @@
-import type { HTTPMethod } from "./http";
+import type { HTTPMethod } from "./http.js";
 
-export type { HTTPMethod } from "./http";
+export type { HTTPMethod } from "./http.js";
 
 export type ThemePreference = "system" | "light" | "dark";
 export type ResponsePlacement = "vertical" | "horizontal";
