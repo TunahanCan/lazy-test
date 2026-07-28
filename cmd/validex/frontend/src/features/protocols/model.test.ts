@@ -29,18 +29,6 @@ const protocolCases: ReadonlyArray<{
     hint: "protocol.error.operationHint",
   },
   {
-    code: "websocket_failed",
-    title: "protocol.error.websocketFailedTitle",
-    message: "protocol.error.websocketFailedMessage",
-    hint: "protocol.error.operationHint",
-  },
-  {
-    code: "grpc_failed",
-    title: "protocol.error.grpcFailedTitle",
-    message: "protocol.error.grpcFailedMessage",
-    hint: "protocol.error.operationHint",
-  },
-  {
     code: "tool_timeout",
     title: "protocol.error.toolTimeoutTitle",
     message: "protocol.error.toolTimeoutMessage",

@@ -78,51 +78,6 @@ type SSEResult struct {
 	Error      *UserError          `json:"error,omitempty"`
 }
 
-type WebSocketMessage struct {
-	Type      string `json:"type"`
-	Data      string `json:"data"`
-	Encoding  string `json:"encoding,omitempty"`
-	SizeBytes int64  `json:"sizeBytes"`
-}
-
-type WebSocketInput struct {
-	OperationID        string             `json:"operationId"`
-	URL                string             `json:"url"`
-	Headers            map[string]string  `json:"headers"`
-	Subprotocols       []string           `json:"subprotocols"`
-	Send               []WebSocketMessage `json:"send"`
-	TimeoutMS          int                `json:"timeoutMs"`
-	MaxMessages        int                `json:"maxMessages"`
-	InsecureSkipVerify bool               `json:"insecureSkipVerify"`
-}
-
-type WebSocketResult struct {
-	StatusCode int                 `json:"statusCode"`
-	Headers    map[string][]string `json:"headers"`
-	Protocol   string              `json:"protocol"`
-	Messages   []WebSocketMessage  `json:"messages"`
-	DurationMS int64               `json:"durationMs"`
-	Error      *UserError          `json:"error,omitempty"`
-}
-
-type GRPCInput struct {
-	OperationID        string            `json:"operationId"`
-	Address            string            `json:"address"`
-	Metadata           map[string]string `json:"metadata"`
-	TimeoutMS          int               `json:"timeoutMs"`
-	UseTLS             bool              `json:"useTLS"`
-	ServerName         string            `json:"serverName"`
-	InsecureSkipVerify bool              `json:"insecureSkipVerify"`
-}
-
-type GRPCResult struct {
-	Services          []string   `json:"services"`
-	ReflectionVersion string     `json:"reflectionVersion"`
-	ConnectionState   string     `json:"connectionState"`
-	DurationMS        int64      `json:"durationMs"`
-	Error             *UserError `json:"error,omitempty"`
-}
-
 type ActuatorMetricSample struct {
 	Name          string              `json:"name"`
 	Description   string              `json:"description,omitempty"`

@@ -53,7 +53,7 @@ Aktif test alanları:
 | Response, timeline ve contract drift görünümü | `components/ResponsePanel.test.tsx` |
 | Mock server arayüzü | `components/MockServerLab.test.tsx` |
 | Spring/JWT/Actuator/ortam/thread/log/coverage arayüzü | `components/DiagnosticsLab.test.tsx` |
-| SSE, WebSocket ve gRPC arayüzü | `components/ProtocolLab.test.tsx` |
+| SSE akışı arayüzü | `features/protocols/ProtocolLab.test.tsx` |
 | JSON ve Java DTO araçları | `components/JSONLab.test.tsx`, `lib/developerTools.test.ts` |
 | URL, OpenAPI URL ve güvenli workspace persistence | `lib/schemas.test.ts`, `lib/openapi.test.ts`, `stores/workspace.test.ts` |
 
@@ -73,8 +73,8 @@ go test ./internal/diagnostics -v
 go test ./internal/protocols -v
 ```
 
-Mock route, Actuator, environment, SSE, WebSocket ve gRPC network akışları yerel
-test sunucularıyla doğrulanır. OpenAPI örnekleri, thread dump, log ve coverage
+Mock route, Actuator, environment ve SSE network akışları yerel test
+sunucularıyla doğrulanır. OpenAPI örnekleri, thread dump, log ve coverage
 analizleri deterministik fixture’larla kontrol edilir.
 
 canbridge native IPC ve masaüstü giriş paketini kontrol etmek için:

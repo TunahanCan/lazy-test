@@ -71,8 +71,8 @@ Validex iki kullanıcı yüzeyi sunar:
 ```
 
 Masaüstü uygulamasında React yalnız sunum ve kullanıcı etkileşiminden
-sorumludur. HTTP çağrısı, OpenAPI parse/validation, mock server, protokol
-oturumları ve backend tanılaması Go tarafında çalışır. JSON Lab içindeki saf
+sorumludur. HTTP çağrısı, OpenAPI parse/validation, mock server, SSE akışı ve
+backend tanılaması Go tarafında çalışır. JSON Lab içindeki saf
 metin dönüşümleri gibi işletim sistemi erişimi gerektirmeyen bazı araçlar
 frontend içinde kalır.
 
@@ -183,7 +183,7 @@ validex/
 │   ├── mockserver/                    # loopback mock HTTP server
 │   ├── netinspector/                  # DNS ve redirect analizi
 │   ├── openapilint/                   # bounded OpenAPI lint
-│   ├── protocols/                     # SSE, WebSocket, gRPC
+│   ├── protocols/                     # bounded SSE istemcisi
 │   └── runner/                        # collection runner
 ├── examples/                          # açıklayıcı geliştirici örnekleri
 ├── Makefile                           # development/build orchestration
@@ -240,7 +240,7 @@ Kurallar:
 | `cli` | Argüman parse, çıktı, exit code | Runner/lint/network iş kurallarının kopyası |
 | `core` | OpenAPI load ve contract drift | WebView, UI mesajları |
 | `mockserver` | Route compile/match, server ve hit ring | React form state’i |
-| `protocols` | Bounded protocol client’ları | Tool ekranı düzeni |
+| `protocols` | Bounded SSE istemcisi | Tool ekranı düzeni |
 | `diagnostics` | Read-only analiz ve karşılaştırma | Native file picker |
 | `runner` | Collection parse/execute/report | CLI flag veya UI state’i |
 | `assertions` | Assertion validate/evaluate | HTTP transport |
@@ -863,9 +863,8 @@ contract testlerinde birlikte yapılmalıdır.
 - OpenAPI endpoint ve tag listeleri;
 - finding ve route listeleri;
 - mock hits;
-- mock route header map’leri ile SSE/WebSocket header alanları;
-- protocol event/message listeleri;
-- gRPC service listesi;
+- mock route header map’leri ile SSE header alanları;
+- SSE event listeleri;
 - Actuator metric/delta map’leri;
 - diagnostics sonuç collection’ları.
 
@@ -1162,21 +1161,19 @@ explicit/named example dahil bütün route response body’lerinin toplamını
 kapsar. 10.000 node ve 1 MiB tahmini boyut bütçesi ise her schema-derived
 response sample’ı için yeniden başlar.
 
-## 14. Protocol tools
+## 14. SSE akışı
 
-SSE, WebSocket ve gRPC çağrıları ortak tool operation lifecycle’ını kullanır:
+SSE çağrısı bounded tool operation lifecycle’ını kullanır:
 
 1. Frontend benzersiz `operationId` üretir.
 2. Bridge boş, 128 karakterden uzun veya aktif duplicate ID’yi reddeder.
 3. Lifecycle context’ten child context üretir.
 4. Cancel fonksiyonunu `toolCancels` map’ine kaydeder.
-5. Domain protokol fonksiyonunu çağırır.
+5. Domain SSE fonksiyonunu çağırır.
 6. Sonuçta kayıt identity check ile silinir.
 7. `CancelToolOperation(id)` context’i iptal eder.
 
 Request ve tool operation ID namespace’leri ayrıdır.
-
-### 14.1 SSE
 
 - yalnız HTTP/HTTPS URL;
 - userinfo yok;
@@ -1189,33 +1186,6 @@ Request ve tool operation ID namespace’leri ayrıdır.
 
 Cancellation veya limit hatasında daha önce parse edilmiş event’ler partial
 result olarak korunabilir.
-
-### 14.2 WebSocket
-
-- yalnız `ws` ve `wss`;
-- userinfo yok;
-- varsayılan 10, hard limit 10.000 receive message;
-- varsayılan 100, hard limit 1.000 send message;
-- varsayılan tek mesaj 1 MiB, hard limit 16 MiB;
-- varsayılan toplam send 8 MiB;
-- varsayılan toplam receive 16 MiB;
-- aggregate hard limit 64 MiB;
-- client-managed handshake header’ları kullanıcı input’unda reddedilir;
-- context cancellation connection watcher ile socket’i kapatır;
-- binary frame frontend DTO’sunda base64 taşınır.
-
-Hata oluşsa bile alınmış partial message listesi kaybedilmez.
-
-### 14.3 gRPC reflection
-
-- adres `host:port` biçimindedir;
-- plaintext veya TLS seçilebilir;
-- TLS minimum 1.2;
-- reflection önce v1, `Unimplemented` ise v1alpha;
-- varsayılan 1.000, hard limit 10.000 service;
-- varsayılan message 4 MiB, hard limit 64 MiB;
-- servis isimleri deterministik sıralanır;
-- binary `-bin` metadata text input üzerinden desteklenmez.
 
 ## 15. Diagnostics mimarisi
 
@@ -1461,8 +1431,6 @@ Yeni state eklerken şu sorular yanıtlanmalıdır:
 | --- | --- | --- | --- |
 | HTTP request | IPC goroutine + HTTP call | `CancelRequest` | Var |
 | SSE | IPC goroutine + stream read | `CancelToolOperation` | Var |
-| WebSocket | IPC goroutine + watcher | `CancelToolOperation` | Var |
-| gRPC reflection | IPC goroutine + dial/stream | `CancelToolOperation` | Var |
 | Collection | IPC goroutine, request’ler sıralı | `CancelToolOperation` | Var |
 | Saved-request persistence | Bounded single-consumer IPC queue | UI retry | 3 saniye drain + context cancel |
 | Network inspect | IPC goroutine, hop’lar sıralı | `CancelToolOperation` | Var |
@@ -1565,7 +1533,7 @@ güvenilen masaüstü kullanıcısına dayanır.
 - Header değerlerinde CR/LF injection reddedilir.
 - Credential taşıyan diagnostic çağrılarda cross-origin redirect reddedilir.
 - TLS validation kapatma yalnız açık kullanıcı seçeneğidir.
-- TLS kullanan ilgili protokollerde minimum TLS 1.2’dir.
+- HTTPS kullanan SSE bağlantılarında minimum TLS 1.2’dir.
 - Mock server genel ağa bind olmaz.
 
 ### 21.3 Secret yönetimi
@@ -1658,8 +1626,6 @@ tekrar etmez.
 ### 24.2 Local integration testleri
 
 - `httptest.Server` ile HTTP, SSE, Actuator ve environment;
-- gerçek test WebSocket server;
-- gRPC reflection test server;
 - loopback mock lifecycle;
 - fake resolver/HTTP client ile network inspector;
 - fake file picker ile import/lint;
@@ -1692,7 +1658,7 @@ konumlanır. Minimum boundary kapsamı:
 - request orchestration/cancellation;
 - OpenAPI import;
 - mock revision yarışı;
-- protocol partial result ve cancellation;
+- SSE partial result ve cancellation;
 - diagnostics stale-result guard;
 - i18n anahtarları;
 - keyboard/ARIA davranışları.
@@ -1979,7 +1945,7 @@ belgelenmiştir.
 | Non-null normalization | `internal/canbridge/contract.go`, `lib/bridge-contract.ts` |
 | OpenAPI | `internal/core`, `features/openapi`, `Sidebar.tsx` |
 | Mock | `internal/mockserver`, `features/mock-server` |
-| Protocol | `internal/protocols`, `features/protocols` |
+| SSE | `internal/protocols`, `features/protocols` |
 | Diagnostics | `internal/diagnostics`, `features/diagnostics` |
 | Automation collection runner | `internal/runner`, `internal/assertions`, `features/automation` |
 | Saved request library | `features/collections`, `stores/collectionLibrary.ts` |

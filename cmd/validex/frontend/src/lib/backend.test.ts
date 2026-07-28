@@ -90,13 +90,6 @@ describe("canbridge adapter", () => {
       ],
       canceled: false,
     });
-    const InspectGRPC = vi.fn().mockResolvedValue({
-      services: null,
-      reflectionVersion: "",
-      connectionState: "",
-      durationMs: 1,
-      error: { code: "grpc_failed", title: "Failed", message: "offline" },
-    });
     const InspectActuator = vi.fn().mockResolvedValue({
       metrics: { capturedAt: "", metrics: null },
       deltas: null,
@@ -109,7 +102,6 @@ describe("canbridge adapter", () => {
     window.canbridge = {
       Bridge: {
         ImportOpenAPI,
-        InspectGRPC,
         InspectActuator,
       } as unknown as NativeBridge,
     };
@@ -117,17 +109,6 @@ describe("canbridge adapter", () => {
     await expect(backend.importOpenAPI()).resolves.toMatchObject({
       endpoints: [{ tags: [] }],
     });
-    await expect(
-      backend.inspectGRPC({
-        operationId: "grpc-1",
-        address: "localhost:50051",
-        metadata: {},
-        timeoutMs: 1_000,
-        useTLS: false,
-        serverName: "",
-        insecureSkipVerify: false,
-      }),
-    ).resolves.toMatchObject({ services: [] });
     await expect(
       backend.inspectActuator({
         baseUrl: "http://localhost:8080/actuator",

@@ -3,11 +3,9 @@ package canbridge
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,7 +17,6 @@ import (
 	"validex/internal/protocols"
 
 	"github.com/getkin/kin-openapi/openapi3"
-	"github.com/gorilla/websocket"
 )
 
 func TestMockServerBridgeLifecycleAndHitSnapshot(t *testing.T) {
@@ -367,170 +364,6 @@ func TestDuplicateToolOperationIDDoesNotReplaceRunningOperation(t *testing.T) {
 	}
 }
 
-func TestRunWebSocketMapsBinaryFramesAsBase64WithByteSize(t *testing.T) {
-	t.Parallel()
-
-	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
-	received := make(chan []byte, 1)
-	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		connection, err := upgrader.Upgrade(response, request, nil)
-		if err != nil {
-			return
-		}
-		defer connection.Close()
-		messageType, payload, err := connection.ReadMessage()
-		if err != nil {
-			return
-		}
-		received <- append([]byte(nil), payload...)
-		_ = connection.WriteMessage(messageType, payload)
-	}))
-	t.Cleanup(server.Close)
-
-	raw := []byte{0x00, 0xff, 0x80, 0x01}
-	result := NewBridge().RunWebSocket(WebSocketInput{
-		OperationID: "ws-binary-map",
-		URL:         "ws" + strings.TrimPrefix(server.URL, "http"),
-		Send: []WebSocketMessage{{
-			Type:     protocols.WebSocketBinaryMessage,
-			Data:     base64.StdEncoding.EncodeToString(raw),
-			Encoding: "base64",
-		}},
-		TimeoutMS:   2_000,
-		MaxMessages: 1,
-	})
-	if result.Error != nil {
-		t.Fatalf("RunWebSocket() error = %#v", result.Error)
-	}
-	select {
-	case payload := <-received:
-		if !bytes.Equal(payload, raw) {
-			t.Fatalf("server received %v, want %v", payload, raw)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("server did not receive binary frame")
-	}
-	if len(result.Messages) != 1 {
-		t.Fatalf("messages = %#v, want one binary message", result.Messages)
-	}
-	message := result.Messages[0]
-	if message.Type != protocols.WebSocketBinaryMessage ||
-		message.Encoding != "base64" ||
-		message.SizeBytes != int64(len(raw)) ||
-		message.Data != base64.StdEncoding.EncodeToString(raw) {
-		t.Fatalf("unexpected mapped binary message: %#v", message)
-	}
-}
-
-func TestCancelToolOperationStopsWebSocket(t *testing.T) {
-	started := make(chan struct{})
-	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
-	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		connection, err := upgrader.Upgrade(response, request, nil)
-		if err != nil {
-			return
-		}
-		defer connection.Close()
-		close(started)
-		_, _, _ = connection.ReadMessage()
-	}))
-	defer server.Close()
-
-	bridge := NewBridge()
-	defer Shutdown(bridge)(context.Background())
-	resultChannel := make(chan WebSocketResult, 1)
-	go func() {
-		resultChannel <- bridge.RunWebSocket(WebSocketInput{
-			OperationID: "ws-cancel",
-			URL:         "ws" + strings.TrimPrefix(server.URL, "http"),
-			TimeoutMS:   10_000,
-			MaxMessages: 1,
-		})
-	}()
-	select {
-	case <-started:
-	case <-time.After(time.Second):
-		t.Fatal("WebSocket operation did not connect")
-	}
-	if !bridge.CancelToolOperation("ws-cancel") {
-		t.Fatal("CancelToolOperation() = false, want true")
-	}
-	select {
-	case result := <-resultChannel:
-		if result.Error == nil || result.Error.Code != "tool_canceled" {
-			t.Fatalf("error = %#v, want tool_canceled", result.Error)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("WebSocket operation did not stop")
-	}
-}
-
-func TestCancelToolOperationStopsGRPCDial(t *testing.T) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("net.Listen() error = %v", err)
-	}
-	defer listener.Close()
-	accepted := make(chan struct{})
-	release := make(chan struct{})
-	go func() {
-		connection, acceptErr := listener.Accept()
-		if acceptErr != nil {
-			return
-		}
-		defer connection.Close()
-		close(accepted)
-		<-release
-	}()
-	defer close(release)
-
-	bridge := NewBridge()
-	defer Shutdown(bridge)(context.Background())
-	resultChannel := make(chan GRPCResult, 1)
-	go func() {
-		resultChannel <- bridge.InspectGRPC(GRPCInput{
-			OperationID: "grpc-cancel",
-			Address:     listener.Addr().String(),
-			TimeoutMS:   10_000,
-		})
-	}()
-	select {
-	case <-accepted:
-	case <-time.After(time.Second):
-		t.Fatal("gRPC operation did not connect")
-	}
-	if !bridge.CancelToolOperation("grpc-cancel") {
-		t.Fatal("CancelToolOperation() = false, want true")
-	}
-	select {
-	case result := <-resultChannel:
-		if result.Error == nil || result.Error.Code != "tool_canceled" {
-			t.Fatalf("error = %#v, want tool_canceled", result.Error)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("gRPC operation did not stop")
-	}
-}
-
-func TestRunWebSocketRejectsInvalidBase64BinaryInput(t *testing.T) {
-	t.Parallel()
-
-	result := NewBridge().RunWebSocket(WebSocketInput{
-		OperationID: "ws-invalid-binary",
-		URL:         "ws://localhost:8080/ws",
-		Send: []WebSocketMessage{{
-			Type:     protocols.WebSocketBinaryMessage,
-			Data:     "not-base64!",
-			Encoding: "base64",
-		}},
-		TimeoutMS:   1_000,
-		MaxMessages: 1,
-	})
-	if result.Error == nil || result.Error.Code != "invalid_input" {
-		t.Fatalf("error = %#v, want invalid_input", result.Error)
-	}
-}
-
 func TestInspectActuatorMapsHealthMappingsMetricsAndBaselineDelta(t *testing.T) {
 	t.Parallel()
 
@@ -641,17 +474,6 @@ func TestBridgeErrorResultsKeepRequiredCollectionsNonNull(t *testing.T) {
 			result: bridge.ValidateOpenAPIResponse(ContractCheckInput{}),
 			fragments: []string{
 				`"findings":[]`,
-			},
-		},
-		{
-			name: "gRPC inspection",
-			result: bridge.InspectGRPC(GRPCInput{
-				OperationID: "grpc-contract-error",
-				Address:     "127.0.0.1:0",
-				TimeoutMS:   1,
-			}),
-			fragments: []string{
-				`"services":[]`,
 			},
 		},
 		{

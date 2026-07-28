@@ -3,13 +3,11 @@ import type {
   ContractCheckResult,
   CoverageResult,
   EnvironmentCompareResult,
-  GRPCResult,
   ImportSpecResult,
   LogSearchResult,
   MockServerSnapshot,
   SSEResult,
   ThreadDumpResult,
-  WebSocketResult,
 } from "./types";
 
 function listOrEmpty<T>(value: T[] | null | undefined): T[] {
@@ -63,20 +61,6 @@ export function normalizeSSEResult(result: SSEResult): SSEResult {
     headers: recordOrEmpty(result.headers),
     events: listOrEmpty(result.events),
   };
-}
-
-export function normalizeWebSocketResult(
-  result: WebSocketResult,
-): WebSocketResult {
-  return {
-    ...result,
-    headers: recordOrEmpty(result.headers),
-    messages: listOrEmpty(result.messages),
-  };
-}
-
-export function normalizeGRPCResult(result: GRPCResult): GRPCResult {
-  return { ...result, services: listOrEmpty(result.services) };
 }
 
 export function normalizeActuatorInspectResult(

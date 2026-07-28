@@ -22,8 +22,6 @@ const (
 	bridgeMethodClearMockHits           = "ClearMockHits"
 	bridgeMethodImportMockOpenAPI       = "ImportMockOpenAPI"
 	bridgeMethodRunSSE                  = "RunSSE"
-	bridgeMethodRunWebSocket            = "RunWebSocket"
-	bridgeMethodInspectGRPC             = "InspectGRPC"
 	bridgeMethodCancelToolOperation     = "CancelToolOperation"
 	bridgeMethodInspectActuator         = "InspectActuator"
 	bridgeMethodCompareEnvironments     = "CompareEnvironments"
@@ -82,8 +80,6 @@ var bridgeMethodRegistry = []bridgeMethodDescriptor{
 	{Name: bridgeMethodClearMockHits},
 	{Name: bridgeMethodImportMockOpenAPI},
 	{Name: bridgeMethodRunSSE},
-	{Name: bridgeMethodRunWebSocket},
-	{Name: bridgeMethodInspectGRPC},
 	{Name: bridgeMethodCancelToolOperation},
 	{Name: bridgeMethodInspectActuator},
 	{Name: bridgeMethodCompareEnvironments},
@@ -214,18 +210,6 @@ func (b *Bridge) Invoke(method string, encodedArguments string) (result any, err
 			return nil, err
 		}
 		return b.RunSSE(input), nil
-	case bridgeMethodRunWebSocket:
-		var input WebSocketInput
-		if err := decodeArguments(encodedArguments, &input); err != nil {
-			return nil, err
-		}
-		return b.RunWebSocket(input), nil
-	case bridgeMethodInspectGRPC:
-		var input GRPCInput
-		if err := decodeArguments(encodedArguments, &input); err != nil {
-			return nil, err
-		}
-		return b.InspectGRPC(input), nil
 	case bridgeMethodCancelToolOperation:
 		var operationID string
 		if err := decodeArguments(encodedArguments, &operationID); err != nil {

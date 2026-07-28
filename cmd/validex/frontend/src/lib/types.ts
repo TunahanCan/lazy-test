@@ -260,53 +260,6 @@ export interface SSEResult {
   error?: UserError;
 }
 
-export interface WebSocketInput {
-  operationId: string;
-  url: string;
-  headers: Record<string, string>;
-  subprotocols: string[];
-  send: Array<{
-    type: "text" | "binary";
-    data: string;
-    encoding?: "utf-8" | "base64";
-  }>;
-  timeoutMs: number;
-  maxMessages: number;
-  insecureSkipVerify?: boolean;
-}
-
-export interface WebSocketResult {
-  statusCode: number;
-  headers: Record<string, string[]>;
-  protocol: string;
-  messages: Array<{
-    type: "text" | "binary";
-    data: string;
-    encoding: "utf-8" | "base64";
-    sizeBytes: number;
-  }>;
-  durationMs: number;
-  error?: UserError;
-}
-
-export interface GRPCInput {
-  operationId: string;
-  address: string;
-  metadata: Record<string, string>;
-  timeoutMs: number;
-  useTLS: boolean;
-  serverName: string;
-  insecureSkipVerify: boolean;
-}
-
-export interface GRPCResult {
-  services: string[];
-  reflectionVersion: string;
-  connectionState: string;
-  durationMs: number;
-  error?: UserError;
-}
-
 export interface ActuatorMetricSample {
   name: string;
   description?: string;

@@ -41,7 +41,7 @@ describe("ProtocolLab", () => {
     renderProtocol("en");
 
     expect(
-      screen.getByRole("heading", { name: "Protocol Lab" }),
+      screen.getByRole("heading", { name: "SSE Stream" }),
     ).toBeVisible();
     expect(
       screen.getByRole("button", { name: "Listen to stream" }),
@@ -126,8 +126,8 @@ describe("ProtocolLab", () => {
     fireEvent.click(screen.getByRole("button", { name: "Akışı dinle" }));
 
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("Bağlantı tamamlanamadı");
-    expect(alert).toHaveTextContent("Protokol işlemi tamamlanamadı.");
+    expect(alert).toHaveTextContent("SSE bağlantısı tamamlanamadı");
+    expect(alert).toHaveTextContent("SSE akışı tamamlanamadı.");
     const details = within(alert)
       .getByText("Teknik ayrıntı")
       .closest("details");
@@ -138,190 +138,6 @@ describe("ProtocolLab", () => {
       "Servisin çalıştığını ve portu kontrol edin.",
     );
     expect(details).toHaveTextContent("connection refused");
-  });
-
-  it("sends WebSocket connection input and renders text and binary messages", async () => {
-    const runWebSocket = vi
-      .spyOn(backend, "runWebSocket")
-      .mockResolvedValueOnce({
-        statusCode: 101,
-        headers: {
-          Upgrade: ["websocket"],
-          "Sec-WebSocket-Protocol": ["validex.v1"],
-        },
-        protocol: "validex.v1",
-        messages: [
-          {
-            type: "text",
-            data: '{"type":"order.updated","id":"42"}',
-            encoding: "utf-8",
-            sizeBytes: 34,
-          },
-          {
-            type: "binary",
-            data: "AP+A",
-            encoding: "base64",
-            sizeBytes: 3,
-          },
-        ],
-        durationMs: 48,
-      });
-
-    renderProtocol();
-    fireEvent.click(screen.getByRole("tab", { name: "WebSocket" }));
-    fireEvent.change(screen.getByLabelText("WebSocket URL"), {
-      target: { value: "wss://api.example.test/orders" },
-    });
-    const [timeoutInput, messageLimitInput] =
-      screen.getAllByRole("spinbutton");
-    fireEvent.change(timeoutInput, {
-      target: { value: "12" },
-    });
-    fireEvent.change(messageLimitInput, {
-      target: { value: "2" },
-    });
-    fireEvent.change(screen.getByLabelText(/^Alt protokoller/), {
-      target: { value: "graphql-transport-ws, validex.v1" },
-    });
-    fireEvent.change(screen.getByLabelText(/Request headers · JSON/), {
-      target: { value: '{"Authorization":"Bearer local-token"}' },
-    });
-    fireEvent.change(
-      screen.getByLabelText("Gönderilecek text mesajı · isteğe bağlı"),
-      {
-        target: {
-          value: '{"type":"subscribe","topic":"orders"}',
-        },
-      },
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Gönder ve dinle" }),
-    );
-
-    await waitFor(() => expect(runWebSocket).toHaveBeenCalledOnce());
-    expect(runWebSocket).toHaveBeenCalledWith({
-      operationId: expect.stringMatching(/^protocol-websocket-/),
-      url: "wss://api.example.test/orders",
-      headers: { Authorization: "Bearer local-token" },
-      subprotocols: ["graphql-transport-ws", "validex.v1"],
-      send: [
-        {
-          type: "text",
-          data: '{"type":"subscribe","topic":"orders"}',
-          encoding: "utf-8",
-        },
-      ],
-      timeoutMs: 12_000,
-      maxMessages: 2,
-      insecureSkipVerify: false,
-    });
-
-    const result = screen.getByRole("region", { name: "WebSocket sonucu" });
-    expect(within(result).getByText("101")).toBeVisible();
-    expect(
-      within(result).getByText("Protocol").closest("div"),
-    ).toHaveTextContent("validex.v1");
-    expect(within(result).getByText("48 ms")).toBeVisible();
-    expect(
-      within(result).getByText('{"type":"order.updated","id":"42"}'),
-    ).toBeVisible();
-    expect(within(result).getByText("AP+A")).toBeVisible();
-    expect(within(result).getByText("text")).toBeVisible();
-    expect(within(result).getByText("binary")).toBeVisible();
-    expect(within(result).getByText("base64 · 3 B")).toBeVisible();
-  });
-
-  it("keeps received WebSocket messages visible when the session ends with an error", async () => {
-    vi.spyOn(backend, "runWebSocket").mockResolvedValueOnce({
-      statusCode: 101,
-      headers: {},
-      protocol: "",
-      messages: [
-        {
-          type: "text",
-          data: '{"type":"snapshot","orders":3}',
-          encoding: "utf-8",
-          sizeBytes: 30,
-        },
-      ],
-      durationMs: 30_000,
-      error: {
-        code: "websocket_timeout",
-        title: "WebSocket oturumu tamamlanamadı",
-        message: "Timeout dolmadan yalnız bir mesaj alındı.",
-        hint: "Mesaj sınırını veya timeout değerini kontrol edin.",
-      },
-    });
-
-    renderProtocol();
-    fireEvent.click(screen.getByRole("tab", { name: "WebSocket" }));
-    fireEvent.click(
-      screen.getByRole("button", { name: "Bağlan ve dinle" }),
-    );
-
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("Bağlantı tamamlanamadı");
-    expect(alert).toHaveTextContent("Protokol işlemi tamamlanamadı.");
-    const details = within(alert)
-      .getByText("Teknik ayrıntı")
-      .closest("details");
-    expect(details).not.toHaveAttribute("open");
-    expect(details).toHaveTextContent("WebSocket oturumu tamamlanamadı");
-    expect(details).toHaveTextContent(
-      "Timeout dolmadan yalnız bir mesaj alındı.",
-    );
-    const result = screen.getByRole("region", { name: "WebSocket sonucu" });
-    expect(
-      within(result).getByText('{"type":"snapshot","orders":3}'),
-    ).toBeVisible();
-    expect(within(result).getAllByRole("listitem")).toHaveLength(1);
-  });
-
-  it("sends gRPC connection settings and lists reflected services", async () => {
-    const inspectGRPC = vi.spyOn(backend, "inspectGRPC").mockResolvedValueOnce({
-      services: [
-        "com.validex.orders.v1.OrderService",
-        "grpc.health.v1.Health",
-      ],
-      reflectionVersion: "v1",
-      connectionState: "READY",
-      durationMs: 31,
-    });
-
-    renderProtocol();
-    fireEvent.click(screen.getByRole("tab", { name: "gRPC" }));
-    fireEvent.change(screen.getByLabelText(/Sunucu adresi/), {
-      target: { value: "api.example.test:7443" },
-    });
-    fireEvent.click(screen.getByLabelText(/TLS kullan/));
-    fireEvent.change(screen.getByLabelText(/TLS server name/), {
-      target: { value: "api.example.test" },
-    });
-    fireEvent.change(screen.getByLabelText(/gRPC metadata/), {
-      target: { value: '{"authorization":"Bearer local-token"}' },
-    });
-    fireEvent.click(
-      screen.getByRole("button", { name: "Servisleri keşfet" }),
-    );
-
-    expect(
-      await screen.findByText("com.validex.orders.v1.OrderService"),
-    ).toBeVisible();
-    expect(screen.getByText("grpc.health.v1.Health")).toBeVisible();
-    const result = screen.getByRole("region", { name: "gRPC sonucu" });
-    expect(within(result).getByText("READY")).toBeVisible();
-    expect(within(result).getByText("v1")).toBeVisible();
-    expect(within(result).getByText("31 ms")).toBeVisible();
-    expect(inspectGRPC).toHaveBeenCalledOnce();
-    expect(inspectGRPC).toHaveBeenCalledWith({
-      operationId: expect.stringMatching(/^protocol-grpc-/),
-      address: "api.example.test:7443",
-      metadata: { authorization: "Bearer local-token" },
-      timeoutMs: 10_000,
-      useTLS: true,
-      serverName: "api.example.test",
-      insecureSkipVerify: false,
-    });
   });
 
   it("only enables the SSE certificate bypass for HTTPS and maps explicit consent", async () => {
@@ -347,39 +163,6 @@ describe("ProtocolLab", () => {
 
     await waitFor(() => expect(runSSE).toHaveBeenCalledOnce());
     expect(runSSE.mock.calls[0]?.[0]).toEqual(
-      expect.objectContaining({ insecureSkipVerify: true }),
-    );
-  });
-
-  it("only enables the WebSocket certificate bypass for WSS and maps explicit consent", async () => {
-    const runWebSocket = vi
-      .spyOn(backend, "runWebSocket")
-      .mockResolvedValueOnce({
-        statusCode: 101,
-        headers: {},
-        protocol: "",
-        messages: [],
-        durationMs: 7,
-      });
-
-    renderProtocol();
-    fireEvent.click(screen.getByRole("tab", { name: "WebSocket" }));
-    const bypass = screen.getByRole("checkbox", {
-      name: /Sertifika doğrulamasını atla/,
-    });
-    expect(bypass).toBeDisabled();
-
-    fireEvent.change(screen.getByLabelText("WebSocket URL"), {
-      target: { value: "wss://localhost:8443/ws" },
-    });
-    expect(bypass).toBeEnabled();
-    fireEvent.click(bypass);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Bağlan ve dinle" }),
-    );
-
-    await waitFor(() => expect(runWebSocket).toHaveBeenCalledOnce());
-    expect(runWebSocket.mock.calls[0]?.[0]).toEqual(
       expect.objectContaining({ insecureSkipVerify: true }),
     );
   });
@@ -410,7 +193,7 @@ describe("ProtocolLab", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Validex backend bağlantısı kesildi");
     expect(alert).toHaveTextContent(
-      "Protokol işlemi masaüstü backend’inde tamamlanamadı.",
+      "SSE akışı masaüstü backend’inde tamamlanamadı.",
     );
     const details = within(alert)
       .getByText("Teknik ayrıntı")
@@ -422,109 +205,54 @@ describe("ProtocolLab", () => {
     ).toBeEnabled();
   });
 
-  it.each([
-    {
-      mode: "SSE",
-      startLabel: "Akışı dinle",
-      operationPrefix: "protocol-sse-",
-      runMethod: "runSSE" as const,
-      result: {
-        statusCode: 200,
-        headers: {},
-        events: [],
-        durationMs: 15,
-        error: {
-          code: "tool_canceled",
-          title: "SSE akışı tamamlanamadı",
-          message: "İşlem iptal edildi.",
-        },
+  it("cancels a running SSE operation with its generated operation ID", async () => {
+    const result = {
+      statusCode: 200,
+      headers: {},
+      events: [],
+      durationMs: 15,
+      error: {
+        code: "tool_canceled",
+        title: "SSE akışı tamamlanamadı",
+        message: "İşlem iptal edildi.",
       },
-    },
-    {
-      mode: "WebSocket",
-      startLabel: "Bağlan ve dinle",
-      operationPrefix: "protocol-websocket-",
-      runMethod: "runWebSocket" as const,
-      result: {
-        statusCode: 101,
-        headers: {},
-        protocol: "",
-        messages: [
-          {
-            type: "text" as const,
-            data: "partial-message",
-            encoding: "utf-8" as const,
-            sizeBytes: 15,
-          },
-        ],
-        durationMs: 18,
-        error: {
-          code: "tool_canceled",
-          title: "WebSocket exchange tamamlanamadı",
-          message: "İşlem iptal edildi.",
-        },
-      },
-    },
-    {
-      mode: "gRPC",
-      startLabel: "Servisleri keşfet",
-      operationPrefix: "protocol-grpc-",
-      runMethod: "inspectGRPC" as const,
-      result: {
-        services: [],
-        reflectionVersion: "",
-        connectionState: "",
-        durationMs: 12,
-        error: {
-          code: "tool_canceled",
-          title: "gRPC reflection tamamlanamadı",
-          message: "İşlem iptal edildi.",
-        },
-      },
-    },
-  ])(
-    "cancels a running $mode operation with its generated operation ID",
-    async ({ mode, startLabel, operationPrefix, runMethod, result }) => {
-      let finishOperation: (() => void) | undefined;
-      const operationPromise = new Promise<typeof result>((resolve) => {
-        finishOperation = () => resolve(result);
+    };
+    let finishOperation: (() => void) | undefined;
+    const operationPromise = new Promise<typeof result>((resolve) => {
+      finishOperation = () => resolve(result);
+    });
+    const run = vi
+      .spyOn(backend, "runSSE")
+      .mockReturnValueOnce(operationPromise);
+    const cancel = vi
+      .spyOn(backend, "cancelToolOperation")
+      .mockImplementationOnce(async () => {
+        finishOperation?.();
+        return true;
       });
-      const run = vi
-        .spyOn(backend, runMethod)
-        .mockReturnValueOnce(operationPromise as never);
-      const cancel = vi
-        .spyOn(backend, "cancelToolOperation")
-        .mockImplementationOnce(async () => {
-          finishOperation?.();
-          return true;
-        });
 
-      renderProtocol();
-      if (mode !== "SSE") {
-        fireEvent.click(screen.getByRole("tab", { name: mode }));
-      }
-      fireEvent.click(screen.getByRole("button", { name: startLabel }));
+    renderProtocol();
+    fireEvent.click(screen.getByRole("button", { name: "Akışı dinle" }));
 
-      const cancelButton = await screen.findByRole("button", {
-        name: "İptal et",
-      });
-      const call = run.mock.calls[0]?.[0] as { operationId: string };
-      expect(call.operationId).toMatch(new RegExp(`^${operationPrefix}`));
+    const cancelButton = await screen.findByRole("button", {
+      name: "İptal et",
+    });
+    const call = run.mock.calls[0]?.[0];
+    expect(call?.operationId).toMatch(/^protocol-sse-/);
 
-      fireEvent.click(cancelButton);
-      await waitFor(() =>
-        expect(cancel).toHaveBeenCalledWith(call.operationId),
-      );
-      expect(await screen.findByRole("alert")).toHaveTextContent(
-        "İşlem tamamlanmadan iptal edildi.",
-      );
-      await waitFor(() =>
-        expect(
-          screen.queryByRole("button", { name: "İptal et" }),
-        ).not.toBeInTheDocument(),
-      );
-    },
-  );
+    fireEvent.click(cancelButton);
+    await waitFor(() =>
+      expect(cancel).toHaveBeenCalledWith(call?.operationId),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Akış tamamlanmadan iptal edildi.",
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "İptal et" }),
+      ).not.toBeInTheDocument(),
+    );
+  });
 
   it("reports a rejected cancel instead of presenting it as successful", async () => {
     vi.spyOn(backend, "runSSE").mockImplementationOnce(
@@ -539,9 +267,9 @@ describe("ProtocolLab", () => {
     );
 
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("İşlem durdurulamadı");
+    expect(alert).toHaveTextContent("SSE akışı durdurulamadı");
     expect(alert).toHaveTextContent(
-      "Backend bu operation ID için çalışan bir işlem bulamadı.",
+      "Backend bu operation ID için çalışan bir SSE akışı bulamadı.",
     );
     expect(
       screen.getByRole("button", { name: "İptal et" }),

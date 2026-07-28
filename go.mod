@@ -4,9 +4,8 @@ go 1.24.0
 
 require (
 	github.com/getkin/kin-openapi v0.133.0
-	github.com/gorilla/websocket v1.5.3
 	github.com/webview/webview_go v0.0.0-20240831120633-6173450d4dd6
-	google.golang.org/grpc v1.79.3
+	golang.org/x/sys v0.40.0
 )
 
 replace github.com/webview/webview_go => github.com/lvlrt/webview_go v0.0.0-20250119213827-fc6fe8152db0
@@ -24,10 +23,5 @@ require (
 	github.com/perimeterx/marshmallow v1.1.5 // indirect
 	github.com/stretchr/testify v1.10.0 // indirect
 	github.com/woodsbury/decimal128 v1.4.0 // indirect
-	golang.org/x/net v0.48.0 // indirect
-	golang.org/x/sys v0.40.0 // indirect
-	golang.org/x/text v0.33.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20251202230838-ff82c1b0f217 // indirect
-	google.golang.org/protobuf v1.36.10 // indirect
 	gopkg.in/check.v1 v1.0.0-20200227125254-8fa46927fb4f // indirect
 )

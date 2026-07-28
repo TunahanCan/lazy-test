@@ -2,9 +2,7 @@ package canbridge
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
-	"fmt"
 	"net/http"
 	"sort"
 	"strings"
@@ -14,8 +12,6 @@ import (
 	"validex/internal/mockserver"
 	"validex/internal/protocols"
 )
-
-const maxWebSocketBridgeMessageBytes = 1 << 20
 
 func (b *Bridge) GetMockServer() MockServerSnapshot {
 	return mockSnapshot(b.currentMockServer(), "")
@@ -145,152 +141,6 @@ func mapSSEResult(result protocols.SSEResult, err error) SSEResult {
 	}
 	if err != nil {
 		out.Error = toolError("sse_failed", "SSE akışı tamamlanamadı", err)
-	}
-	return out
-}
-
-func (b *Bridge) RunWebSocket(input WebSocketInput) WebSocketResult {
-	ctx, finish, err := b.beginToolOperation(input.OperationID)
-	if err != nil {
-		return WebSocketResult{
-			Headers:  map[string][]string{},
-			Messages: []WebSocketMessage{},
-			Error:    toolError("websocket_failed", "WebSocket exchange başlatılamadı", err),
-		}
-	}
-	defer finish()
-
-	send := make([]protocols.WebSocketMessage, 0, len(input.Send))
-	for index, message := range input.Send {
-		data := []byte(message.Data)
-		switch strings.ToLower(strings.TrimSpace(message.Type)) {
-		case protocols.WebSocketBinaryMessage:
-			if len(message.Data) > base64.StdEncoding.EncodedLen(maxWebSocketBridgeMessageBytes) {
-				return WebSocketResult{
-					Headers:  map[string][]string{},
-					Messages: []WebSocketMessage{},
-					Error: toolError(
-						"websocket_failed",
-						"WebSocket exchange başlatılamadı",
-						fmt.Errorf("binary WebSocket message %d must not exceed %d decoded bytes", index+1, maxWebSocketBridgeMessageBytes),
-					),
-				}
-			}
-			if message.Encoding != "" &&
-				!strings.EqualFold(strings.TrimSpace(message.Encoding), "base64") {
-				return WebSocketResult{
-					Headers:  map[string][]string{},
-					Messages: []WebSocketMessage{},
-					Error: toolError(
-						"websocket_failed",
-						"WebSocket exchange başlatılamadı",
-						fmt.Errorf("invalid binary WebSocket message %d: encoding must be base64", index+1),
-					),
-				}
-			}
-			decoded, decodeErr := base64.StdEncoding.DecodeString(message.Data)
-			if decodeErr != nil {
-				return WebSocketResult{
-					Headers:  map[string][]string{},
-					Messages: []WebSocketMessage{},
-					Error: toolError(
-						"websocket_failed",
-						"WebSocket exchange başlatılamadı",
-						fmt.Errorf("invalid binary WebSocket message %d: data must use base64 encoding: %w", index+1, decodeErr),
-					),
-				}
-			}
-			data = decoded
-		case protocols.WebSocketTextMessage:
-			if len(data) > maxWebSocketBridgeMessageBytes {
-				return WebSocketResult{
-					Headers:  map[string][]string{},
-					Messages: []WebSocketMessage{},
-					Error: toolError(
-						"websocket_failed",
-						"WebSocket exchange başlatılamadı",
-						fmt.Errorf("text WebSocket message %d must not exceed %d bytes", index+1, maxWebSocketBridgeMessageBytes),
-					),
-				}
-			}
-			if message.Encoding != "" &&
-				!strings.EqualFold(strings.TrimSpace(message.Encoding), "utf-8") {
-				return WebSocketResult{
-					Headers:  map[string][]string{},
-					Messages: []WebSocketMessage{},
-					Error: toolError(
-						"websocket_failed",
-						"WebSocket exchange başlatılamadı",
-						fmt.Errorf("invalid text WebSocket message %d: encoding must be utf-8", index+1),
-					),
-				}
-			}
-		}
-		send = append(send, protocols.WebSocketMessage{
-			Type: message.Type,
-			Data: data,
-		})
-	}
-	result, err := protocols.ExchangeWebSocket(ctx, protocols.WebSocketRequest{
-		URL:                input.URL,
-		Headers:            input.Headers,
-		Subprotocols:       input.Subprotocols,
-		Send:               send,
-		Timeout:            durationFromMS(input.TimeoutMS),
-		MaxMessages:        input.MaxMessages,
-		InsecureSkipVerify: input.InsecureSkipVerify,
-	})
-	out := WebSocketResult{
-		StatusCode: result.StatusCode,
-		Headers:    nonNilMap(result.Headers),
-		Protocol:   result.Protocol,
-		Messages:   make([]WebSocketMessage, 0, len(result.Messages)),
-		DurationMS: result.Duration.Milliseconds(),
-	}
-	for _, message := range result.Messages {
-		encoding := "utf-8"
-		data := string(message.Data)
-		if message.Type == protocols.WebSocketBinaryMessage {
-			encoding = "base64"
-			data = base64.StdEncoding.EncodeToString(message.Data)
-		}
-		out.Messages = append(out.Messages, WebSocketMessage{
-			Type:      message.Type,
-			Data:      data,
-			Encoding:  encoding,
-			SizeBytes: int64(len(message.Data)),
-		})
-	}
-	if err != nil {
-		out.Error = toolError("websocket_failed", "WebSocket exchange tamamlanamadı", err)
-	}
-	return out
-}
-
-func (b *Bridge) InspectGRPC(input GRPCInput) GRPCResult {
-	ctx, finish, err := b.beginToolOperation(input.OperationID)
-	if err != nil {
-		return GRPCResult{
-			Services: []string{},
-			Error:    toolError("grpc_failed", "gRPC reflection başlatılamadı", err),
-		}
-	}
-	defer finish()
-
-	result, err := protocols.ListGRPCServices(ctx, protocols.GRPCReflectionRequest{
-		Address:            input.Address,
-		Metadata:           input.Metadata,
-		Timeout:            durationFromMS(input.TimeoutMS),
-		UseTLS:             input.UseTLS,
-		ServerName:         input.ServerName,
-		InsecureSkipVerify: input.InsecureSkipVerify,
-	})
-	out := GRPCResult{
-		Services: nonNilSlice(result.Services), ReflectionVersion: result.ReflectionVersion,
-		ConnectionState: result.ConnectionState, DurationMS: result.Duration.Milliseconds(),
-	}
-	if err != nil {
-		out.Error = toolError("grpc_failed", "gRPC reflection tamamlanamadı", err)
 	}
 	return out
 }

@@ -1,5 +1,5 @@
-// Package protocols provides bounded, cancellable clients for non-HTTP API
-// protocols used by Validex.
+// Package protocols provides the bounded, cancellable SSE stream client used
+// by Validex.
 package protocols
 
 import (
@@ -17,7 +17,7 @@ const (
 	maxTimeout     = 10 * time.Minute
 )
 
-// ErrLimitExceeded is returned when a configured response or message limit is
+// ErrLimitExceeded is returned when a configured response or event limit is
 // reached before the remote payload can be consumed safely.
 var ErrLimitExceeded = errors.New("protocol payload limit exceeded")
 

@@ -54,9 +54,9 @@ export const coreEnglish = {
   "workspace.diagnostics.label": "Diagnostics",
   "workspace.diagnostics.description":
     "Analyze Spring, runtime, log, and coverage issues.",
-  "workspace.protocols.label": "Protocols",
+  "workspace.protocols.label": "SSE Stream",
   "workspace.protocols.description":
-    "Test SSE, WebSocket, and gRPC connections.",
+    "Connect to SSE endpoints and inspect server-sent events as they arrive.",
   "workspace.automation.label": "Automation",
   "workspace.automation.description":
     "Run collections and review assertion, network, and OpenAPI quality results.",
@@ -255,9 +255,9 @@ export const coreTurkish = {
   "workspace.diagnostics.label": "Tanılama",
   "workspace.diagnostics.description":
     "Spring, çalışma zamanı, log ve kapsama sorunlarını analiz edin.",
-  "workspace.protocols.label": "Protokoller",
+  "workspace.protocols.label": "SSE Akışı",
   "workspace.protocols.description":
-    "SSE, WebSocket ve gRPC bağlantılarını test edin.",
+    "SSE endpoint’lerine bağlanın ve olayları geldikçe inceleyin.",
   "workspace.automation.label": "Otomasyon",
   "workspace.automation.description":
     "Koleksiyon çalıştırın; doğrulama, ağ ve OpenAPI kalite sonuçlarını inceleyin.",

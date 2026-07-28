@@ -14,14 +14,14 @@
 </p>
 
 <p align="center">
-  HTTP istemcisi · OpenAPI · Mock Server · Spring tanılama · SSE · WebSocket · gRPC · Otomasyon
+  HTTP istemcisi · OpenAPI · Mock Server · Spring tanılama · SSE · Otomasyon
 </p>
 
 Validex, bir API üzerinde çalışırken farklı araçlar arasında kaybolmanızı
 engelleyen yerel bir masaüstü uygulamasıdır. İsteklerinizi oluşturun, gerçek
 isteklerinizi kalıcı koleksiyonlarda düzenleyin, yanıtları OpenAPI
-sözleşmenizle karşılaştırın, mock servisler ayağa kaldırın, protokol
-oturumlarını inceleyin ve aynı çekirdeği CI süreçlerinde headless olarak
+sözleşmenizle karşılaştırın, mock servisler ayağa kaldırın, SSE akışlarını
+inceleyin ve aynı çekirdeği CI süreçlerinde headless olarak
 çalıştırın.
 
 Türkçe ve İngilizce arayüz, açık/koyu tema, klavye odaklı çalışma alanı ve
@@ -32,11 +32,11 @@ geliştirme akışını tek, hızlı ve yerel bir araçta toplar.
 
 | Öne çıkan | Sağladığı değer |
 | --- | --- |
-| **Tek çalışma alanı** | Requests, OpenAPI, Diagnostics, Mock Server, JSON araçları, protokoller ve otomasyon aynı uygulamada. |
+| **Tek çalışma alanı** | Requests, OpenAPI, Diagnostics, Mock Server, JSON araçları, SSE ve otomasyon aynı uygulamada. |
 | **Kalıcı request koleksiyonları** | İstekleri gruplayın, arayın, taşıyın ve Save As ile cihazınızda yeniden kullanılabilir bir API kütüphanesi oluşturun. |
 | **Sözleşmeye güven** | Gerçek HTTP yanıtını OpenAPI operasyonu ve şemasıyla karşılaştıran contract drift görünümü. |
 | **Backend odaklı tanılama** | Spring/Actuator, environment farkı, thread dump, log, JWT ve endpoint coverage araçları. |
-| **Gerçek protokol desteği** | SSE, WebSocket ve gRPC reflection oturumlarını native Go çekirdeğiyle çalıştırma. |
+| **Canlı SSE akışı** | Server-sent event akışlarını sınırlandırılmış native Go istemcisiyle dinleme ve inceleme. |
 | **Yerel geliştirme** | Masaüstü arayüzü sistem WebView’iyle, backend işlemleri cihazınızdaki Go çekirdeğiyle çalışır. |
 | **CI ile aynı çekirdek** | Collection runner, ağ inceleme ve OpenAPI lint işlemlerini `validex-cli` ile headless yürütme. |
 
@@ -71,7 +71,7 @@ Validex penceresini açar.
 
 > Frontend dizininde çalıştırılan
 > `cd cmd/validex/frontend && npm run dev` yalnızca frontend geliştirme
-> sunucusunu açar. Native dosya seçici, HTTP motoru, Mock Server, protokoller
+> sunucusunu açar. Native dosya seçici, HTTP motoru, Mock Server, SSE akışı
 > ve tanılama araçları için repo kökünde `make dev` kullanın.
 
 ## Production build

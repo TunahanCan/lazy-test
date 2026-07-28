@@ -53,7 +53,8 @@ export const workspaceDefinitions: readonly WorkspaceDefinition[] = [
     id: "protocols",
     labelKey: "workspace.protocols.label",
     descriptionKey: "workspace.protocols.description",
-    keywords: "sse websocket grpc connection",
+    keywords:
+      "sse server sent events event stream olay akış connection bağlantı",
     icon: RadioTower,
   },
   {

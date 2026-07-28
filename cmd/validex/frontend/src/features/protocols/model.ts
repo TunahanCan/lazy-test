@@ -2,20 +2,12 @@ import type { UserError } from "../../lib/types";
 import type { Locale, TranslationKey } from "../../i18n";
 import type { Translate } from "../../i18n/LocaleProvider";
 
-export type ProtocolMode = "sse" | "websocket" | "grpc";
-
 export interface ProtocolIssue {
   title: string;
   message: string;
   hint?: string;
   technical?: string;
 }
-
-export const protocolModes: readonly ProtocolMode[] = [
-  "sse",
-  "websocket",
-  "grpc",
-];
 
 interface TranslatedProtocolError {
   title: TranslationKey;
@@ -34,16 +26,6 @@ const translatedProtocolErrors: Readonly<
   sse_failed: {
     title: "protocol.error.sseFailedTitle",
     message: "protocol.error.sseFailedMessage",
-    hint: "protocol.error.operationHint",
-  },
-  websocket_failed: {
-    title: "protocol.error.websocketFailedTitle",
-    message: "protocol.error.websocketFailedMessage",
-    hint: "protocol.error.operationHint",
-  },
-  grpc_failed: {
-    title: "protocol.error.grpcFailedTitle",
-    message: "protocol.error.grpcFailedMessage",
     hint: "protocol.error.operationHint",
   },
   tool_timeout: {
@@ -71,9 +53,9 @@ function structuredErrorDetails(error: Partial<UserError>): string | undefined {
   return details || undefined;
 }
 
-export function createOperationID(mode: ProtocolMode): string {
+export function createOperationID(): string {
   protocolOperationSequence += 1;
-  return `protocol-${mode}-${Date.now().toString(36)}-${protocolOperationSequence.toString(36)}`;
+  return `protocol-sse-${Date.now().toString(36)}-${protocolOperationSequence.toString(36)}`;
 }
 
 export function parseStringMap(
@@ -168,26 +150,9 @@ export function validateURL(
   return value;
 }
 
-export function validateGRPCAddress(raw: string, t: Translate): string {
-  const value = raw.trim();
-  if (!value) throw new Error(t("protocol.validation.grpcRequired"));
-  if (value.includes("://")) {
-    throw new Error(t("protocol.validation.grpcNoProtocol"));
-  }
-  const match = value.match(/^(?:\[[^\]]+\]|[^:\s]+):(\d+)$/);
-  if (!match) {
-    throw new Error(t("protocol.validation.grpcFormat"));
-  }
-  const port = Number(match[1]);
-  if (port < 1 || port > 65_535) {
-    throw new Error(t("protocol.validation.grpcPort"));
-  }
-  return value;
-}
-
 export function usesSecureProtocol(
   raw: string,
-  protocol: "https:" | "wss:",
+  protocol: "https:",
 ): boolean {
   try {
     return new URL(raw.trim()).protocol === protocol;

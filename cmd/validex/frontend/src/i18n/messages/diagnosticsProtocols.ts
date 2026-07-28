@@ -423,56 +423,40 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "diagnostics.coverage.sessionFailure":
       "Recorded endpoint coverage analysis could not be completed.",
 
-    "protocol.eyebrow": "LIVE CONNECTIONS · BOUNDED",
-    "protocol.title": "Protocol Lab",
+    "protocol.eyebrow": "SERVER-SENT EVENTS · BOUNDED",
+    "protocol.title": "SSE Stream",
     "protocol.description":
-      "Read SSE streams, observe WebSocket messages, and discover gRPC reflection services.",
-    "protocol.toolsLabel": "Protocol tools",
-    "protocol.running": "Running",
-    "protocol.mode.sseDescription": "Read the event stream from a server",
-    "protocol.mode.websocketDescription":
-      "Send a message and observe incoming messages",
-    "protocol.mode.grpcDescription":
-      "Discover services published through reflection",
+      "Connect to an SSE endpoint, inspect each event, and keep partial results when the stream stops.",
     "protocol.waiting":
-      "Waiting until the timeout expires or the server responds.",
+      "Waiting for events until the stream closes, reaches its limit, or times out.",
     "protocol.cancel": "Cancel",
     "protocol.canceling": "Canceling…",
-    "protocol.cancelRejectedTitle": "Operation could not be stopped",
+    "protocol.cancelRejectedTitle": "SSE stream could not be stopped",
     "protocol.cancelRejectedMessage":
-      "The backend found no running operation for this operation ID.",
+      "The backend found no running SSE stream for this operation ID.",
     "protocol.cancelRejectedHint":
-      "The operation may have completed. Wait for the result or start it again.",
+      "The stream may have completed. Wait for the result or start it again.",
     "protocol.error.bridgeTitle": "Validex backend connection was lost",
     "protocol.error.bridgeMessage":
-      "The protocol operation could not be completed in the desktop backend.",
+      "The SSE stream could not be completed in the desktop backend.",
     "protocol.error.bridgeHint":
-      "Check the connection settings, then try the operation again.",
-    "protocol.error.connectionTitle": "Connection could not be completed",
-    "protocol.error.operationMessage":
-      "The protocol operation could not be completed.",
+      "Check the SSE connection settings, then try the stream again.",
+    "protocol.error.connectionTitle": "SSE connection could not be completed",
+    "protocol.error.operationMessage": "The SSE stream could not be completed.",
     "protocol.error.operationHint":
-      "Check the address, timeout, TLS, and authentication settings, then try again.",
+      "Check the URL, timeout, TLS, and request headers, then try again.",
     "protocol.error.sseFailedTitle": "SSE stream failed",
     "protocol.error.sseFailedMessage":
       "The SSE stream could not be completed.",
-    "protocol.error.websocketFailedTitle": "WebSocket exchange failed",
-    "protocol.error.websocketFailedMessage":
-      "The WebSocket exchange could not be completed.",
-    "protocol.error.grpcFailedTitle": "gRPC discovery failed",
-    "protocol.error.grpcFailedMessage":
-      "The gRPC reflection request could not be completed.",
-    "protocol.error.toolTimeoutTitle": "Protocol operation timed out",
+    "protocol.error.toolTimeoutTitle": "SSE stream timed out",
     "protocol.error.toolTimeoutMessage":
       "The target did not respond within the configured timeout.",
-    "protocol.error.toolCanceledTitle": "Protocol operation canceled",
+    "protocol.error.toolCanceledTitle": "SSE stream canceled",
     "protocol.error.toolCanceledMessage":
-      "The operation was canceled before it completed.",
-    "protocol.error.invalidInputTitle": "Protocol input is invalid",
+      "The stream was canceled before it completed.",
+    "protocol.error.invalidInputTitle": "SSE input is invalid",
     "protocol.error.invalidInputMessage":
-      "One or more connection settings are invalid.",
-    "protocol.error.noDetails":
-      "The backend ended the operation without providing details.",
+      "One or more SSE connection settings are invalid.",
     "protocol.error.unknown": "An unknown error occurred.",
     "protocol.validation.json": "{label} must be a valid JSON object.",
     "protocol.validation.object":
@@ -490,25 +474,12 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "protocol.validation.or": " or ",
     "protocol.validation.hostname":
       "{label} address is missing a hostname.",
-    "protocol.validation.grpcRequired":
-      "gRPC server address is required.",
-    "protocol.validation.grpcNoProtocol":
-      "Enter the gRPC address as host:port without a protocol.",
-    "protocol.validation.grpcFormat":
-      "gRPC address must use the host:port format.",
-    "protocol.validation.grpcPort":
-      "gRPC port must be between 1 and 65535.",
     "protocol.label.header": "Header",
-    "protocol.label.metadata": "Metadata",
     "protocol.label.timeout": "Timeout",
     "protocol.label.eventLimit": "Event limit",
-    "protocol.label.messageLimit": "Message limit",
     "protocol.unit.seconds": "sec",
     "protocol.metric.duration": "Duration",
     "protocol.metric.event": "Events",
-    "protocol.metric.message": "Messages",
-    "protocol.metric.connection": "Connection",
-    "protocol.metric.service": "Services",
 
     "protocol.sse.connection": "SSE connection",
     "protocol.sse.connectionDescription":
@@ -536,68 +507,6 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "protocol.sse.noConnectionDescription":
       "Set the URL and limits, then choose “Listen to stream”.",
     "protocol.sse.loading": "Waiting for the SSE stream",
-
-    "protocol.websocket.connection": "WebSocket connection",
-    "protocol.websocket.connectionDescription":
-      "Connect, send one text message, and read the responses",
-    "protocol.websocket.url": "WebSocket URL",
-    "protocol.websocket.maxMessages": "Maximum messages",
-    "protocol.websocket.subprotocols": "Subprotocols",
-    "protocol.websocket.subprotocolsHint":
-      "Separate multiple values with commas.",
-    "protocol.websocket.handshakeHeaders": "Handshake headers",
-    "protocol.websocket.message":
-      "Text message to send · optional",
-    "protocol.websocket.certificateHint":
-      "Use only with local, self-signed WSS development servers.",
-    "protocol.websocket.waiting": "Waiting for messages…",
-    "protocol.websocket.sendListen": "Send and listen",
-    "protocol.websocket.connectListen": "Connect and listen",
-    "protocol.websocket.listenHint":
-      "If the text message is empty, only incoming messages are observed.",
-    "protocol.websocket.resultLabel": "WebSocket result",
-    "protocol.websocket.resultTitle": "Handshake and messages",
-    "protocol.websocket.resultDescription":
-      "Text and binary messages are shown in arrival order",
-    "protocol.websocket.protocol": "Protocol",
-    "protocol.websocket.noMessagesTitle": "No messages received",
-    "protocol.websocket.noMessagesDescription":
-      "The handshake completed, but no message arrived before the connection closed.",
-    "protocol.websocket.noConnectionDescription":
-      "Enter the URL; optionally add a message, then start the connection.",
-    "protocol.websocket.loading": "Waiting for WebSocket messages",
-
-    "protocol.grpc.connection": "gRPC service reflection",
-    "protocol.grpc.connectionDescription":
-      "Read the actual service list published by the server",
-    "protocol.grpc.address": "Server address",
-    "protocol.grpc.addressHint":
-      "Enter host:port without a protocol.",
-    "protocol.grpc.useTLS": "Use TLS",
-    "protocol.grpc.tlsHint":
-      "Creates an encrypted connection to the server.",
-    "protocol.grpc.serverName": "TLS server name · optional",
-    "protocol.grpc.certificateHint":
-      "Use only with local, self-signed development servers.",
-    "protocol.grpc.metadata": "gRPC metadata · JSON",
-    "protocol.grpc.metadataHint":
-      "Metadata keys are converted to lowercase by the backend.",
-    "protocol.grpc.reading": "Reading services…",
-    "protocol.grpc.discover": "Discover services",
-    "protocol.grpc.reflectionHint":
-      "gRPC server reflection must be enabled on the server.",
-    "protocol.grpc.resultLabel": "gRPC result",
-    "protocol.grpc.resultTitle": "Reflection services",
-    "protocol.grpc.resultDescription":
-      "Services reported by the server are sorted alphabetically",
-    "protocol.grpc.reflection": "Reflection",
-    "protocol.grpc.noServicesTitle": "No services reported",
-    "protocol.grpc.noServicesDescription":
-      "Reflection responded, but no published service was found.",
-    "protocol.grpc.noDiscoveryTitle": "No discovery yet",
-    "protocol.grpc.noDiscoveryDescription":
-      "Set the server address and connection security, then discover services.",
-    "protocol.grpc.loading": "Connecting to the gRPC server",
   },
   {
     "common.technicalDetails": "Teknik ayrıntı",
@@ -1021,56 +930,40 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "diagnostics.coverage.sessionFailure":
       "Kaydedilmiş endpoint coverage analizi tamamlanamadı.",
 
-    "protocol.eyebrow": "CANLI BAĞLANTILAR · SINIRLI",
-    "protocol.title": "Protokol Laboratuvarı",
+    "protocol.eyebrow": "SERVER-SENT EVENTS · SINIRLI",
+    "protocol.title": "SSE Akışı",
     "protocol.description":
-      "SSE akışlarını okuyun, WebSocket mesajlarını izleyin ve gRPC reflection servislerini keşfedin.",
-    "protocol.toolsLabel": "Protokol araçları",
-    "protocol.running": "Çalışıyor",
-    "protocol.mode.sseDescription": "Sunucudan gelen olay akışını okuyun",
-    "protocol.mode.websocketDescription":
-      "Mesaj gönderin ve gelen mesajları izleyin",
-    "protocol.mode.grpcDescription":
-      "Reflection ile yayınlanan servisleri keşfedin",
+      "Bir SSE endpoint’ine bağlanın, her olayı inceleyin ve akış durduğunda kısmi sonuçları koruyun.",
     "protocol.waiting":
-      "Timeout dolana veya sunucu yanıt verene kadar bekleniyor.",
+      "Akış kapanana, olay sınırına ulaşana veya timeout dolana kadar event bekleniyor.",
     "protocol.cancel": "İptal et",
     "protocol.canceling": "İptal ediliyor…",
-    "protocol.cancelRejectedTitle": "İşlem durdurulamadı",
+    "protocol.cancelRejectedTitle": "SSE akışı durdurulamadı",
     "protocol.cancelRejectedMessage":
-      "Backend bu operation ID için çalışan bir işlem bulamadı.",
+      "Backend bu operation ID için çalışan bir SSE akışı bulamadı.",
     "protocol.cancelRejectedHint":
-      "İşlem tamamlanmış olabilir. Sonucu bekleyin veya yeniden başlatın.",
+      "Akış tamamlanmış olabilir. Sonucu bekleyin veya yeniden başlatın.",
     "protocol.error.bridgeTitle": "Validex backend bağlantısı kesildi",
     "protocol.error.bridgeMessage":
-      "Protokol işlemi masaüstü backend’inde tamamlanamadı.",
+      "SSE akışı masaüstü backend’inde tamamlanamadı.",
     "protocol.error.bridgeHint":
-      "Bağlantı ayarlarını kontrol edip işlemi yeniden deneyin.",
-    "protocol.error.connectionTitle": "Bağlantı tamamlanamadı",
-    "protocol.error.operationMessage":
-      "Protokol işlemi tamamlanamadı.",
+      "SSE bağlantı ayarlarını kontrol edip akışı yeniden deneyin.",
+    "protocol.error.connectionTitle": "SSE bağlantısı tamamlanamadı",
+    "protocol.error.operationMessage": "SSE akışı tamamlanamadı.",
     "protocol.error.operationHint":
-      "Adresi, timeout değerini, TLS ve kimlik doğrulama ayarlarını kontrol edip yeniden deneyin.",
+      "URL’yi, timeout değerini, TLS ve request header’larını kontrol edip yeniden deneyin.",
     "protocol.error.sseFailedTitle": "SSE akışı başarısız oldu",
     "protocol.error.sseFailedMessage":
       "SSE akışı tamamlanamadı.",
-    "protocol.error.websocketFailedTitle": "WebSocket exchange başarısız oldu",
-    "protocol.error.websocketFailedMessage":
-      "WebSocket exchange tamamlanamadı.",
-    "protocol.error.grpcFailedTitle": "gRPC keşfi başarısız oldu",
-    "protocol.error.grpcFailedMessage":
-      "gRPC reflection isteği tamamlanamadı.",
-    "protocol.error.toolTimeoutTitle": "Protokol işlemi zaman aşımına uğradı",
+    "protocol.error.toolTimeoutTitle": "SSE akışı zaman aşımına uğradı",
     "protocol.error.toolTimeoutMessage":
       "Hedef, yapılandırılan timeout süresi içinde yanıt vermedi.",
-    "protocol.error.toolCanceledTitle": "Protokol işlemi iptal edildi",
+    "protocol.error.toolCanceledTitle": "SSE akışı iptal edildi",
     "protocol.error.toolCanceledMessage":
-      "İşlem tamamlanmadan iptal edildi.",
-    "protocol.error.invalidInputTitle": "Protokol girdisi geçerli değil",
+      "Akış tamamlanmadan iptal edildi.",
+    "protocol.error.invalidInputTitle": "SSE girdisi geçerli değil",
     "protocol.error.invalidInputMessage":
-      "Bir veya daha fazla bağlantı ayarı geçerli değil.",
-    "protocol.error.noDetails":
-      "Backend ayrıntı vermeden işlemi sonlandırdı.",
+      "Bir veya daha fazla SSE bağlantı ayarı geçerli değil.",
     "protocol.error.unknown": "Bilinmeyen bir hata oluştu.",
     "protocol.validation.json": "{label} geçerli bir JSON nesnesi olmalı.",
     "protocol.validation.object":
@@ -1088,25 +981,12 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "protocol.validation.or": " veya ",
     "protocol.validation.hostname":
       "{label} adresinde sunucu adı eksik.",
-    "protocol.validation.grpcRequired":
-      "gRPC sunucu adresi gerekli.",
-    "protocol.validation.grpcNoProtocol":
-      "gRPC adresini protokol olmadan host:port biçiminde yazın.",
-    "protocol.validation.grpcFormat":
-      "gRPC adresi host:port biçiminde olmalı.",
-    "protocol.validation.grpcPort":
-      "gRPC portu 1 ile 65535 arasında olmalı.",
     "protocol.label.header": "Header",
-    "protocol.label.metadata": "Metadata",
     "protocol.label.timeout": "Timeout",
     "protocol.label.eventLimit": "Olay sınırı",
-    "protocol.label.messageLimit": "Mesaj sınırı",
     "protocol.unit.seconds": "sn",
     "protocol.metric.duration": "Süre",
     "protocol.metric.event": "Olay",
-    "protocol.metric.message": "Mesaj",
-    "protocol.metric.connection": "Bağlantı",
-    "protocol.metric.service": "Servis",
 
     "protocol.sse.connection": "SSE bağlantısı",
     "protocol.sse.connectionDescription":
@@ -1134,67 +1014,5 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "protocol.sse.noConnectionDescription":
       "URL ve sınırları belirleyip “Akışı dinle” seçeneğini kullanın.",
     "protocol.sse.loading": "SSE akışı bekleniyor",
-
-    "protocol.websocket.connection": "WebSocket bağlantısı",
-    "protocol.websocket.connectionDescription":
-      "Bağlanın, tek bir text mesaj gönderin ve yanıtları okuyun",
-    "protocol.websocket.url": "WebSocket URL",
-    "protocol.websocket.maxMessages": "En fazla mesaj",
-    "protocol.websocket.subprotocols": "Alt protokoller",
-    "protocol.websocket.subprotocolsHint":
-      "Birden fazlaysa virgülle ayırın.",
-    "protocol.websocket.handshakeHeaders": "Handshake header’ları",
-    "protocol.websocket.message":
-      "Gönderilecek text mesajı · isteğe bağlı",
-    "protocol.websocket.certificateHint":
-      "Yalnız yerel, self-signed WSS geliştirme sunucularında kullanın.",
-    "protocol.websocket.waiting": "Mesaj bekleniyor…",
-    "protocol.websocket.sendListen": "Gönder ve dinle",
-    "protocol.websocket.connectListen": "Bağlan ve dinle",
-    "protocol.websocket.listenHint":
-      "Text mesajı boşsa yalnız gelen mesajlar dinlenir.",
-    "protocol.websocket.resultLabel": "WebSocket sonucu",
-    "protocol.websocket.resultTitle": "Handshake ve mesajlar",
-    "protocol.websocket.resultDescription":
-      "Text ve binary mesajlar alınma sırasıyla gösterilir",
-    "protocol.websocket.protocol": "Protocol",
-    "protocol.websocket.noMessagesTitle": "Mesaj alınmadı",
-    "protocol.websocket.noMessagesDescription":
-      "Handshake tamamlandı ancak bağlantı kapanmadan önce mesaj gelmedi.",
-    "protocol.websocket.noConnectionDescription":
-      "URL’yi girin; gerekirse mesaj ekleyip bağlantıyı başlatın.",
-    "protocol.websocket.loading": "WebSocket mesajları bekleniyor",
-
-    "protocol.grpc.connection": "gRPC service reflection",
-    "protocol.grpc.connectionDescription":
-      "Sunucunun yayınladığı gerçek servis listesini okuyun",
-    "protocol.grpc.address": "Sunucu adresi",
-    "protocol.grpc.addressHint":
-      "Protokol eklemeden host:port biçiminde yazın.",
-    "protocol.grpc.useTLS": "TLS kullan",
-    "protocol.grpc.tlsHint":
-      "Sunucuya şifreli bağlantı kurar.",
-    "protocol.grpc.serverName": "TLS server name · isteğe bağlı",
-    "protocol.grpc.certificateHint":
-      "Yalnız yerel, self-signed geliştirme sunucularında kullanın.",
-    "protocol.grpc.metadata": "gRPC metadata · JSON",
-    "protocol.grpc.metadataHint":
-      "Metadata anahtarları backend tarafından lowercase’e çevrilir.",
-    "protocol.grpc.reading": "Servisler okunuyor…",
-    "protocol.grpc.discover": "Servisleri keşfet",
-    "protocol.grpc.reflectionHint":
-      "Sunucuda gRPC server reflection açık olmalı.",
-    "protocol.grpc.resultLabel": "gRPC sonucu",
-    "protocol.grpc.resultTitle": "Reflection servisleri",
-    "protocol.grpc.resultDescription":
-      "Sunucunun bildirdiği servisler alfabetik gösterilir",
-    "protocol.grpc.reflection": "Reflection",
-    "protocol.grpc.noServicesTitle": "Servis bildirilmedi",
-    "protocol.grpc.noServicesDescription":
-      "Reflection yanıt verdi ancak yayınlanan bir servis bulunamadı.",
-    "protocol.grpc.noDiscoveryTitle": "Henüz keşif yapılmadı",
-    "protocol.grpc.noDiscoveryDescription":
-      "Sunucu adresini ve bağlantı güvenliğini belirleyip servisleri keşfedin.",
-    "protocol.grpc.loading": "gRPC sunucusuna bağlanılıyor",
   },
 );

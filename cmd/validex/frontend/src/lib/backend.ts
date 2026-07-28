@@ -12,8 +12,6 @@ import {
   type CoverageResult,
   type EnvironmentCompareInput,
   type EnvironmentCompareResult,
-  type GRPCInput,
-  type GRPCResult,
   type ImportSpecResult,
   type LogSearchResult,
   type MockRoute,
@@ -26,21 +24,17 @@ import {
   type SSEInput,
   type SSEResult,
   type ThreadDumpResult,
-  type WebSocketInput,
-  type WebSocketResult,
 } from "./types";
 import {
   normalizeActuatorInspectResult,
   normalizeContractCheckResult,
   normalizeCoverageResult,
   normalizeEnvironmentCompareResult,
-  normalizeGRPCResult,
   normalizeImportSpecResult,
   normalizeLogSearchResult,
   normalizeMockServerSnapshot,
   normalizeSSEResult,
   normalizeThreadDumpResult,
-  normalizeWebSocketResult,
 } from "./bridge-contract";
 
 interface CanbridgeAPI {
@@ -63,8 +57,6 @@ interface CanbridgeAPI {
   ClearMockHits(): Promise<MockServerSnapshot>;
   ImportMockOpenAPI(): Promise<MockServerSnapshot>;
   RunSSE(input: SSEInput): Promise<SSEResult>;
-  RunWebSocket(input: WebSocketInput): Promise<WebSocketResult>;
-  InspectGRPC(input: GRPCInput): Promise<GRPCResult>;
   CancelToolOperation(operationID: string): Promise<boolean>;
   InspectActuator(input: ActuatorInspectInput): Promise<ActuatorInspectResult>;
   CompareEnvironments(
@@ -285,33 +277,6 @@ export const backend = {
       events: [],
       durationMs: 0,
       error: backendUnavailable("SSE istemcisi"),
-    };
-  },
-
-  async runWebSocket(input: WebSocketInput): Promise<WebSocketResult> {
-    const native = nativeBridge();
-    if (native) {
-      return normalizeWebSocketResult(await native.RunWebSocket(input));
-    }
-    return {
-      statusCode: 0,
-      headers: {},
-      protocol: "",
-      messages: [],
-      durationMs: 0,
-      error: backendUnavailable("WebSocket istemcisi"),
-    };
-  },
-
-  async inspectGRPC(input: GRPCInput): Promise<GRPCResult> {
-    const native = nativeBridge();
-    if (native) return normalizeGRPCResult(await native.InspectGRPC(input));
-    return {
-      services: [],
-      reflectionVersion: "",
-      connectionState: "",
-      durationMs: 0,
-      error: backendUnavailable("gRPC reflection"),
     };
   },
 
