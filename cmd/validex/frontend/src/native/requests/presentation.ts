@@ -44,6 +44,7 @@ export interface RequestWorkbenchPresentation {
   responsePlacement: ResponseSplitPlacement;
   responseSize: number;
   canceling: boolean;
+  collectionSaveDisabled: boolean;
   unresolvedVariables: readonly string[];
   validationError?: string;
   showURLValidation: boolean;
@@ -768,6 +769,7 @@ export function workbenchMarkup({
   responsePlacement,
   responseSize,
   canceling,
+  collectionSaveDisabled,
   unresolvedVariables,
   validationError,
   showURLValidation,
@@ -877,9 +879,11 @@ export function workbenchMarkup({
             type="button"
             class="button secondary"
             data-action="save-request"
-            ${tab.running ? "disabled" : ""}
+            ${tab.running || collectionSaveDisabled ? "disabled" : ""}
             aria-keyshortcuts="Control+S Meta+S"
-            title="${t("requests.workbench.saveShortcut")}"
+            title="${collectionSaveDisabled
+              ? t("requests.workbench.saveUnavailable")
+              : t("requests.workbench.saveShortcut")}"
           >
             ${icon("save", 14)}
             ${tab.savedRequestId

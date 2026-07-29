@@ -43,6 +43,11 @@ let latestStorageName: string | undefined;
 let lastRequestedDocument: string | undefined;
 let latestWrite: Promise<boolean> = Promise.resolve(true);
 let latestWriteSequence = 0;
+let latestSettledWrite:
+  | { sequence: number; outcome: NativeWriteOutcome }
+  | undefined;
+let staleSuccessAfterLatest = false;
+let activeNativePersistenceCycle: NativePersistenceCycle | undefined;
 let pendingWrites = 0;
 
 function publish(snapshot: CollectionLibraryPersistenceSnapshot) {
@@ -171,9 +176,90 @@ interface NativeWriteOutcome {
   error?: UserError;
 }
 
-function saveNativeDocument(data: string): Promise<boolean> {
+interface NativePersistenceCycle {
+  readonly promise: Promise<boolean>;
+  resolve(saved: boolean): void;
+  settled: boolean;
+}
+
+function getOrCreateNativePersistenceCycle(): NativePersistenceCycle {
+  if (activeNativePersistenceCycle) return activeNativePersistenceCycle;
+
+  let resolveCycle!: (saved: boolean) => void;
+  const cycle: NativePersistenceCycle = {
+    promise: new Promise<boolean>((resolve) => {
+      resolveCycle = resolve;
+    }),
+    resolve(saved) {
+      resolveCycle(saved);
+    },
+    settled: false,
+  };
+  activeNativePersistenceCycle = cycle;
+  latestWrite = cycle.promise;
+  return cycle;
+}
+
+function settleNativePersistenceCycle(
+  cycle: NativePersistenceCycle,
+  saved: boolean,
+) {
+  if (cycle.settled) return;
+  cycle.settled = true;
+  if (activeNativePersistenceCycle === cycle) {
+    activeNativePersistenceCycle = undefined;
+  }
+  cycle.resolve(saved);
+}
+
+function stabilizeNativePersistenceCycle(
+  cycle: NativePersistenceCycle,
+) {
+  if (
+    activeNativePersistenceCycle !== cycle ||
+    cycle.settled
+  ) {
+    return;
+  }
+  const latestOutcome =
+    latestSettledWrite?.sequence === latestWriteSequence
+      ? latestSettledWrite.outcome
+      : undefined;
+  if (pendingWrites > 0 || !latestOutcome) {
+    publish({ ...persistenceSnapshot, pendingWrites });
+    return;
+  }
+  if (!latestOutcome.saved) {
+    // A current failure is terminal for this stabilization cycle. In
+    // particular, never compensate across the host's CAS conflict boundary.
+    settleNativePersistenceCycle(cycle, false);
+    return;
+  }
+  if (
+    staleSuccessAfterLatest &&
+    latestDocument !== undefined
+  ) {
+    // Keep the same cycle open: callers must wait for the compensating write,
+    // not merely the newest raw operation that happened to finish first.
+    void saveNativeDocument(latestDocument, cycle);
+    return;
+  }
+  if (persistenceSnapshot.hydrated) {
+    markReady(true);
+  } else {
+    publish({ ...persistenceSnapshot, pendingWrites });
+  }
+  settleNativePersistenceCycle(cycle, true);
+}
+
+function saveNativeDocument(
+  data: string,
+  cycle = getOrCreateNativePersistenceCycle(),
+): Promise<boolean> {
   latestDocument = data;
   const sequence = ++latestWriteSequence;
+  latestSettledWrite = undefined;
+  staleSuccessAfterLatest = false;
   pendingWrites += 1;
   if (persistenceSnapshot.hydrated) {
     publish({
@@ -205,37 +291,42 @@ function saveNativeDocument(data: string): Promise<boolean> {
       };
     }
   })();
-  latestWrite = operation.then((outcome) => outcome.saved);
 
   void operation.then((outcome) => {
     pendingWrites = Math.max(0, pendingWrites - 1);
     if (sequence !== latestWriteSequence) {
-      publish({ ...persistenceSnapshot, pendingWrites });
+      const latestOutcome =
+        latestSettledWrite?.sequence === latestWriteSequence
+          ? latestSettledWrite.outcome
+          : undefined;
+      if (outcome.saved && latestOutcome?.saved) {
+        staleSuccessAfterLatest = true;
+      }
+      stabilizeNativePersistenceCycle(cycle);
       return;
     }
+    latestSettledWrite = { sequence, outcome };
+    staleSuccessAfterLatest = false;
     if (!outcome.saved) {
       markFailure(
         "write",
         outcome.error ?? bridgeStorageError("write", "save rejected"),
         persistenceSnapshot.hydrated,
       );
-      return;
+    } else {
+      lastRequestedDocument = data;
     }
-    lastRequestedDocument = data;
-    if (!persistenceSnapshot.hydrated) {
-      publish({ ...persistenceSnapshot, pendingWrites });
-    } else if (pendingWrites > 0) {
+    if (outcome.saved && persistenceSnapshot.hydrated && pendingWrites > 0) {
       publish({
         phase: COLLECTION_LIBRARY_PERSISTENCE_PHASE.SAVING,
         hydrated: true,
         pendingWrites,
         operation: "write",
       });
-    } else {
-      markReady(true);
     }
+    stabilizeNativePersistenceCycle(cycle);
   });
-  return latestWrite;
+  return cycle.promise;
 }
 
 export function waitForCollectionLibraryPersistence(): Promise<boolean> {

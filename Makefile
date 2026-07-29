@@ -13,7 +13,7 @@ THIRD_PARTY_NOTICES := THIRD_PARTY_NOTICES.md
 LINUX_INSTALL_PREFIX ?= $(HOME)/.local
 WINDRES ?= windres
 
-.PHONY: dev build build-cli install-linux test
+.PHONY: dev build build-cli install-linux test test-e2e test-production
 
 dev:
 	@set -eu; \
@@ -141,3 +141,14 @@ test:
 	cd $(FRONTEND_DIR) && node scripts/typecheck.mjs && node scripts/build.mjs && node --test
 	go test ./...
 	go test -tags canbridge ./internal/nativewebview ./internal/canbridge ./cmd/validex
+
+test-e2e:
+	cd $(FRONTEND_DIR) && node scripts/build.mjs
+	cd tests/e2e && go test -count=1 -timeout=15m -v ./...
+
+test-production: test
+	$(MAKE) test-e2e
+	go test -race ./...
+	go test -race -tags canbridge ./internal/canbridge
+	go vet ./...
+	go vet -tags canbridge ./internal/nativewebview ./internal/canbridge ./cmd/validex

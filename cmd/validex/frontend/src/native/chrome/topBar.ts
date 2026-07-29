@@ -19,10 +19,12 @@ import {
 } from "../../i18n/locale.js";
 import type { BootstrapData, ThemePreference } from "../../lib/types.js";
 import { workspaceStore } from "../../stores/workspace.js";
+import type { WorkspaceLayoutCommands } from "./workspaceLayoutCommands.js";
 
 export function mountTopBar(
   root: HTMLElement,
   bootstrap: BootstrapData,
+  layoutCommands: WorkspaceLayoutCommands,
 ): Disposable {
   const lifecycle = new Lifecycle();
   let disposed = false;
@@ -301,18 +303,12 @@ export function mountTopBar(
                 {
                   label: t("chrome.toggleRequestPanel"),
                   icon: "panel-left" as const,
-                  action: () => {
-                    workspaceStore.getState().toggleLeft();
-                    restoreSettingsFocus();
-                  },
+                  action: () => layoutCommands.togglePanel("left", target),
                 },
                 {
                   label: t("chrome.toggleContextPanel"),
                   icon: "panel-right" as const,
-                  action: () => {
-                    workspaceStore.getState().toggleRight();
-                    restoreSettingsFocus();
-                  },
+                  action: () => layoutCommands.togglePanel("right", target),
                 },
                 {
                   label: t("chrome.response", {
@@ -335,10 +331,7 @@ export function mountTopBar(
                 {
                   label: t("chrome.resetLayout"),
                   icon: "refresh" as const,
-                  action: () => {
-                    workspaceStore.getState().resetLayout();
-                    restoreSettingsFocus();
-                  },
+                  action: () => layoutCommands.resetLayout(target),
                 },
                 { kind: "separator" as const },
               ]

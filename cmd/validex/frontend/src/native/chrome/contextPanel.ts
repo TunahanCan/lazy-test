@@ -73,6 +73,17 @@ export function mountContextPanel(
   let copyResult: "success" | "error" | undefined;
   let copyResultTimer: number | undefined;
 
+  const maskSensitiveContext = (): void => {
+    if (!showSecrets && copyResult === undefined) return;
+    showSecrets = false;
+    copyResult = undefined;
+    if (copyResultTimer !== undefined) {
+      window.clearTimeout(copyResultTimer);
+      copyResultTimer = undefined;
+    }
+    render();
+  };
+
   const render = () => {
     if (disposed) return;
     const state = workspaceStore.getState();
@@ -496,9 +507,13 @@ export function mountContextPanel(
 
   lifecycle.add(
     workspaceStore.subscribe((state, previous) => {
-      if (state.activeEnvironmentID !== previous.activeEnvironmentID) {
-        showSecrets = false;
-        copyResult = undefined;
+      if (
+        state.activeEnvironmentID !== previous.activeEnvironmentID ||
+        (state.activeView !== previous.activeView &&
+          state.activeView !== "requests") ||
+        (state.rightVisible !== previous.rightVisible && !state.rightVisible)
+      ) {
+        maskSensitiveContext();
       }
       const activeHeaders = state.tabs.find(
         (tab) => tab.id === state.activeTabID,
@@ -517,11 +532,23 @@ export function mountContextPanel(
     }),
   );
   lifecycle.add(subscribeLocale(render));
-  lifecycle.listen(window, "blur", () => {
-    if (!showSecrets) return;
-    showSecrets = false;
-    render();
-  });
+  lifecycle.listen(window, "blur", maskSensitiveContext);
+  const rightPanel = root.closest<HTMLElement>("[data-right-panel]");
+  if (rightPanel && typeof MutationObserver !== "undefined") {
+    const visibilityObserver = new MutationObserver(() => {
+      if (
+        rightPanel.hasAttribute("inert") ||
+        rightPanel.getAttribute("aria-hidden") === "true"
+      ) {
+        maskSensitiveContext();
+      }
+    });
+    visibilityObserver.observe(rightPanel, {
+      attributes: true,
+      attributeFilter: ["aria-hidden", "inert"],
+    });
+    lifecycle.add(() => visibilityObserver.disconnect());
+  }
   render();
 
   return {

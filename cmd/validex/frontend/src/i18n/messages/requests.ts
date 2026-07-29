@@ -150,6 +150,8 @@ export const requestMessages = defineMessages(
     "requests.workbench.saveRequest": "Save request",
     "requests.workbench.saveAs": "Save as…",
     "requests.workbench.saveShortcut": "Save request (Ctrl+S)",
+    "requests.workbench.saveUnavailable":
+      "Collection storage must be available before this request can be saved.",
     "requests.workbench.saveDialogTitle": "Save to a collection",
     "requests.workbench.saveDialogDescription":
       "Keep this request available after its tab is closed.",
@@ -682,6 +684,8 @@ export const requestMessages = defineMessages(
       "Doğrudan yazılan gizli header değerleri kaydedilmedi. Kimlik bilgilerini Değişkenler’de tutup {{variable}} ile referans verin.",
     "requests.workbench.saveWriteFailed":
       "Cihaza yazma başarısız olduğu için bu istek hâlâ kaydedilmemiş bir taslak.",
+    "requests.workbench.saveUnavailable":
+      "Bu isteği kaydetmeden önce koleksiyon depolamasının kullanılabilir olması gerekir.",
     "requests.workbench.missingVariables": "Eksik değişkenler: {variables}",
     "requests.workbench.settings": "İstek ayarları",
     "requests.workbench.queryCount.one": "Parametreler, {count} sorgu parametresi",

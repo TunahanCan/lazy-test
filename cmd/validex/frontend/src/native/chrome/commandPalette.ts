@@ -14,6 +14,7 @@ import type { BootstrapData, WorkspaceView } from "../../lib/types.js";
 import { fuzzyMatch } from "../../lib/utils.js";
 import { workspaceStore } from "../../stores/workspace.js";
 import { workspaceDefinitions } from "../workspaces.js";
+import type { WorkspaceLayoutCommands } from "./workspaceLayoutCommands.js";
 
 interface PaletteCommand {
   id: string;
@@ -24,8 +25,19 @@ interface PaletteCommand {
   run(): void;
 }
 
-function commands(bootstrap: BootstrapData): PaletteCommand[] {
+function commands(
+  bootstrap: BootstrapData,
+  layoutCommands: WorkspaceLayoutCommands,
+): PaletteCommand[] {
   const state = workspaceStore.getState();
+  const runRequestLayoutCommand = (command: () => void): void => {
+    workspaceStore.getState().setActiveView("requests");
+    window.requestAnimationFrame(() => {
+      if (workspaceStore.getState().activeView === "requests") {
+        command();
+      }
+    });
+  };
   const workspaceCommands = workspaceDefinitions.map((definition) => ({
     id: `workspace-${definition.id}`,
     label:
@@ -84,7 +96,8 @@ function commands(bootstrap: BootstrapData): PaletteCommand[] {
       group: t("palette.group.appearance"),
       keywords: "sidebar panel layout",
       icon: "panel-left",
-      run: () => workspaceStore.getState().toggleLeft(),
+      run: () =>
+        runRequestLayoutCommand(() => layoutCommands.togglePanel("left")),
     },
     {
       id: "context-panel",
@@ -92,7 +105,8 @@ function commands(bootstrap: BootstrapData): PaletteCommand[] {
       group: t("palette.group.appearance"),
       keywords: "context authorization variables panel bağlam değişken",
       icon: "panel-right",
-      run: () => workspaceStore.getState().toggleRight(),
+      run: () =>
+        runRequestLayoutCommand(() => layoutCommands.togglePanel("right")),
     },
     {
       id: "reset-layout",
@@ -100,7 +114,7 @@ function commands(bootstrap: BootstrapData): PaletteCommand[] {
       group: t("palette.group.appearance"),
       keywords: "reset layout panels",
       icon: "refresh",
-      run: () => workspaceStore.getState().resetLayout(),
+      run: () => runRequestLayoutCommand(() => layoutCommands.resetLayout()),
     },
   ];
   if (state.latestImportedSpec) {
@@ -124,6 +138,7 @@ function commands(bootstrap: BootstrapData): PaletteCommand[] {
 export function mountCommandPalette(
   root: HTMLElement,
   bootstrap: BootstrapData,
+  layoutCommands: WorkspaceLayoutCommands,
 ): Disposable {
   const lifecycle = new Lifecycle();
   let dialog: DialogHandle | undefined;
@@ -142,7 +157,7 @@ export function mountCommandPalette(
   };
 
   const filtered = () => {
-    const all = commands(bootstrap);
+    const all = commands(bootstrap, layoutCommands);
     return all.filter((command) =>
       fuzzyMatch(
         `${command.label} ${command.group} ${command.keywords}`,

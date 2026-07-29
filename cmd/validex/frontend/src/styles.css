@@ -52,6 +52,15 @@
   --radius: 12px;
   --radius-lg: 18px;
   --radius-xl: 26px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --control-height: 40px;
+  --workspace-gutter: clamp(16px, 3.2vw, 48px);
+  --workspace-section-gap: 16px;
   --motion-fast: 120ms cubic-bezier(0.2, 0, 0, 1);
   --motion-standard: 200ms cubic-bezier(0.2, 0, 0, 1);
 }
@@ -1278,7 +1287,7 @@ kbd {
   min-height: 0;
   grid-template-rows:
     minmax(220px, calc(100% - var(--response-size) - 4px)) 4px
-    minmax(170px, var(--response-size));
+    minmax(210px, var(--response-size));
   overflow: hidden;
 }
 
@@ -1473,8 +1482,24 @@ kbd {
   align-items: stretch;
   gap: 1px;
   overflow-x: auto;
+  padding-inline: 6px;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 10px,
+    #000 calc(100% - 10px),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 10px,
+    #000 calc(100% - 10px),
+    transparent
+  );
+  scroll-padding-inline: 12px;
   scrollbar-width: none;
 }
 
@@ -1911,7 +1936,7 @@ kbd {
   display: grid;
   min-width: 0;
   min-height: 0;
-  grid-template-rows: 39px 34px minmax(0, 1fr);
+  grid-template-rows: 39px 38px minmax(0, 1fr);
   overflow: hidden;
   background: var(--surface);
   container-name: response-panel;
@@ -2870,7 +2895,8 @@ kbd {
   flex-direction: column;
   margin: 0 auto;
   padding: 22px clamp(20px, 3vw, 42px) 22px;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .tool-page-header {
@@ -3036,9 +3062,9 @@ kbd {
 .json-lab-grid {
   display: grid;
   min-height: 0;
-  flex: 1;
+  flex: 1 0 420px;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 12px;
+  gap: var(--workspace-section-gap);
 }
 
 .tool-editor-card,
@@ -3081,6 +3107,12 @@ kbd {
 }
 
 .tool-card-header span {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.tool-card-header p {
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.4;
@@ -3279,7 +3311,9 @@ kbd {
   min-height: 0;
   flex: 1;
   grid-template-columns: minmax(220px, 0.72fr) minmax(360px, 1.28fr);
-  gap: 12px;
+  gap: var(--workspace-section-gap);
+  container-name: mock-workspace;
+  container-type: inline-size;
 }
 
 .tool-card-header > .mock-route-header-actions {
@@ -3389,6 +3423,47 @@ kbd {
 
 .mock-route-response-editor-headers {
   border-right: 1px solid var(--border);
+}
+
+@container mock-workspace (max-width: 1080px) {
+  .mock-server-workspace > aside.tool-panel > .tool-card-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .mock-server-workspace
+    > aside.tool-panel
+    > .tool-card-header
+    > .mock-route-header-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .mock-server-workspace
+    > aside.tool-panel
+    > .tool-card-header
+    > .mock-route-header-actions
+    > .button {
+    min-height: 38px;
+    flex: 1 1 132px;
+  }
+
+  .mock-route-fields {
+    grid-template-columns: minmax(120px, 0.65fr) minmax(180px, 1.35fr);
+  }
+
+  .mock-route-enabled {
+    grid-column: 1 / -1;
+  }
+
+  .mock-route-response-editors {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .mock-route-response-editor-headers {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
 }
 
 .mock-route-response-label {
@@ -3986,7 +4061,7 @@ kbd {
   min-height: 0;
   flex: 1;
   grid-template-columns: minmax(300px, 0.82fr) minmax(380px, 1.18fr);
-  gap: 12px;
+  gap: var(--workspace-section-gap);
 }
 
 .protocol-form,
@@ -4000,8 +4075,8 @@ kbd {
   align-content: start;
   flex: 1;
   grid-template-columns: minmax(0, 1fr) 112px;
-  gap: 12px;
-  padding: 14px;
+  gap: var(--space-4);
+  padding: var(--space-4);
   overflow-y: auto;
 }
 
@@ -4128,19 +4203,33 @@ kbd {
 }
 
 .protocol-metrics,
-.diagnostics-facts,
-.diagnostics-summary-row {
+.diagnostics-facts {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 8px;
   margin: 12px;
 }
 
 .protocol-metrics > div,
-.diagnostics-facts > div,
-.diagnostics-summary-row > div {
+.diagnostics-facts > div {
   display: grid;
   gap: 4px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+}
+
+.diagnostics-summary-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-2);
+  margin: var(--space-3);
+}
+
+.diagnostics-summary-row > div {
+  display: grid;
+  gap: var(--space-1);
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -4286,7 +4375,7 @@ kbd {
   min-height: 0;
   flex: 1;
   grid-template-columns: minmax(340px, 0.88fr) minmax(420px, 1.12fr);
-  gap: 12px;
+  gap: var(--workspace-section-gap);
 }
 
 .automation-saved-collection {
@@ -4777,15 +4866,17 @@ kbd {
 .diagnostics-two-column {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: var(--space-4);
 }
 
 .diagnostics-result-stack {
   display: grid;
   min-width: 0;
   align-content: start;
-  gap: 12px;
+  grid-auto-rows: max-content;
+  gap: var(--workspace-section-gap);
   overflow: auto;
+  padding-bottom: 1px;
 }
 
 .diagnostics-work-grid > div:not(.diagnostics-result-stack) {
@@ -4799,11 +4890,10 @@ kbd {
 }
 
 .tool-panel.diagnostics-panel-padded {
-  gap: 12px;
-  padding: 14px;
+  gap: var(--space-4);
+  padding: var(--space-4);
 }
 
-.diagnostics-runtime-form,
 .diagnostics-form-strip,
 .diagnostics-action-row {
   display: flex;
@@ -4813,7 +4903,6 @@ kbd {
   flex-wrap: wrap;
 }
 
-.diagnostics-runtime-form > label,
 .diagnostics-form-strip > label,
 .diagnostics-target-grid label,
 .diagnostics-request-line label {
@@ -4824,6 +4913,26 @@ kbd {
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 620;
+}
+
+.diagnostics-runtime-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
+  gap: var(--space-4);
+}
+
+.diagnostics-runtime-form > label {
+  min-width: 0;
+}
+
+.diagnostics-runtime-form > .diagnostics-field-wide {
+  grid-column: span 2;
+}
+
+.diagnostics-runtime-form > .diagnostics-checkbox {
+  min-height: 88px;
+  align-items: center;
 }
 
 label.diagnostics-field {
@@ -4853,16 +4962,34 @@ label.diagnostics-field {
 
 .diagnostics-request-line {
   display: grid;
-  grid-template-columns: 100px minmax(0, 1fr);
-  gap: 9px;
-  padding: 12px 12px 0;
+  grid-template-columns: 110px minmax(260px, 1fr) minmax(150px, 0.32fr);
+  gap: var(--space-3);
+  padding: 0;
 }
 
 .diagnostics-target-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 9px;
-  padding: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-3);
+  padding: 0;
+}
+
+.diagnostics-target-grid fieldset {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-muted);
+}
+
+.diagnostics-target-grid legend {
+  padding-inline: var(--space-2);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .diagnostics-action-row {
@@ -5052,6 +5179,84 @@ label.diagnostics-field {
   }
 }
 
+@container response-panel (max-width: 520px) {
+  .response-code {
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+
+  .response-kv-table {
+    display: block;
+    margin: 8px;
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .response-kv-table > .kv-header {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    border: 0;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+
+  .response-panel .response-kv-table > .kv-row {
+    display: grid;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
+    margin-bottom: 8px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    box-shadow: var(--shadow-xs);
+  }
+
+  .response-panel .response-kv-table > .kv-row:last-child {
+    margin-bottom: 0;
+  }
+
+  .response-panel .response-kv-table > .kv-row > * {
+    padding: 8px 10px;
+  }
+
+  .response-panel .response-kv-table > .kv-row > span {
+    border-top: 1px solid var(--border);
+    border-left: 0;
+  }
+
+  .timeline {
+    padding: 10px;
+  }
+
+  .timeline-ruler {
+    margin-left: 0;
+    padding-inline: 2px;
+  }
+
+  .timeline-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 7px;
+    margin-top: 8px;
+    padding: 9px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    box-shadow: var(--shadow-xs);
+  }
+
+  .timeline-description {
+    grid-column: 1;
+    margin: 0;
+  }
+}
+
 @container response-panel (max-width: 430px) {
   .response-size,
   .response-protocol {
@@ -5079,6 +5284,22 @@ label.diagnostics-field {
 
   .tool-page {
     padding-inline: 16px;
+  }
+
+  .application-body {
+    grid-template-columns: 68px minmax(0, 1fr);
+  }
+
+  .activity-bar {
+    padding-inline: 3px;
+  }
+
+  .activity-item {
+    width: 61px;
+  }
+
+  .activity-item span {
+    font-size: 10px;
   }
 }
 
@@ -5127,6 +5348,26 @@ label.diagnostics-field {
   .diagnostics-target-grid,
   .diagnostics-runtime-cards {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .diagnostics-runtime-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .diagnostics-runtime-form > .diagnostics-field-wide {
+    grid-column: auto;
+  }
+
+  .diagnostics-runtime-form > .diagnostics-checkbox {
+    min-height: 0;
+  }
+
+  .diagnostics-request-line {
+    grid-template-columns: 110px minmax(0, 1fr);
+  }
+
+  .diagnostics-request-line > :last-child {
+    grid-column: 1 / -1;
   }
 
   .tool-page-header {
@@ -5706,6 +5947,15 @@ label.diagnostics-field {
   }
 }
 
+@media (max-height: 640px) {
+  .request-workbench:not(.response-horizontal) {
+    grid-template-rows:
+      minmax(120px, calc(100% - var(--response-size) - 4px))
+      4px
+      minmax(96px, var(--response-size));
+  }
+}
+
 .mock-server-page {
   overflow-y: auto;
 }
@@ -5732,7 +5982,7 @@ label.diagnostics-field {
 }
 
 .automation-page > .automation-grid {
-  flex: 1 0 400px;
+  flex: 1 0 560px;
 }
 
 @media (max-height: 820px) {
@@ -6012,6 +6262,7 @@ label.diagnostics-field {
 }
 
 .native-dialog.command-palette {
+  overflow: hidden;
   padding: 0;
 }
 
@@ -6283,7 +6534,7 @@ label.diagnostics-field {
   grid-template-rows:
     minmax(220px, calc(100% - var(--response-size) - 4px))
     4px
-    minmax(170px, var(--response-size));
+    minmax(210px, var(--response-size));
 }
 
 .request-workbench.response-horizontal {
@@ -6321,7 +6572,7 @@ label.diagnostics-field {
   padding-inline: 6px;
 }
 
-@container request-form (max-width: 720px) {
+@container request-form (max-width: 860px) {
   .request-url-row {
     grid-template-columns: 82px minmax(0, 1fr) minmax(84px, auto) 42px 34px;
     gap: 5px;
@@ -6354,6 +6605,8 @@ label.diagnostics-field {
     grid-template-rows: 40px 40px;
     grid-template-columns:
       72px minmax(0, 1fr) minmax(84px, auto) 42px 34px;
+    row-gap: 4px;
+    padding-block: 4px;
   }
 
   .request-url-row > .method-select {
@@ -6379,6 +6632,10 @@ label.diagnostics-field {
   .request-url-row > [data-action="request-menu"] {
     grid-row: 2;
     grid-column: 5;
+  }
+
+  .request-composer > .request-url-help {
+    display: none;
   }
 }
 
@@ -6515,7 +6772,7 @@ label.diagnostics-field {
 }
 
 .request-section-content .body-editor {
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
 }
 
 .body-editor-toolbar {
@@ -6996,7 +7253,8 @@ label.diagnostics-field {
 }
 
 .native-dialog {
-  overflow: hidden;
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
   border-color: color-mix(in srgb, var(--border) 84%, transparent);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow);
@@ -7018,7 +7276,7 @@ label.diagnostics-field {
 
 .tool-page {
   width: min(1480px, 100%);
-  padding: 26px clamp(20px, 3.2vw, 48px) 28px;
+  padding: 26px var(--workspace-gutter) 28px;
 }
 
 .tool-page-header {
@@ -7067,17 +7325,19 @@ label.diagnostics-field {
 }
 
 .tool-tabs {
-  gap: 4px;
+  gap: var(--space-1);
   margin-bottom: 14px;
   padding: 5px;
   border-color: color-mix(in srgb, var(--border) 80%, transparent);
   border-radius: 16px;
   background: var(--surface);
   box-shadow: var(--shadow-xs);
+  scroll-padding-inline: var(--space-2);
+  scrollbar-width: thin;
 }
 
 .tool-tabs button {
-  min-height: 40px;
+  min-height: var(--control-height);
   padding-inline: 15px;
   border-radius: 11px;
   transition:
@@ -7684,7 +7944,7 @@ label.diagnostics-field {
     grid-template-rows:
       minmax(220px, calc(100% - var(--response-size) - 4px))
       4px
-      minmax(170px, var(--response-size));
+      minmax(210px, var(--response-size));
     grid-template-columns: minmax(0, 1fr);
   }
 

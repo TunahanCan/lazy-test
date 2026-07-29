@@ -1,8 +1,11 @@
-export const panelMinWidth = 210;
-export const panelCompactThresholdWidth = 190;
+export const panelMinWidth = 224;
+// Side panels are supporting surfaces. Once keeping both of them open would
+// squeeze the request workbench below a comfortable editing width, they turn
+// into drawers instead of competing with the primary task.
+export const panelCompactThresholdWidth = 224;
 export const panelMaxWidth = 440;
-export const verticalCenterMinWidth = 480;
-export const horizontalCenterMinWidth = 660;
+export const verticalCenterMinWidth = 680;
+export const horizontalCenterMinWidth = 800;
 export const panelResizerWidth = 4;
 export const panelKeyboardStep = 16;
 

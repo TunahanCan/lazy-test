@@ -206,6 +206,54 @@ export interface DialogOptions {
 
 let dialogSequence = 0;
 
+const dialogFocusableSelector = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "summary",
+  '[contenteditable="true"]',
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
+
+function dialogFocusables(dialog: HTMLDialogElement): HTMLElement[] {
+  return [
+    ...dialog.querySelectorAll<HTMLElement>(dialogFocusableSelector),
+  ].filter(
+    (element) =>
+      element.tabIndex >= 0 &&
+      !element.hidden &&
+      !element.closest("[hidden], [inert]") &&
+      element.getAttribute("aria-hidden") !== "true" &&
+      element.getClientRects().length > 0,
+  );
+}
+
+function focusRestoreSelector(
+  trigger: HTMLElement | undefined,
+): string | undefined {
+  if (!trigger) return undefined;
+  if (trigger.id) return `#${CSS.escape(trigger.id)}`;
+  const parts: string[] = [];
+  for (const attribute of [
+    "data-focus",
+    "data-action",
+    "data-tab-id",
+    "data-library-kind",
+    "data-library-item-id",
+    "data-key",
+  ]) {
+    const value = trigger.getAttribute(attribute);
+    if (value !== null) {
+      parts.push(`[${attribute}="${CSS.escape(value)}"]`);
+    }
+  }
+  if (parts.length > 0) return parts.join("");
+  const name = trigger.getAttribute("name");
+  return name ? `[name="${CSS.escape(name)}"]` : undefined;
+}
+
 export function presentDialog(
   content: TrustedHTMLFragment,
   options: DialogOptions = {},
@@ -226,6 +274,12 @@ export function presentDialog(
     dialog.setAttribute("aria-describedby", options.describedBy);
   }
   document.body.append(dialog);
+  const restoreTrigger =
+    options.trigger ??
+    (document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : undefined);
+  const restoreSelector = focusRestoreSelector(restoreTrigger);
 
   let resolveClosed!: (value: string) => void;
   let finished = false;
@@ -237,7 +291,24 @@ export function presentDialog(
     finished = true;
     lifecycle.dispose();
     dialog.remove();
-    options.trigger?.focus();
+    window.requestAnimationFrame(() => {
+      if (document.querySelector("dialog[open]")) return;
+      const replacement =
+        restoreTrigger?.isConnected &&
+        !restoreTrigger.matches(":disabled") &&
+        !restoreTrigger.closest("[hidden], [inert]")
+          ? restoreTrigger
+          : restoreSelector
+            ? document.querySelector<HTMLElement>(restoreSelector)
+            : undefined;
+      if (
+        replacement &&
+        !replacement.matches(":disabled") &&
+        !replacement.closest("[hidden], [inert]")
+      ) {
+        replacement.focus({ preventScroll: true });
+      }
+    });
     resolveClosed(value);
   };
   const handle: DialogHandle = {
@@ -256,6 +327,34 @@ export function presentDialog(
   lifecycle.listen(dialog, "cancel", (event) => {
     event.preventDefault();
     handle.close("cancel");
+  });
+  lifecycle.listen(dialog, "keydown", (event) => {
+    if (event.key !== "Tab") return;
+    const focusables = dialogFocusables(dialog);
+    if (focusables.length === 0) {
+      event.preventDefault();
+      dialog.focus({ preventScroll: true });
+      return;
+    }
+    const active =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : undefined;
+    const activeIndex = active ? focusables.indexOf(active) : -1;
+    if (activeIndex === -1) {
+      event.preventDefault();
+      focusables[event.shiftKey ? focusables.length - 1 : 0]?.focus({
+        preventScroll: true,
+      });
+      return;
+    }
+    if (event.shiftKey && activeIndex === 0) {
+      event.preventDefault();
+      focusables[focusables.length - 1]?.focus({ preventScroll: true });
+    } else if (!event.shiftKey && activeIndex === focusables.length - 1) {
+      event.preventDefault();
+      focusables[0]?.focus({ preventScroll: true });
+    }
   });
   if (options.closeOnBackdrop !== false) {
     lifecycle.listen(dialog, "pointerdown", (event) => {

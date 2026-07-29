@@ -221,6 +221,9 @@ validex/
 │   ├── openapilint/                   # deterministik OpenAPI lint
 │   ├── protocols/                     # SSE istemcisi
 │   └── runner/                        # collection runner
+├── tests/e2e/                          # ayrı Go modülünde Godog + Chrome kabul testleri
+│   ├── features/                       # ekran bazlı yaşayan Gherkin sözleşmeleri
+│   └── fixtures/                       # sayfa öncesi enjekte edilen deterministic bridge
 ├── .github/workflows/ci.yml
 ├── Makefile
 ├── collection.sample.json
@@ -1311,6 +1314,16 @@ Doğrudan Go bağımlılıkları:
 HTTP, SSE, mock server, IPC JSON, CLI ve test altyapısının geri kalanı ağırlıklı
 olarak Go standart kütüphanesiyle uygulanır.
 
+`tests/e2e` shipping modülünden ayrı tutulur. Doğrudan test-only
+bağımlılıkları:
+
+| Modül | Kullanım |
+| --- | --- |
+| `github.com/cucumber/godog` | Gherkin feature ve Cucumber scenario lifecycle |
+| `github.com/chromedp/chromedp` | Gerçek Chrome DOM/input/viewport otomasyonu |
+
+Bu bağımlılıklar desktop veya CLI executable'ına link edilmez.
+
 ### 13.2 Vendor edilen kaynaklar
 
 | Kaynak | Konum | Runtime rolü |
@@ -1378,7 +1391,7 @@ go test -tags canbridge \
   ./cmd/validex
 ```
 
-### 15.2 Frontend testleri
+### 15.2 Frontend unit ve contract testleri
 
 Frontend kalite zinciri:
 
@@ -1392,23 +1405,97 @@ Testler Node'un yerleşik `node:test` ve `node:assert` modüllerini kullanır.
 Emitted saf modelleri/store helper'larını ve build, packager, dev server,
 dependency policy sınırlarını test eder.
 
-Mevcut suite gerçek WebView/browser DOM smoke testi değildir. Görsel veya
-platform etkileşimli değişikliklerde native uygulama ayrıca açılıp
-doğrulanmalıdır.
+Bu katman gerçek browser DOM'u açmaz. Hızlı ve deterministik model, state,
+serialization, response presentation ve build contract regresyonları için
+birinci savunma hattıdır.
 
-### 15.3 CI
+### 15.3 Cucumber browser kabul testleri
 
-`.github/workflows/ci.yml` dört iş tanımlar:
+`tests/e2e`, production Go modülünden ayrı bir test modülüdür. Bu ayrım:
+
+- frontend'in paket yöneticisiz çalışma politikasını korur;
+- Godog ve chromedp gibi test-only bağımlılıkları shipping binary
+  bağımlılıklarına karıştırmaz;
+- normal `go test ./...` komutunu Chrome kurulumuna bağlamaz;
+- browser suite'in release kapısı olarak açıkça çalıştırılmasını sağlar.
+
+Godog, `features/*.feature` içindeki Given/When/Then senaryolarını çalıştırır.
+chromedp ise production `frontend/dist` çıktısını gerçek headless Chrome'da
+açar. Test sunucusu yalnız loopback ve rastgele bir port dinler.
+
+Native WebView binding'i browser'da bulunmadığı için her browser context'i
+sayfa scriptlerinden önce deterministik bir `window.canbridge.Bridge`
+fixture'ı enjekte eder. Fixture:
+
+- frontend `CanbridgeAPI` içindeki bütün metotları sunar;
+- çağrıları ve payload'ları scenario assertion'ları için kaydeder;
+- request, collection, mock, diagnostics, SSE ve automation sonuçlarını
+  scenario bazında programlayabilir;
+- her scenario için ayrı ve sonunda dispose edilen bir incognito BrowserContext
+  ile target açar; cookie, IndexedDB, cache ve service worker state'i
+  scenario'lar arasında taşınamaz;
+- uygulama yüklenmeden önce ek savunma olarak local/session storage alanını
+  temizleyip fixture global state'ini yeniden kurar.
+
+Bu test seam'i native Go implementasyonunu taklit etmek için değil,
+UI controller → bridge contract → UI sonucu zincirini deterministik biçimde
+doğrulamak içindir. Gerçek Go davranışı 15.1'deki domain/canbridge testleriyle
+birlikte değerlendirilir. Platform WebView, işletim sistemi dosya seçicisi,
+codesign/notarization ve installer davranışı browser fixture'ının kapsamı
+değildir.
+
+Suite şu iki hedefle çalıştırılır:
+
+```bash
+make test-e2e
+make test-production
+```
+
+`test-e2e`, production frontend'i yeniden build eder ve Go test cache'ini
+devre dışı bırakarak bütün Gherkin senaryolarını çalıştırır.
+`test-production`; frontend, Go, tagged native bridge, Cucumber, race detector
+ve vet kapılarını birlikte çalıştırır. Chrome yolu otomatik bulunamazsa
+`VALIDEX_E2E_CHROME` ile açıkça verilebilir.
+
+Başarısız scenario'larda ekran görüntüsü, DOM snapshot ve browser konsol
+kayıtları `tests/e2e/artifacts` altında tutulur. Artifact adındaki scenario ID
+özeti, aynı adlı Scenario Outline örneklerinin birbirinin kanıtını ezmesini
+önler. Sabit `sleep` yerine DOM, ARIA state'i ve bridge call log'u üzerinde
+bounded wait kullanılır.
+
+Kabul feature'ları şu ekran sınırlarına göre ayrılır:
+
+| Feature | Sorumluluk |
+| --- | --- |
+| `smoke.feature` | Production frontend başlangıcı ve altı ana workspace'in temel erişilebilirliği |
+| `shell_navigation.feature` | Altı workspace, palette, settings, theme ve bootstrap recovery |
+| `requests.feature` | Composer, dört request bölümü, response görünümleri, cURL, hata/cancel, aksiyon menüleri ve tablar |
+| `request_contract_cancellation.feature` | OpenAPI doğrulama sözleşmesi, iki tab arasında izolasyon ve geç async sonuçların elenmesi |
+| `collections.feature` | CRUD, kalıcılık, arama/taşıma ve OpenAPI endpoint açma |
+| `mock_server.feature` | Route editörü, JSON response, port/CORS, apply, start/stop, import, URL kopyalama ve hit geçmişi |
+| `json_lab.feature` | Format/minify/clear, Diff, Query, Schema ve DTO |
+| `diagnostics.feature` | Spring, JWT, Runtime, Environments, Thread, Logs, Trace, Recorder ve Coverage |
+| `protocols_automation.feature` | SSE, built-in Runner, Network ve OpenAPI lint |
+| `responsive_accessibility.feature` | Viewport, drawer, klavye, dialog ve separator davranışı |
+| `storage_resilience.feature` | Yazma hatası/retry, conflict, yeni sürüm salt-okunur sınırı ve ters tamamlanan yazmaların sıralanması |
+| `secondary_ui_actions.feature` | Top bar/sidebar üzerindeki doğrudan aksiyonlar, dismiss/focus ve mock geçmişini temizleme |
+
+### 15.4 CI
+
+`.github/workflows/ci.yml` beş iş tanımlar:
 
 | İş | Doğrulama |
 | --- | --- |
-| `quality` | Vendored TS checksum, frontend typecheck/build/test, `go test`, `go vet`, native checksum |
+| `quality` | Vendored TS checksum, frontend typecheck/build/test, `go test`, `go vet`, race detector ve native checksum |
+| `browser-e2e` | Production frontend build, gerçek Chrome üzerinde Godog/Cucumber senaryoları ve hata artifact'i |
 | `native-macos` | Tagged test/vet, `make build`, desktop notice kontrolü |
 | `native-linux` | Frontend build, GTK/WebKitGTK kurulumu, tagged test/vet ve native `go build` |
 | `native-windows` | Frontend build, MinGW doğrulaması, tagged test/vet ve native `go build` |
 
-CI şu anda artifact yayınlama, düzenli race detector matrisi veya gerçek
-browser E2E işi içermez; belge bunları varmış gibi kabul etmez.
+CI'nın browser işi platform WebView smoke testi değildir. Native işlerin
+tagged build/test doğrulamasıyla browser kabul işinin birlikte geçmesi
+gerekir. CI halen release artifact yayınlama, gerçek işletim sistemi dosya
+seçicisi otomasyonu, codesign/notarization veya installer smoke testi yapmaz.
 
 ## 16. Yeni özellik ekleme kuralları
 
@@ -1660,6 +1747,8 @@ sınırı maddelerini atlamayın.
 - [ ] Domain katmanı frontend/native ayrıntılarından bağımsız mı?
 - [ ] Frontend typecheck/build/test ve ilgili Go unit/race/tagged testleri
       geçti mi?
+- [ ] Değişen kullanıcı akışı ilgili Cucumber feature'ında gerçek browser
+      interaction'ıyla doğrulandı mı?
 - [ ] Değişen native yüzey için host platform build/vet doğrulandı mı?
 - [ ] README yalnız kullanıcı-facing ürün/çalıştırma/build bilgisini koruyor,
       teknik detaylar bu belgede mi?

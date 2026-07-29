@@ -727,6 +727,7 @@ export function mountJSONLab(root: HTMLElement): Disposable {
         if (source) source.value = "";
         updateInputSize(root, state);
         updateDerivedRegions(root, state);
+        source?.focus({ preventScroll: true });
         break;
       }
       case "format":

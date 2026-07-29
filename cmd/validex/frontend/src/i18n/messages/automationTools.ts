@@ -12,6 +12,12 @@ export const automationToolsMessages = defineMessages(
     "automation.tab.network": "DNS & Redirect",
     "automation.tab.openapi": "OpenAPI Lint",
     "automation.action.stop": "Stop",
+    "automation.cancel.rejected.title": "Operation could not be stopped",
+    "automation.cancel.rejected.message":
+      "The operation is no longer registered as running.",
+    "automation.cancel.rejected.hint":
+      "Wait for the current result, then start the operation again if needed.",
+    "automation.cancel.failed": "The stop request could not be completed.",
     "automation.duration.total": "Total duration",
     "automation.status.passed": "Passed",
     "automation.status.failed": "Failed",
@@ -511,6 +517,12 @@ export const automationToolsMessages = defineMessages(
     "automation.tab.network": "DNS ve Yönlendirme",
     "automation.tab.openapi": "OpenAPI Denetimi",
     "automation.action.stop": "Durdur",
+    "automation.cancel.rejected.title": "İşlem durdurulamadı",
+    "automation.cancel.rejected.message":
+      "İşlem artık çalışan bir görev olarak kayıtlı değil.",
+    "automation.cancel.rejected.hint":
+      "Mevcut sonucu bekleyin; gerekirse işlemi yeniden başlatın.",
+    "automation.cancel.failed": "Durdurma isteği tamamlanamadı.",
     "automation.duration.total": "Toplam süre",
     "automation.status.passed": "Başarılı",
     "automation.status.failed": "Başarısız",

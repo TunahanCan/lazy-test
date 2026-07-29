@@ -532,7 +532,7 @@ export function mountProtocolLab(root: HTMLElement): Disposable {
 
     try {
       const accepted = await backend.cancelToolOperation(operationID);
-      if (disposed) return;
+      if (disposed || state.activeOperationID !== operationID) return;
       if (!accepted) {
         state.issue = {
           title: t("protocol.cancelRejectedTitle"),
@@ -543,7 +543,7 @@ export function mountProtocolLab(root: HTMLElement): Disposable {
         renderPage(root, state);
       }
     } catch (error) {
-      if (disposed) return;
+      if (disposed || state.activeOperationID !== operationID) return;
       state.issue = issueFrom(error, t, true);
       state.canceling = false;
       renderPage(root, state);

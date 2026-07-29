@@ -36,6 +36,9 @@ import {
   type ToolNotice,
 } from "../../features/mock-server/model.js";
 
+const mockPollIntervalMs = 1_500;
+const mockPollTimeoutMs = 5_000;
+
 const buttonClass = (
   variant: "primary" | "secondary" | "ghost" | "danger" = "secondary",
   size: "sm" | "md" = "md",
@@ -68,7 +71,7 @@ function noticeMarkup(notice: ToolNotice | null): TrustedHTMLFragment {
                 : ""}
               ${notice.issue.technical
                 ? html`
-                    <details>
+                    <details data-details-state="operation-error">
                       <summary>${t("mock.technicalDetails")}</summary>
                       <code>${notice.issue.technical}</code>
                     </details>
@@ -102,8 +105,13 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
   let busy = "refresh";
   let notice: ToolNotice | null = null;
   let routeRevision = 0;
-  let routeSnapshotRequest = 0;
+  let snapshotRequest = 0;
   let pollingTimer: number | undefined;
+  let silentRefreshGeneration = 0;
+  let silentRefreshInFlight: number | undefined;
+  let silentRenderPending = false;
+  let compositionDepth = 0;
+  let pendingFocusKeys: string[] = [];
 
   const selectedRoute = (): EditableRoute | null =>
     routes.find((route) => route.id === selectedID) ?? null;
@@ -143,7 +151,7 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
             <div class="tool-notice-content">
               <strong>${t("mock.lastError.title")}</strong>
               <span>${t("mock.lastError.description")}</span>
-              <details>
+              <details data-details-state="server-error">
                 <summary>${t("mock.technicalDetails")}</summary>
                 <code>${server.lastError}</code>
               </details>
@@ -672,12 +680,31 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
 
   const render = (): void => {
     if (disposed) return;
+    silentRenderPending = false;
+    const pageScrollTop =
+      root.querySelector<HTMLElement>(".mock-server-page")
+        ?.scrollTop ?? 0;
+    const openDetails = new Set(
+      [
+        ...root.querySelectorAll<HTMLDetailsElement>(
+          "details[data-details-state][open]",
+        ),
+      ]
+        .map((details) => details.dataset.detailsState)
+        .filter((key): key is string => Boolean(key)),
+    );
     const active =
       document.activeElement instanceof HTMLElement &&
       root.contains(document.activeElement)
         ? document.activeElement
         : undefined;
     const focusKey = active?.dataset.focus;
+    const focusKeys =
+      pendingFocusKeys.length > 0
+        ? pendingFocusKeys
+        : focusKey
+          ? [focusKey]
+          : [];
     const selection =
       active instanceof HTMLTextAreaElement ||
       (active instanceof HTMLInputElement &&
@@ -688,16 +715,38 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
             start: active.selectionStart,
             end: active.selectionEnd,
             direction: active.selectionDirection,
+            scrollTop: active.scrollTop,
+            scrollLeft: active.scrollLeft,
           }
         : undefined;
 
     setHTML(root, pageMarkup());
+    compositionDepth = 0;
+    const renderedPage =
+      root.querySelector<HTMLElement>(".mock-server-page");
+    if (renderedPage && pageScrollTop > 0) {
+      renderedPage.scrollTop = pageScrollTop;
+    }
+    for (const details of root.querySelectorAll<HTMLDetailsElement>(
+      "details[data-details-state]",
+    )) {
+      details.open = openDetails.has(details.dataset.detailsState ?? "");
+    }
 
-    if (!focusKey) return;
-    const replacement = [
+    if (focusKeys.length === 0) return;
+    const focusableElements = [
       ...root.querySelectorAll<HTMLElement>("[data-focus]"),
-    ].find((element) => element.dataset.focus === focusKey);
+    ];
+    const replacement = focusKeys
+      .map((key) =>
+        focusableElements.find(
+          (element) =>
+            element.dataset.focus === key && !element.matches(":disabled"),
+        ),
+      )
+      .find((element): element is HTMLElement => Boolean(element));
     if (!replacement || replacement.matches(":disabled")) return;
+    pendingFocusKeys = [];
     replacement.focus({ preventScroll: true });
     if (
       selection &&
@@ -709,7 +758,71 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
         selection.end,
         selection.direction ?? undefined,
       );
+      replacement.scrollTop = selection.scrollTop;
+      replacement.scrollLeft = selection.scrollLeft;
     }
+  };
+
+  const activeEditor = (): boolean => {
+    if (compositionDepth > 0) return true;
+    const active = document.activeElement;
+    return (
+      active instanceof HTMLElement &&
+      root.contains(active) &&
+      (active instanceof HTMLInputElement ||
+        active instanceof HTMLSelectElement ||
+        active instanceof HTMLTextAreaElement ||
+        active.isContentEditable)
+    );
+  };
+
+  const renderSilentSnapshot = (): void => {
+    if (activeEditor()) {
+      silentRenderPending = true;
+      return;
+    }
+    silentRenderPending = false;
+    render();
+  };
+
+  const flushSilentRender = (): void => {
+    if (
+      disposed ||
+      !silentRenderPending ||
+      activeEditor() ||
+      Boolean(busy)
+    ) {
+      return;
+    }
+    silentRenderPending = false;
+    render();
+  };
+
+  const invalidateSilentRefresh = (): void => {
+    silentRefreshGeneration += 1;
+    silentRefreshInFlight = undefined;
+    silentRenderPending = false;
+  };
+
+  const readSilentSnapshot = async (): Promise<
+    | { kind: "snapshot"; snapshot: MockServerSnapshot }
+    | { kind: "error"; error: unknown }
+    | { kind: "timeout" }
+  > => {
+    let timeoutID: number | undefined;
+    const timeout = new Promise<{ kind: "timeout" }>((resolve) => {
+      timeoutID = window.setTimeout(
+        () => resolve({ kind: "timeout" }),
+        mockPollTimeoutMs,
+      );
+    });
+    const request = backend.getMockServer().then(
+      (snapshot) => ({ kind: "snapshot" as const, snapshot }),
+      (error: unknown) => ({ kind: "error" as const, error }),
+    );
+    const result = await Promise.race([request, timeout]);
+    if (timeoutID !== undefined) window.clearTimeout(timeoutID);
+    return result;
   };
 
   const syncPolling = (): void => {
@@ -720,22 +833,21 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
     if (pollingTimer !== undefined) return;
     pollingTimer = window.setInterval(() => {
       void refresh(false, true);
-    }, 1_500);
+    }, mockPollIntervalMs);
   };
 
   const acceptSnapshot = (
     snapshot: MockServerSnapshot,
     includeRoutes: boolean,
     expectedRouteRevision = routeRevision,
-    expectedSnapshotRequest = routeSnapshotRequest,
-  ): void => {
-    if (disposed) return;
+    expectedSnapshotRequest = snapshotRequest,
+  ): boolean => {
+    if (disposed || expectedSnapshotRequest !== snapshotRequest) return false;
     server = snapshot.state;
     hits = snapshot.hits ?? [];
     if (
       includeRoutes &&
-      expectedRouteRevision === routeRevision &&
-      expectedSnapshotRequest === routeSnapshotRequest
+      expectedRouteRevision === routeRevision
     ) {
       routes = (snapshot.routes ?? []).map(toEditableRoute);
       if (!routes.some((route) => route.id === selectedID)) {
@@ -744,20 +856,51 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
       dirty = false;
     }
     syncPolling();
+    return true;
   };
 
   async function refresh(
     includeRoutes: boolean,
     silent = false,
   ): Promise<MockServerSnapshot | undefined> {
-    const expectedRouteRevision = routeRevision;
-    const expectedSnapshotRequest = includeRoutes
-      ? ++routeSnapshotRequest
-      : routeSnapshotRequest;
-    if (!silent) {
-      busy = "refresh";
-      render();
+    if (silent) {
+      if (busy || silentRefreshInFlight !== undefined) {
+        return undefined;
+      }
+      const generation = ++silentRefreshGeneration;
+      silentRefreshInFlight = generation;
+      const expectedRouteRevision = routeRevision;
+      const expectedSnapshotRequest = ++snapshotRequest;
+      try {
+        const result = await readSilentSnapshot();
+        if (
+          disposed ||
+          generation !== silentRefreshGeneration ||
+          silentRefreshInFlight !== generation
+        ) {
+          return undefined;
+        }
+        if (result.kind !== "snapshot") return undefined;
+        const accepted = acceptSnapshot(
+          result.snapshot,
+          includeRoutes,
+          expectedRouteRevision,
+          expectedSnapshotRequest,
+        );
+        if (accepted) renderSilentSnapshot();
+        return accepted ? result.snapshot : undefined;
+      } finally {
+        if (silentRefreshInFlight === generation) {
+          silentRefreshInFlight = undefined;
+        }
+      }
     }
+
+    invalidateSilentRefresh();
+    const expectedRouteRevision = routeRevision;
+    const expectedSnapshotRequest = ++snapshotRequest;
+    busy = "refresh";
+    render();
     try {
       const snapshot = await backend.getMockServer();
       if (disposed) return undefined;
@@ -769,7 +912,7 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
       );
       return snapshot;
     } catch (error) {
-      if (!disposed && !silent) {
+      if (!disposed) {
         notice = {
           tone: "error",
           issue: bridgeIssue(error, t("mock.refresh.failed"), t),
@@ -777,10 +920,8 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
       }
       return undefined;
     } finally {
-      if (!disposed && !silent) {
+      if (!disposed) {
         busy = "";
-        render();
-      } else if (!disposed) {
         render();
       }
     }
@@ -792,10 +933,20 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
     successMessage: string,
     includeRoutes = false,
   ): Promise<void> => {
+    invalidateSilentRefresh();
+    clearPolling();
+    pendingFocusKeys =
+      operation === "start"
+        ? ["action:stop", "action:start"]
+        : operation === "stop"
+          ? ["action:start", "action:stop"]
+          : operation === "apply" || operation === "import"
+            ? ["field:path", "action:add-first", "action:add"]
+            : operation === "clear"
+              ? ["action:clear-hits", "action:stop", "action:start"]
+              : [];
     const expectedRouteRevision = routeRevision;
-    const expectedSnapshotRequest = includeRoutes
-      ? ++routeSnapshotRequest
-      : routeSnapshotRequest;
+    const expectedSnapshotRequest = ++snapshotRequest;
     busy = operation;
     notice = null;
     render();
@@ -836,12 +987,16 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
     } finally {
       if (!disposed) {
         busy = "";
+        syncPolling();
         render();
       }
     }
   };
 
-  const updateSelected = (patch: Partial<EditableRoute>): void => {
+  const updateSelected = (
+    patch: Partial<EditableRoute>,
+    deferRender = false,
+  ): void => {
     const route = selectedRoute();
     if (!route) return;
     const changed = Object.entries(patch).some(
@@ -854,7 +1009,19 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
     routeRevision += 1;
     dirty = true;
     notice = null;
-    render();
+    if (!deferRender) {
+      render();
+      return;
+    }
+    silentRenderPending = true;
+    const status = root.querySelector<HTMLElement>(
+      ".mock-route-sync-status",
+    );
+    if (status) status.textContent = t("mock.routes.dirty");
+    const apply = root.querySelector<HTMLButtonElement>(
+      '[data-action="apply-routes"]',
+    );
+    if (apply) apply.disabled = Boolean(busy);
   };
 
   const addRoute = (): void => {
@@ -885,6 +1052,9 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
     const index = routes.findIndex((candidate) => candidate.id === route.id);
     routes = routes.filter((candidate) => candidate.id !== route.id);
     selectedID = routes[Math.min(index, routes.length - 1)]?.id ?? "";
+    pendingFocusKeys = selectedID
+      ? [`route:${selectedID}`, "field:path"]
+      : ["action:add-first", "action:add"];
     routeRevision += 1;
     dirty = true;
     notice = null;
@@ -1026,6 +1196,7 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
 
   const handleField = (
     target: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement,
+    deferRender = false,
   ): void => {
     switch (target.dataset.field) {
       case "port":
@@ -1052,10 +1223,10 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
         updateSelected({ enabled: (target as HTMLInputElement).checked });
         break;
       case "headers":
-        updateSelected({ headersText: target.value });
+        updateSelected({ headersText: target.value }, deferRender);
         break;
       case "body":
-        updateSelected({ body: target.value });
+        updateSelected({ body: target.value }, deferRender);
         break;
     }
   };
@@ -1190,8 +1361,43 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
     ) {
       return;
     }
-    handleField(target);
+    const deferRender =
+      target instanceof HTMLTextAreaElement ||
+      (event instanceof InputEvent && event.isComposing) ||
+      compositionDepth > 0;
+    handleField(target, deferRender);
   };
+  lifecycle.listen(root, "compositionstart", (event) => {
+    const target = event.target;
+    if (
+      target instanceof HTMLElement &&
+      root.contains(target) &&
+      target.hasAttribute("data-field")
+    ) {
+      compositionDepth += 1;
+    }
+  });
+  lifecycle.listen(root, "compositionend", (event) => {
+    const target = event.target;
+    if (
+      target instanceof HTMLElement &&
+      root.contains(target) &&
+      target.hasAttribute("data-field")
+    ) {
+      compositionDepth = Math.max(0, compositionDepth - 1);
+      window.requestAnimationFrame(flushSilentRender);
+    }
+  });
+  lifecycle.listen(root, "focusout", (event) => {
+    const next = (event as FocusEvent).relatedTarget;
+    if (
+      next instanceof HTMLElement &&
+      root.contains(next)
+    ) {
+      return;
+    }
+    window.requestAnimationFrame(flushSilentRender);
+  });
   lifecycle.listen(root, "input", fieldListener);
   lifecycle.listen(root, "change", fieldListener);
   lifecycle.add(
@@ -1203,6 +1409,7 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
   lifecycle.add(workspaceStore.subscribe(render));
   lifecycle.add(() => {
     disposed = true;
+    invalidateSilentRefresh();
     clearPolling();
     root.replaceChildren();
   });

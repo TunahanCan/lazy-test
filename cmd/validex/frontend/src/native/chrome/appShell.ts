@@ -10,10 +10,8 @@ import { applicationCommands } from "../../app/commands.js";
 import { icon } from "../../core/icons.js";
 import { closeActiveMenu } from "../../core/overlays.js";
 import { subscribeLocale, t } from "../../i18n/locale.js";
-import { backend } from "../../lib/backend.js";
 import type {
   BootstrapData,
-  RequestTab,
   WorkspaceView,
 } from "../../lib/types.js";
 import {
@@ -47,9 +45,24 @@ import {
 import { mountSidebar } from "./sidebar.js";
 import { mountStatusBar } from "./statusBar.js";
 import { mountTopBar } from "./topBar.js";
+import type {
+  WorkspaceLayoutCommands,
+  WorkspacePanelSide,
+} from "./workspaceLayoutCommands.js";
 
 type ToolView = Exclude<WorkspaceView, "requests">;
 type ToolMount = (root: HTMLElement) => Disposable;
+
+const compactPanelFocusableSelector = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "summary",
+  '[contenteditable="true"]',
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
 
 const toolMounts: Record<ToolView, () => Promise<ToolMount>> = {
   mock: async () => {
@@ -97,9 +110,11 @@ export function mountAppShell(
   const toolControllers = new Map<ToolView, Disposable>();
   const mountingTools = new Map<ToolView, Promise<void>>();
   let disposed = false;
-  let compactPanel: "left" | "right" | null = null;
+  let compactPanel: WorkspacePanelSide | null = null;
+  let compactPanelTrigger: HTMLElement | undefined;
   let workspaceWidth = window.innerWidth;
   let previousView: WorkspaceView | undefined;
+  let previousCompactLayout: boolean | undefined;
   let stopActiveResize: (() => void) | undefined;
 
   setHTML(
@@ -249,33 +264,55 @@ export function mountAppShell(
     root,
     ".mobile-panel-scrim",
   );
+  const topBarHost = requiredElement<HTMLElement>(root, "[data-topbar]");
+  const activityHost = requiredElement<HTMLElement>(root, "[data-activity]");
+  const feedbackHost = requiredElement<HTMLElement>(root, "[data-feedback]");
+  const requestWorkspaceHost = requiredElement<HTMLElement>(
+    root,
+    "[data-request-workspace]",
+  );
+  const statusHost = requiredElement<HTMLElement>(root, "[data-status]");
   const compactCloseButtons = [
     ...root.querySelectorAll<HTMLButtonElement>(".mobile-panel-close"),
   ];
 
-  lifecycle.child(
-    mountTopBar(requiredElement(root, "[data-topbar]"), bootstrap),
-  );
-  lifecycle.child(mountFeedback(requiredElement(root, "[data-feedback]")));
-  lifecycle.child(mountActivityBar(requiredElement(root, "[data-activity]")));
-  lifecycle.child(
-    mountSidebar(requiredElement(root, "[data-sidebar]"), bootstrap),
-  );
-  lifecycle.child(
-    mountContextPanel(requiredElement(root, "[data-context]"), bootstrap),
-  );
-  lifecycle.child(
-    mountRequestWorkspace(
-      requiredElement(root, "[data-request-workspace]"),
-      bootstrap,
-    ),
-  );
-  lifecycle.child(
-    mountStatusBar(requiredElement(root, "[data-status]"), bootstrap),
-  );
-  lifecycle.child(
-    mountCommandPalette(requiredElement(root, "[data-palette]"), bootstrap),
-  );
+  const panelElement = (side: WorkspacePanelSide) =>
+    side === "left" ? leftPanel : rightPanel;
+  const panelRestore = (side: WorkspacePanelSide) =>
+    side === "left" ? leftRestore : rightRestore;
+  const panelCloseButton = (side: WorkspacePanelSide) =>
+    compactCloseButtons[side === "left" ? 0 : 1];
+
+  const isVisibleFocusTarget = (
+    element: HTMLElement | undefined,
+  ): element is HTMLElement =>
+    Boolean(
+      element?.isConnected &&
+        !element.hidden &&
+        !element.closest("[inert]") &&
+        element.getAttribute("aria-hidden") !== "true" &&
+        element.getClientRects().length > 0,
+    );
+
+  const focusWhenReady = (
+    ...candidates: Array<HTMLElement | undefined>
+  ): void => {
+    window.requestAnimationFrame(() => {
+      if (disposed) return;
+      candidates.find(isVisibleFocusTarget)?.focus({ preventScroll: true });
+    });
+  };
+
+  const compactPanelFocusables = (
+    side: WorkspacePanelSide,
+  ): HTMLElement[] =>
+    [
+      ...panelElement(side).querySelectorAll<HTMLElement>(
+        compactPanelFocusableSelector,
+      ),
+    ].filter(
+      (element) => element.tabIndex >= 0 && isVisibleFocusTarget(element),
+    );
 
   const layoutState = () => {
     const state = workspaceStore.getState();
@@ -351,14 +388,39 @@ export function mountAppShell(
 
   const updateLayout = () => {
     const layout = layoutState();
+    const activeElement =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : undefined;
+    const focusedPanelOnCompactTransition =
+      previousCompactLayout === false && layout.compact && activeElement
+        ? leftPanel.contains(activeElement)
+          ? "left"
+          : rightPanel.contains(activeElement)
+            ? "right"
+            : undefined
+        : undefined;
+    if (!layout.compact && compactPanel) {
+      const previousSide = compactPanel;
+      const previousTrigger = compactPanelTrigger;
+      compactPanel = null;
+      compactPanelTrigger = undefined;
+      const remainsVisible =
+        previousSide === "left" ? layout.leftVisible : layout.rightVisible;
+      if (!remainsVisible) {
+        focusWhenReady(previousTrigger, panelRestore(previousSide));
+      }
+    }
+    const modalSide = layout.compact ? compactPanel : null;
+    const modalOpen = modalSide !== null;
     requestLayout.classList.toggle("compact-layout", layout.compact);
     requestLayout.style.gridTemplateColumns = [
       layout.leftVisible
-        ? `${layout.fitted.left}px 4px`
+        ? `${layout.fitted.left}px ${panelResizerWidth}px`
         : "0px 0px",
       `minmax(${layout.centerMinimum}px, 1fr)`,
       layout.rightVisible
-        ? `4px ${layout.fitted.right}px`
+        ? `${panelResizerWidth}px ${layout.fitted.right}px`
         : "0px 0px",
     ].join(" ");
     leftPanel.classList.toggle("panel-hidden", !layout.leftVisible);
@@ -367,26 +429,58 @@ export function mountAppShell(
     rightPanel.toggleAttribute("inert", !layout.rightVisible);
     leftPanel.setAttribute("aria-hidden", String(!layout.leftVisible));
     rightPanel.setAttribute("aria-hidden", String(!layout.rightVisible));
-    leftResizer.classList.toggle("panel-hidden", !layout.leftVisible);
-    rightResizer.classList.toggle("panel-hidden", !layout.rightVisible);
-    leftResizer.toggleAttribute("inert", !layout.leftVisible);
-    rightResizer.toggleAttribute("inert", !layout.rightVisible);
-    leftResizer.tabIndex = layout.leftVisible ? 0 : -1;
-    rightResizer.tabIndex = layout.rightVisible ? 0 : -1;
-    leftResizer.setAttribute("aria-hidden", String(!layout.leftVisible));
-    rightResizer.setAttribute("aria-hidden", String(!layout.rightVisible));
+    for (const [side, panel] of [
+      ["left", leftPanel],
+      ["right", rightPanel],
+    ] as const) {
+      if (modalSide === side) {
+        panel.setAttribute("role", "dialog");
+        panel.setAttribute("aria-modal", "true");
+        panel.tabIndex = -1;
+        panel.setAttribute(
+          "aria-label",
+          t(side === "left" ? "sidebar.navigation" : "context.panel"),
+        );
+      } else {
+        panel.removeAttribute("role");
+        panel.removeAttribute("aria-modal");
+        panel.removeAttribute("aria-label");
+        panel.removeAttribute("tabindex");
+      }
+    }
+    const leftResizable = layout.leftVisible && !layout.compact;
+    const rightResizable = layout.rightVisible && !layout.compact;
+    leftResizer.classList.toggle("panel-hidden", !leftResizable);
+    rightResizer.classList.toggle("panel-hidden", !rightResizable);
+    leftResizer.toggleAttribute("inert", !leftResizable);
+    rightResizer.toggleAttribute("inert", !rightResizable);
+    leftResizer.tabIndex = leftResizable ? 0 : -1;
+    rightResizer.tabIndex = rightResizable ? 0 : -1;
+    leftResizer.setAttribute("aria-hidden", String(!leftResizable));
+    rightResizer.setAttribute("aria-hidden", String(!rightResizable));
     leftRestore.hidden = layout.leftVisible;
     rightRestore.hidden = layout.rightVisible;
     leftRestore.setAttribute("aria-expanded", String(layout.leftVisible));
     rightRestore.setAttribute("aria-expanded", String(layout.rightVisible));
-    scrim.hidden = !layout.compact || compactPanel === null;
+    leftRestore.toggleAttribute("inert", modalOpen);
+    rightRestore.toggleAttribute("inert", modalOpen);
+    for (const background of [
+      topBarHost,
+      activityHost,
+      feedbackHost,
+      requestWorkspaceHost,
+      statusHost,
+    ]) {
+      background.toggleAttribute("inert", modalOpen);
+    }
+    scrim.hidden = !modalOpen;
     if (compactCloseButtons[0]) {
       compactCloseButtons[0].hidden =
-        !layout.compact || compactPanel !== "left";
+        modalSide !== "left";
     }
     if (compactCloseButtons[1]) {
       compactCloseButtons[1].hidden =
-        !layout.compact || compactPanel !== "right";
+        modalSide !== "right";
     }
     const leftBounds = panelBounds("left");
     const rightBounds = panelBounds("right");
@@ -398,7 +492,95 @@ export function mountAppShell(
       resizer.setAttribute("aria-valuemax", String(bounds.max));
       resizer.setAttribute("aria-valuenow", String(value));
     }
+    previousCompactLayout = layout.compact;
+    if (focusedPanelOnCompactTransition && !compactPanel) {
+      focusWhenReady(panelRestore(focusedPanelOnCompactTransition));
+    }
   };
+
+  const openCompactPanel = (
+    side: WorkspacePanelSide,
+    trigger?: HTMLElement,
+  ): void => {
+    compactPanel = side;
+    compactPanelTrigger = trigger ?? panelRestore(side);
+    updateLayout();
+    focusWhenReady(
+      panelCloseButton(side),
+      ...compactPanelFocusables(side),
+    );
+  };
+
+  const closeCompactPanel = (trigger?: HTMLElement): void => {
+    const side = compactPanel;
+    if (!side) return;
+    const focusTarget = trigger ?? compactPanelTrigger;
+    compactPanel = null;
+    compactPanelTrigger = undefined;
+    updateLayout();
+    focusWhenReady(focusTarget, panelRestore(side));
+  };
+
+  const toggleWorkspacePanel = (
+    side: WorkspacePanelSide,
+    trigger?: HTMLElement,
+  ): void => {
+    const layout = layoutState();
+    if (layout.compact) {
+      if (compactPanel === side) {
+        closeCompactPanel(trigger);
+      } else {
+        openCompactPanel(side, trigger);
+      }
+      return;
+    }
+    const state = workspaceStore.getState();
+    if (side === "left") state.toggleLeft();
+    else state.toggleRight();
+    updateLayout();
+    focusWhenReady(
+      trigger,
+      side === "left" ? leftResizer : rightResizer,
+    );
+  };
+
+  const resetWorkspaceLayout = (trigger?: HTMLElement): void => {
+    const drawerSide = compactPanel;
+    const drawerTrigger = compactPanelTrigger;
+    compactPanel = null;
+    compactPanelTrigger = undefined;
+    workspaceStore.getState().resetLayout();
+    updateLayout();
+    focusWhenReady(
+      trigger,
+      drawerTrigger,
+      drawerSide ? panelRestore(drawerSide) : undefined,
+    );
+  };
+
+  const layoutCommands: WorkspaceLayoutCommands = {
+    togglePanel: toggleWorkspacePanel,
+    resetLayout: resetWorkspaceLayout,
+  };
+
+  lifecycle.child(mountTopBar(topBarHost, bootstrap, layoutCommands));
+  lifecycle.child(mountFeedback(feedbackHost));
+  lifecycle.child(mountActivityBar(activityHost));
+  lifecycle.child(
+    mountSidebar(requiredElement(root, "[data-sidebar]"), bootstrap),
+  );
+  lifecycle.child(
+    mountContextPanel(requiredElement(root, "[data-context]"), bootstrap),
+  );
+  lifecycle.child(mountRequestWorkspace(requestWorkspaceHost, bootstrap));
+  lifecycle.child(mountStatusBar(statusHost, bootstrap));
+  lifecycle.child(
+    mountCommandPalette(
+      requiredElement(root, "[data-palette]"),
+      bootstrap,
+      layoutCommands,
+    ),
+  );
 
   const focusViewHeading = (view: WorkspaceView) => {
     window.requestAnimationFrame(() => {
@@ -565,52 +747,65 @@ export function mountAppShell(
     setPanelWidth(side, clamp(next, bounds.min, bounds.max));
   });
   lifecycle.listen(requestLayout, "click", (event) => {
-    const action = eventElement<HTMLElement>(event, "[data-action]")?.dataset
-      .action;
+    const actionTarget = eventElement<HTMLElement>(event, "[data-action]");
+    const action = actionTarget?.dataset.action;
     if (action === "close-compact") {
-      const closedSide = compactPanel;
-      compactPanel = null;
-      updateLayout();
-      const restore = closedSide === "right" ? rightRestore : leftRestore;
-      window.requestAnimationFrame(() => {
-        if (!disposed && !restore.hidden) restore.focus();
-      });
+      closeCompactPanel();
     } else if (action === "restore-left") {
-      const layout = layoutState();
-      if (layout.compact) compactPanel = "left";
-      else workspaceStore.getState().toggleLeft();
-      updateLayout();
-      window.requestAnimationFrame(() => {
-        if (disposed) return;
-        (layout.compact ? compactCloseButtons[0] : leftResizer)?.focus();
-      });
+      toggleWorkspacePanel("left", actionTarget);
     } else if (action === "restore-right") {
-      const layout = layoutState();
-      if (layout.compact) compactPanel = "right";
-      else workspaceStore.getState().toggleRight();
-      updateLayout();
-      window.requestAnimationFrame(() => {
-        if (disposed) return;
-        (layout.compact ? compactCloseButtons[1] : rightResizer)?.focus();
-      });
+      toggleWorkspacePanel("right", actionTarget);
     }
   });
 
   lifecycle.listen(window, "keydown", (event) => {
     if (event.defaultPrevented) return;
-    if (event.key === "Escape" && compactPanel) {
-      event.preventDefault();
-      const closedSide = compactPanel;
-      compactPanel = null;
-      updateLayout();
-      const restore = closedSide === "right" ? rightRestore : leftRestore;
-      window.requestAnimationFrame(() => {
-        if (!disposed && !restore.hidden) restore.focus();
-      });
+    const drawerSide = layoutState().compact ? compactPanel : null;
+    if (drawerSide) {
+      if (document.querySelector("dialog[open]")) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeCompactPanel();
+        return;
+      }
+      if (event.key === "Tab") {
+        const focusables = compactPanelFocusables(drawerSide);
+        const active =
+          document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : undefined;
+        const activeIndex = active ? focusables.indexOf(active) : -1;
+        const atStart = activeIndex <= 0;
+        const atEnd = activeIndex === focusables.length - 1;
+        if (focusables.length === 0) {
+          event.preventDefault();
+          panelElement(drawerSide).focus({ preventScroll: true });
+        } else if (activeIndex === -1) {
+          event.preventDefault();
+          focusables[event.shiftKey ? focusables.length - 1 : 0]?.focus({
+            preventScroll: true,
+          });
+        } else if (event.shiftKey && atStart) {
+          event.preventDefault();
+          focusables[focusables.length - 1]?.focus({ preventScroll: true });
+        } else if (!event.shiftKey && atEnd) {
+          event.preventDefault();
+          focusables[0]?.focus({ preventScroll: true });
+        }
+      }
       return;
     }
     const command = event.metaKey || event.ctrlKey;
     const state = workspaceStore.getState();
+    const overlayWasOpen = Boolean(
+      document.querySelector('dialog[open], [role="dialog"], [role="menu"]'),
+    );
+    if (
+      command &&
+      overlayWasOpen
+    ) {
+      return;
+    }
     if (command && event.key.toLowerCase() === "k") {
       event.preventDefault();
       state.setCommandPaletteOpen(true);
@@ -629,43 +824,13 @@ export function mountAppShell(
       );
       if (
         tab?.running &&
-        !document.querySelector('[role="dialog"], [role="menu"]')
+        !overlayWasOpen
       ) {
         event.preventDefault();
-        void cancelActiveRequest(tab);
+        applicationCommands.cancelActiveRequest(tab.id);
       }
     }
   });
-
-  const cancelActiveRequest = async (tab: RequestTab) => {
-    try {
-      const canceled = await backend.cancelRequest(tab.id);
-      if (!canceled) {
-        workspaceStore.getState().updateTab(tab.id, {
-          running: false,
-          error: true,
-          userError: {
-            code: "cancel_not_found",
-            title: t("shell.cancelNotFound.title"),
-            message: t("shell.cancelNotFound.message"),
-            hint: t("shell.cancelNotFound.hint"),
-          },
-        });
-      }
-    } catch (error) {
-      workspaceStore.getState().updateTab(tab.id, {
-        running: false,
-        error: true,
-        userError: {
-          code: "cancel_failed",
-          title: t("shell.cancelFailed.title"),
-          message: t("shell.cancelFailed.message"),
-          hint: t("shell.cancelFailed.hint"),
-          technical: error instanceof Error ? error.message : String(error),
-        },
-      });
-    }
-  };
 
   const measure = () => {
     workspaceWidth = requestLayout.clientWidth || window.innerWidth;
@@ -716,6 +881,16 @@ export function mountAppShell(
         "aria-label",
         t("shell.closeContextPanel"),
       );
+      if (compactPanel && layoutState().compact) {
+        panelElement(compactPanel).setAttribute(
+          "aria-label",
+          t(
+            compactPanel === "left"
+              ? "sidebar.navigation"
+              : "context.panel",
+          ),
+        );
+      }
       for (const loading of root.querySelectorAll<HTMLElement>(
         ".tool-workspace-loading span",
       )) {

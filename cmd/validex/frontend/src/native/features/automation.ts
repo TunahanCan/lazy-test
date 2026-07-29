@@ -52,12 +52,14 @@ interface AutomationState {
   variables: string;
   runnerReport: CollectionRunReport | null;
   runnerOperation: string;
+  runnerCanceling: boolean;
   networkURL: string;
   networkTimeout: string;
   maxRedirects: string;
   insecureSkipVerify: boolean;
   networkReport: NetworkReport | null;
   networkOperation: string;
+  networkCanceling: boolean;
   lintReport: OpenAPILintReport | null;
   lintPath: string;
   lintPending: boolean;
@@ -531,6 +533,7 @@ function runnerPanel(
                   class="button button-danger button-md"
                   data-action="runner-stop"
                   data-focus="runner-stop"
+                  ${state.runnerCanceling ? "disabled" : ""}
                 >
                   ${icon("stop", 13)} ${t("automation.action.stop")}
                 </button>
@@ -550,6 +553,8 @@ function runnerPanel(
       <section
         class="tool-panel automation-result-panel"
         aria-busy="${state.runnerOperation ? "true" : "false"}"
+        data-focus="runner-progress"
+        tabindex="-1"
       >
         ${toolCardHeader(
           state.runnerReport?.name ||
@@ -599,6 +604,7 @@ function networkPanel(state: AutomationState): TrustedHTMLFragment {
               value="${state.networkURL}"
               placeholder="https://api.example.com/health"
               aria-describedby="automation-network-url-help"
+              ${state.networkOperation ? "disabled" : ""}
             />
             <small id="automation-network-url-help">
               ${t("automation.network.urlHelp")}
@@ -614,6 +620,7 @@ function networkPanel(state: AutomationState): TrustedHTMLFragment {
               step="1"
               value="${state.networkTimeout}"
               aria-describedby="automation-network-timeout-help"
+              ${state.networkOperation ? "disabled" : ""}
             />
             <small id="automation-network-timeout-help">
               ${t("automation.network.timeoutHelp")}
@@ -629,6 +636,7 @@ function networkPanel(state: AutomationState): TrustedHTMLFragment {
               step="1"
               value="${state.maxRedirects}"
               aria-describedby="automation-network-redirect-help"
+              ${state.networkOperation ? "disabled" : ""}
             />
             <small id="automation-network-redirect-help">
               ${t("automation.network.redirectHelp")}
@@ -639,6 +647,7 @@ function networkPanel(state: AutomationState): TrustedHTMLFragment {
               name="insecure"
               type="checkbox"
               ${state.insecureSkipVerify ? "checked" : ""}
+              ${state.networkOperation ? "disabled" : ""}
             />
             <span>
               <strong>${t("automation.network.allowSelfSigned")}</strong>
@@ -654,6 +663,7 @@ function networkPanel(state: AutomationState): TrustedHTMLFragment {
                   class="button button-danger button-md"
                   data-action="network-stop"
                   data-focus="network-stop"
+                  ${state.networkCanceling ? "disabled" : ""}
                 >
                   ${icon("stop", 13)} ${t("automation.action.stop")}
                 </button>
@@ -672,6 +682,8 @@ function networkPanel(state: AutomationState): TrustedHTMLFragment {
       <section
         class="tool-panel automation-result-panel"
         aria-busy="${state.networkOperation ? "true" : "false"}"
+        data-focus="network-progress"
+        tabindex="-1"
       >
         ${toolCardHeader(
           t("automation.network.result.title"),
@@ -755,12 +767,14 @@ export function mountAutomationLab(root: HTMLElement): Disposable {
     variables: "{}",
     runnerReport: null,
     runnerOperation: "",
+    runnerCanceling: false,
     networkURL: "http://localhost:8080",
     networkTimeout: "15",
     maxRedirects: "10",
     insecureSkipVerify: false,
     networkReport: null,
     networkOperation: "",
+    networkCanceling: false,
     lintReport: null,
     lintPath: "",
     lintPending: false,
@@ -769,14 +783,24 @@ export function mountAutomationLab(root: HTMLElement): Disposable {
   const captureVisibleForm = () => {
     const runner = root.querySelector<HTMLFormElement>('[data-form="runner"]');
     if (runner) {
-      state.collection = formValue(runner, "collection");
-      state.variables = formValue(runner, "variables");
+      state.collection =
+        runner.querySelector<HTMLTextAreaElement>('[name="collection"]')
+          ?.value ?? state.collection;
+      state.variables =
+        runner.querySelector<HTMLTextAreaElement>('[name="variables"]')
+          ?.value ?? state.variables;
     }
     const network = root.querySelector<HTMLFormElement>('[data-form="network"]');
     if (network) {
-      state.networkURL = formValue(network, "url");
-      state.networkTimeout = formValue(network, "timeout");
-      state.maxRedirects = formValue(network, "maxRedirects");
+      state.networkURL =
+        network.querySelector<HTMLInputElement>('[name="url"]')?.value ??
+        state.networkURL;
+      state.networkTimeout =
+        network.querySelector<HTMLInputElement>('[name="timeout"]')?.value ??
+        state.networkTimeout;
+      state.maxRedirects =
+        network.querySelector<HTMLInputElement>('[name="maxRedirects"]')
+          ?.value ?? state.maxRedirects;
       state.insecureSkipVerify =
         network.querySelector<HTMLInputElement>('[name="insecure"]')?.checked ??
         false;
@@ -930,9 +954,9 @@ validex-cli lint --file openapi.yaml</code></pre>
     } else if (action === "runner-load-saved") {
       loadSavedCollection();
     } else if (action === "runner-stop") {
-      void backend.cancelToolOperation(state.runnerOperation);
+      void cancelOperation("runner");
     } else if (action === "network-stop") {
-      void backend.cancelToolOperation(state.networkOperation);
+      void cancelOperation("network");
     } else if (action === "lint") {
       void lintOpenAPI();
     }
@@ -1032,6 +1056,7 @@ validex-cli lint --file openapi.yaml</code></pre>
     } finally {
       if (!disposed) {
         state.runnerOperation = "";
+        state.runnerCanceling = false;
         render();
         root
           .querySelector<HTMLElement>('[data-focus="runner-run"]')
@@ -1093,11 +1118,63 @@ validex-cli lint --file openapi.yaml</code></pre>
     } finally {
       if (!disposed) {
         state.networkOperation = "";
+        state.networkCanceling = false;
         render();
         root
           .querySelector<HTMLElement>('[data-focus="network-run"]')
           ?.focus();
       }
+    }
+  };
+
+  const cancelOperation = async (
+    target: "runner" | "network",
+  ): Promise<void> => {
+    const operationID =
+      target === "runner" ? state.runnerOperation : state.networkOperation;
+    const alreadyCanceling =
+      target === "runner" ? state.runnerCanceling : state.networkCanceling;
+    if (!operationID || alreadyCanceling) return;
+    if (target === "runner") state.runnerCanceling = true;
+    else state.networkCanceling = true;
+    render();
+    root
+      .querySelector<HTMLElement>(`[data-focus="${target}-progress"]`)
+      ?.focus({ preventScroll: true });
+    try {
+      const accepted = await backend.cancelToolOperation(operationID);
+      if (disposed) return;
+      const activeOperation =
+        target === "runner" ? state.runnerOperation : state.networkOperation;
+      if (activeOperation !== operationID) return;
+      if (!accepted) {
+        state.notice = {
+          tone: "error",
+          title: t("automation.cancel.rejected.title"),
+          message: t("automation.cancel.rejected.message"),
+          hint: t("automation.cancel.rejected.hint"),
+        };
+        if (target === "runner") state.runnerCanceling = false;
+        else state.networkCanceling = false;
+        render();
+        root
+          .querySelector<HTMLElement>(
+            `[data-focus="${target}-stop"]`,
+          )
+          ?.focus({ preventScroll: true });
+      }
+    } catch (error) {
+      if (disposed) return;
+      const activeOperation =
+        target === "runner" ? state.runnerOperation : state.networkOperation;
+      if (activeOperation !== operationID) return;
+      state.notice = errorNotice(error, t("automation.cancel.failed"));
+      if (target === "runner") state.runnerCanceling = false;
+      else state.networkCanceling = false;
+      render();
+      root
+        .querySelector<HTMLElement>(`[data-focus="${target}-stop"]`)
+        ?.focus({ preventScroll: true });
     }
   };
 
@@ -1127,9 +1204,9 @@ validex-cli lint --file openapi.yaml</code></pre>
       state.notice = errorNotice(error, t("automation.lint.failedFallback"));
     } finally {
       if (!disposed) {
-      state.lintPending = false;
-      render();
-      root.querySelector<HTMLElement>('[data-focus="lint"]')?.focus();
+        state.lintPending = false;
+        render();
+        root.querySelector<HTMLElement>('[data-focus="lint"]')?.focus();
       }
     }
   };

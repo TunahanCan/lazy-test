@@ -35,9 +35,43 @@ jobs:
           go test ./...
           go vet ./...
 
+      - name: Race-check Go packages
+        run: go test -race ./...
+
       - name: Verify vendored native sources
         working-directory: internal/nativewebview
         run: sha256sum -c SHA256SUMS
+
+  browser-e2e:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            tests/e2e/go.sum
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Verify browser runtime
+        run: google-chrome --version
+
+      - name: Run Cucumber browser acceptance tests
+        run: make test-e2e
+
+      - name: Upload Cucumber failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validex-cucumber-failures
+          path: tests/e2e/artifacts/
+          if-no-files-found: ignore
 
   native-macos:
     runs-on: macos-latest

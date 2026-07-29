@@ -2,6 +2,11 @@ package canbridge
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"regexp"
+	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -279,5 +284,75 @@ func TestBridgeMethodRegistryHasUniqueNamesAndCollectionPolicy(t *testing.T) {
 	}
 	if _, ok := bridgeMethodForName("NotRegistered"); ok {
 		t.Fatal("unknown method exists in registry index")
+	}
+}
+
+func TestFrontendCanbridgeAPIStaysInSyncWithBridgeRegistry(t *testing.T) {
+	_, currentFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("could not locate invoke_test.go")
+	}
+	canbridgeDirectory := filepath.Dir(currentFile)
+	if !filepath.IsAbs(currentFile) {
+		workingDirectory, err := os.Getwd()
+		if err != nil {
+			t.Fatalf("resolve canbridge test directory: %v", err)
+		}
+		canbridgeDirectory = workingDirectory
+	}
+	backendPath := filepath.Join(
+		canbridgeDirectory,
+		"..",
+		"..",
+		"cmd",
+		"validex",
+		"frontend",
+		"src",
+		"lib",
+		"backend.ts",
+	)
+	sourceBytes, err := os.ReadFile(backendPath)
+	if err != nil {
+		t.Fatalf("read frontend bridge contract: %v", err)
+	}
+	source := string(sourceBytes)
+	const interfaceStart = "interface CanbridgeAPI {"
+	start := strings.Index(source, interfaceStart)
+	if start < 0 {
+		t.Fatalf("%s does not declare CanbridgeAPI", backendPath)
+	}
+	bodyStart := start + len(interfaceStart)
+	bodyEndOffset := strings.Index(source[bodyStart:], "\n}")
+	if bodyEndOffset < 0 {
+		t.Fatalf("%s has an unterminated CanbridgeAPI interface", backendPath)
+	}
+	body := source[bodyStart : bodyStart+bodyEndOffset]
+	declarationPattern := regexp.MustCompile(
+		`(?m)^\s{2}([A-Z][A-Za-z0-9_]*)\(`,
+	)
+	matches := declarationPattern.FindAllStringSubmatch(body, -1)
+	frontendMethods := make([]string, 0, len(matches))
+	seen := make(map[string]struct{}, len(matches))
+	for _, match := range matches {
+		method := match[1]
+		if _, duplicate := seen[method]; duplicate {
+			t.Fatalf("frontend CanbridgeAPI repeats method %q", method)
+		}
+		seen[method] = struct{}{}
+		frontendMethods = append(frontendMethods, method)
+	}
+	if len(frontendMethods) == 0 {
+		t.Fatalf("no methods parsed from CanbridgeAPI in %s", backendPath)
+	}
+
+	registeredMethods := append([]string(nil), bridgeMethodNames...)
+	slices.Sort(frontendMethods)
+	slices.Sort(registeredMethods)
+	if !slices.Equal(frontendMethods, registeredMethods) {
+		t.Fatalf(
+			"frontend CanbridgeAPI methods = %q; Go registry methods = %q",
+			frontendMethods,
+			registeredMethods,
+		)
 	}
 }

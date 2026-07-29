@@ -280,6 +280,7 @@ export function mountRequestWorkspace(
   const requestDialogs = new Set<ReturnType<typeof presentDialog>>();
   const urlValidationTouched = new Set<string>();
   const cancelingRequests = new Set<string>();
+  const requestOperationTokens = new Map<string, symbol>();
   const compactResponseMedia =
     typeof window.matchMedia === "function"
       ? window.matchMedia("(max-width: 900px)")
@@ -290,6 +291,8 @@ export function mountRequestWorkspace(
   let editorRenderPending = false;
   let draftFlushTimer: number | undefined;
   let queuedRenderTimer: number | undefined;
+  let submitGuard = false;
+  let submitGuardTimer: number | undefined;
   let draggedTabID: string | undefined;
   let responseResize:
     | {
@@ -302,6 +305,11 @@ export function mountRequestWorkspace(
   let importedNotice = "";
   let importedNoticeTone: "info" | "danger" = "info";
   let importingOpenAPI = false;
+  let newVariableDraft = {
+    environmentID: variablesFor(bootstrap).environmentID,
+    key: "",
+    value: "",
+  };
 
   lifecycle.add(() => {
     for (const dialog of requestDialogs) dialog.dispose();
@@ -313,11 +321,166 @@ export function mountRequestWorkspace(
     return state.tabs.find((tab) => tab.id === state.activeTabID);
   };
 
+  const canMutateCollectionLibrary = (): boolean => {
+    const persistence = getCollectionLibraryPersistenceSnapshot();
+    if (
+      persistence.hydrated &&
+      persistence.error?.code !== "collection_library_conflict"
+    ) {
+      return true;
+    }
+    notify({
+      message:
+        persistence.error?.message ??
+        t("requests.workbench.saveWriteFailed"),
+      tone: FEEDBACK_TONE.ERROR,
+      durationMs: REQUEST_FEEDBACK_DURATION_MS.ACTION_REQUIRED,
+    });
+    return false;
+  };
+
+  const beginRequestOperation = (requestID: string): symbol => {
+    const token = Symbol(requestID);
+    requestOperationTokens.set(requestID, token);
+    return token;
+  };
+
+  const invalidateRequestOperation = (requestID: string): void => {
+    requestOperationTokens.set(requestID, Symbol(requestID));
+  };
+
+  const retireRequestRuntime = (requestID: string): void => {
+    // Tokens are unique for the lifetime of this workspace. Deleting a closed
+    // tab's token invalidates its pending work, while a deterministic tab ID
+    // can safely be opened again with a different token.
+    requestOperationTokens.delete(requestID);
+    drafts.delete(requestID);
+    pendingDraftFields.delete(requestID);
+    urlValidationTouched.delete(requestID);
+    cancelingRequests.delete(requestID);
+  };
+
+  const captureVisibleVariableValues = (): boolean => {
+    const variables = variablesFor(bootstrap);
+    const updates = [
+      ...root.querySelectorAll<HTMLInputElement>("[data-variable-value]"),
+    ].flatMap((input) => {
+      const key = input.closest<HTMLElement>("[data-variable-row]")?.dataset
+        .variableRow;
+      return key && variables.values[key] !== input.value
+        ? [{ key, value: input.value }]
+        : [];
+    });
+    if (updates.length === 0) return false;
+    suppressStoreRender += 1;
+    try {
+      for (const { key, value } of updates) {
+        workspaceStore
+          .getState()
+          .setEnvironmentVariable(variables.environmentID, key, value);
+      }
+    } finally {
+      suppressStoreRender -= 1;
+    }
+    return true;
+  };
+
   const effectiveResponsePlacement = (): ResponseSplitPlacement =>
     workspaceStore.getState().responsePlacement === "horizontal" &&
     !compactResponseMedia?.matches
       ? "horizontal"
       : "vertical";
+
+  const focusSelectorFor = (element: HTMLElement): string | undefined => {
+    if (element.id) return `#${CSS.escape(element.id)}`;
+    const contextualSelector = (
+      rowAttribute: string,
+      fieldAttribute: string,
+    ): string | undefined => {
+      const row = element.closest<HTMLElement>(`[${rowAttribute}]`);
+      const rowValue = row?.getAttribute(rowAttribute);
+      const fieldValue = element.getAttribute(fieldAttribute);
+      return rowValue !== null &&
+        rowValue !== undefined &&
+        fieldValue !== null
+        ? `[${rowAttribute}="${CSS.escape(rowValue)}"] [${fieldAttribute}="${CSS.escape(fieldValue)}"]`
+        : undefined;
+    };
+    for (const [rowAttribute, fieldAttribute] of [
+      ["data-header-row", "data-header-field"],
+      ["data-query-row", "data-query-field"],
+    ] as const) {
+      const selector = contextualSelector(rowAttribute, fieldAttribute);
+      if (selector) return selector;
+    }
+    const variableRow = element.closest<HTMLElement>("[data-variable-row]");
+    const variableKey = variableRow?.dataset.variableRow;
+    if (variableKey) {
+      if (element.hasAttribute("data-variable-value")) {
+        return `[data-variable-row="${CSS.escape(variableKey)}"] [data-variable-value]`;
+      }
+      const action = element.dataset.action;
+      if (action) {
+        return `[data-variable-row="${CSS.escape(variableKey)}"] [data-action="${CSS.escape(action)}"]`;
+      }
+    }
+    if (element.hasAttribute("data-new-variable-key")) {
+      return "[data-new-variable-key]";
+    }
+    if (element.hasAttribute("data-new-variable-value")) {
+      return "[data-new-variable-value]";
+    }
+    if (
+      element instanceof HTMLButtonElement &&
+      element.matches('.send-button[type="submit"]')
+    ) {
+      return '[data-request-form] .send-button[type="submit"]';
+    }
+    const name = element.getAttribute("name");
+    if (name) return `[name="${CSS.escape(name)}"]`;
+    for (const attribute of [
+      "data-request-section",
+      "data-response-tab",
+      "data-response-view",
+      "data-action",
+    ]) {
+      const value = element.getAttribute(attribute);
+      if (value !== null) {
+        return `[${attribute}="${CSS.escape(value)}"]`;
+      }
+    }
+    return undefined;
+  };
+
+  const captureFocusedControl = ():
+    | {
+        selector: string;
+        selection?: {
+          start: number | null;
+          end: number | null;
+          direction?: "forward" | "backward" | "none" | null;
+        };
+      }
+    | undefined => {
+    const active =
+      document.activeElement instanceof HTMLElement &&
+      root.contains(document.activeElement)
+        ? document.activeElement
+        : undefined;
+    if (!active) return undefined;
+    const selector = focusSelectorFor(active);
+    if (!selector) return undefined;
+    const selection =
+      active instanceof HTMLInputElement ||
+      active instanceof HTMLTextAreaElement
+        ? {
+            start: active.selectionStart,
+            end: active.selectionEnd,
+            direction: active.selectionDirection,
+          }
+        : undefined;
+    return { selector, selection };
+  };
 
   const draftFor = (tab: RequestTab): RequestDraft => {
     const existing = drafts.get(tab.id);
@@ -348,6 +511,12 @@ export function mountRequestWorkspace(
     fields: readonly RequestDraftField[],
   ) => {
     if (fields.length === 0) return;
+    if (fields.includes("method") || fields.includes("url")) {
+      // Invalidate before the buffered store flush. A validator promise can
+      // settle in the same task as an input event, well before the 120 ms
+      // draft timer commits the operation change.
+      invalidateRequestOperation(tabID);
+    }
     const pending = pendingDraftFields.get(tabID) ?? new Set<RequestDraftField>();
     for (const field of fields) pending.add(field);
     pendingDraftFields.set(tabID, pending);
@@ -404,6 +573,7 @@ export function mountRequestWorkspace(
     const form = root.querySelector<HTMLFormElement>("[data-request-form]");
     if (!tab || !form || tab.running) return;
     const draft = draftFor(tab);
+    captureVisibleVariableValues();
     const changedFields: RequestDraftField[] = [];
     const method = form.querySelector<HTMLSelectElement>('[name="method"]');
     const url = form.querySelector<HTMLInputElement>('[name="url"]');
@@ -438,11 +608,26 @@ export function mountRequestWorkspace(
       queuedRenderTimer = undefined;
     }
     rendering = true;
+    const focusedControl = captureFocusedControl();
     try {
       flushPendingDrafts();
       const state = workspaceStore.getState();
       const tab = state.tabs.find((candidate) => candidate.id === state.activeTabID);
       const draft = tab ? draftFor(tab) : undefined;
+      const variables = variablesFor(bootstrap);
+      const collectionPersistence =
+        getCollectionLibraryPersistenceSnapshot();
+      const collectionSaveDisabled =
+        !collectionPersistence.hydrated ||
+        collectionPersistence.error?.code ===
+          "collection_library_conflict";
+      if (variables.environmentID !== newVariableDraft.environmentID) {
+        newVariableDraft = {
+          environmentID: variables.environmentID,
+          key: "",
+          value: "",
+        };
+      }
       const variableResolution =
         tab && draft
           ? requestVariableResolution(tab, draft, bootstrap)
@@ -493,10 +678,11 @@ export function mountRequestWorkspace(
             ? workbenchMarkup({
                 tab,
                 draft,
-                variables: variablesFor(bootstrap),
+                variables,
                 responsePlacement: effectiveResponsePlacement(),
                 responseSize: state.responseSize,
                 canceling: cancelingRequests.has(tab.id),
+                collectionSaveDisabled,
                 unresolvedVariables: variableResolution.unresolved,
                 validationError,
                 showURLValidation: urlValidationTouched.has(tab.id),
@@ -504,6 +690,46 @@ export function mountRequestWorkspace(
             : welcomeMarkup(importingOpenAPI, welcomeTools)}
         `,
       );
+      const newVariableKey =
+        root.querySelector<HTMLInputElement>("[data-new-variable-key]");
+      const newVariableValue =
+        root.querySelector<HTMLInputElement>("[data-new-variable-value]");
+      if (newVariableKey) newVariableKey.value = newVariableDraft.key;
+      if (newVariableValue) {
+        newVariableValue.value = newVariableDraft.value;
+        const secret = isSecretKey(newVariableDraft.key.trim());
+        newVariableValue.type = secret ? "password" : "text";
+        newVariableValue.classList.toggle("secret-value", secret);
+        if (secret) {
+          newVariableValue.setAttribute(
+            "aria-describedby",
+            "request-variables-secret-hint",
+          );
+        } else {
+          newVariableValue.removeAttribute("aria-describedby");
+        }
+      }
+      if (focusedControl) {
+        const replacement = root.querySelector<HTMLElement>(
+          focusedControl.selector,
+        );
+        if (replacement && !replacement.matches(":disabled")) {
+          replacement.focus({ preventScroll: true });
+          if (
+            focusedControl.selection &&
+            (replacement instanceof HTMLInputElement ||
+              replacement instanceof HTMLTextAreaElement) &&
+            focusedControl.selection.start !== null &&
+            focusedControl.selection.end !== null
+          ) {
+            replacement.setSelectionRange(
+              focusedControl.selection.start,
+              focusedControl.selection.end,
+              focusedControl.selection.direction ?? undefined,
+            );
+          }
+        }
+      }
       editorRenderPending = false;
     } finally {
       rendering = false;
@@ -559,9 +785,33 @@ export function mountRequestWorkspace(
     });
   };
 
-  const focusSelectorAfterRender = (selector: string) => {
+  const focusSelectorAfterRender = (...selectors: string[]) => {
     window.requestAnimationFrame(() => {
-      if (!disposed) root.querySelector<HTMLElement>(selector)?.focus();
+      if (disposed) return;
+      for (const selector of selectors) {
+        const target = root.querySelector<HTMLElement>(selector);
+        if (target && !target.matches(":disabled")) {
+          target.focus();
+          return;
+        }
+      }
+    });
+  };
+
+  const focusRequestSendIfFocusWasLost = (requestID: string): void => {
+    window.requestAnimationFrame(() => {
+      if (
+        disposed ||
+        document.activeElement !== document.body ||
+        workspaceStore.getState().activeTabID !== requestID
+      ) {
+        return;
+      }
+      root
+        .querySelector<HTMLButtonElement>(
+          '[data-request-form] .send-button[type="submit"]',
+        )
+        ?.focus({ preventScroll: true });
     });
   };
 
@@ -614,10 +864,6 @@ export function mountRequestWorkspace(
       if (!force) return;
     }
     workspaceStore.getState().closeTab(tabID, force);
-    drafts.delete(tabID);
-    pendingDraftFields.delete(tabID);
-    urlValidationTouched.delete(tabID);
-    cancelingRequests.delete(tabID);
     const nextTabID = workspaceStore.getState().activeTabID;
     if (nextTabID) {
       focusElementAfterRender(`request-tab-${nextTabID}`);
@@ -633,6 +879,9 @@ export function mountRequestWorkspace(
         .tabs.find((candidate) => candidate.id === tab.id) ?? tab;
     if (requestTab.running) return;
     cancelingRequests.delete(requestTab.id);
+    const operationToken = beginRequestOperation(requestTab.id);
+    const operationIsCurrent = () =>
+      requestOperationTokens.get(requestTab.id) === operationToken;
     const sent = cloneRequestDraft(draft);
     const resolution = requestVariableResolution(
       requestTab,
@@ -666,6 +915,7 @@ export function mountRequestWorkspace(
       dirty:
         requestTab.dirty || !requestDraftMatchesTab(sent, requestTab),
     });
+    focusSelectorAfterRender('[data-action="cancel-request"]');
     try {
       const result = await backend.sendRequest({
         id: requestTab.id,
@@ -679,7 +929,7 @@ export function mountRequestWorkspace(
         timeoutMs: 30_000,
         saveHistory: true,
       });
-      if (disposed) return;
+      if (disposed || !operationIsCurrent()) return;
       if (result.response) {
         let response = result.response;
         if (requestTab.openApi) {
@@ -704,20 +954,27 @@ export function mountRequestWorkspace(
               },
             };
           } else {
+            workspaceStore.getState().updateTab(requestTab.id, {
+              running: false,
+              error: false,
+              userError: undefined,
+              response,
+            });
+            focusRequestSendIfFocusWasLost(requestTab.id);
             try {
-              response = {
-                ...response,
-                contract: await backend.validateOpenAPIResponse({
-                  specId: requestTab.openApi.specId,
-                  method: sent.method,
-                  path: requestTab.openApi.path,
-                  statusCode: response.statusCode,
-                  contentType: response.contentType,
-                  body: response.rawBody,
-                  bodyEncoding: response.bodyEncoding ?? "utf8",
-                }),
-              };
+              const contract = await backend.validateOpenAPIResponse({
+                specId: requestTab.openApi.specId,
+                method: sent.method,
+                path: requestTab.openApi.path,
+                statusCode: response.statusCode,
+                contentType: response.contentType,
+                body: response.rawBody,
+                bodyEncoding: response.bodyEncoding ?? "utf8",
+              });
+              if (disposed || !operationIsCurrent()) return;
+              response = { ...response, contract };
             } catch (error) {
+              if (disposed || !operationIsCurrent()) return;
               response = {
                 ...response,
                 contract: {
@@ -739,13 +996,16 @@ export function mountRequestWorkspace(
             }
           }
         }
+        if (!operationIsCurrent()) return;
         workspaceStore.getState().updateTab(requestTab.id, {
           running: false,
           error: false,
           userError: undefined,
           response,
         });
+        focusRequestSendIfFocusWasLost(requestTab.id);
       } else {
+        if (!operationIsCurrent()) return;
         workspaceStore.getState().updateTab(requestTab.id, {
           running: false,
           error: result.error?.code !== "request_canceled",
@@ -757,8 +1017,10 @@ export function mountRequestWorkspace(
               hint: t("requests.error.emptyResponse.hint"),
             },
         });
+        focusRequestSendIfFocusWasLost(requestTab.id);
       }
     } catch (error) {
+      if (!operationIsCurrent()) return;
       workspaceStore.getState().updateTab(requestTab.id, {
         running: false,
         error: true,
@@ -770,8 +1032,13 @@ export function mountRequestWorkspace(
           technical: error instanceof Error ? error.message : String(error),
         },
       });
+      focusRequestSendIfFocusWasLost(requestTab.id);
     } finally {
-      if (cancelingRequests.delete(requestTab.id) && !disposed) {
+      if (
+        operationIsCurrent() &&
+        cancelingRequests.delete(requestTab.id) &&
+        !disposed
+      ) {
         queueRender();
       }
     }
@@ -779,12 +1046,24 @@ export function mountRequestWorkspace(
 
   const cancelRequest = async (tab: RequestTab) => {
     if (cancelingRequests.has(tab.id)) return;
+    const operationToken = requestOperationTokens.get(tab.id);
+    const cancellationIsCurrent = (): boolean => {
+      const current = workspaceStore
+        .getState()
+        .tabs.find((candidate) => candidate.id === tab.id);
+      return (
+        current?.running === true &&
+        requestOperationTokens.get(tab.id) === operationToken
+      );
+    };
     cancelingRequests.add(tab.id);
     render();
     try {
       const canceled = await backend.cancelRequest(tab.id);
+      if (disposed || !cancellationIsCurrent()) return;
       if (!canceled) {
         cancelingRequests.delete(tab.id);
+        invalidateRequestOperation(tab.id);
         workspaceStore.getState().updateTab(tab.id, {
           running: false,
           error: true,
@@ -795,9 +1074,12 @@ export function mountRequestWorkspace(
             hint: t("requests.error.cancelNotFound.hint"),
           },
         });
+        focusRequestSendIfFocusWasLost(tab.id);
       }
     } catch (error) {
+      if (disposed || !cancellationIsCurrent()) return;
       cancelingRequests.delete(tab.id);
+      invalidateRequestOperation(tab.id);
       workspaceStore.getState().updateTab(tab.id, {
         running: false,
         error: true,
@@ -809,8 +1091,18 @@ export function mountRequestWorkspace(
           technical: error instanceof Error ? error.message : String(error),
         },
       });
+      focusRequestSendIfFocusWasLost(tab.id);
     }
   };
+
+  lifecycle.add(
+    applicationCommands.registerActiveRequestCanceler((requestID) => {
+      const tab = workspaceStore
+        .getState()
+        .tabs.find((candidate) => candidate.id === requestID);
+      if (tab?.running) void cancelRequest(tab);
+    }),
+  );
 
   const copyToClipboard = async (
     value: string,
@@ -1251,20 +1543,7 @@ export function mountRequestWorkspace(
     forceNew: boolean,
     trigger?: HTMLElement,
   ) => {
-    const persistence = getCollectionLibraryPersistenceSnapshot();
-    if (
-      !persistence.hydrated ||
-      persistence.error?.code === "collection_library_conflict"
-    ) {
-      notify({
-        message:
-          persistence.error?.message ??
-          t("requests.workbench.saveWriteFailed"),
-        tone: FEEDBACK_TONE.ERROR,
-        durationMs: REQUEST_FEEDBACK_DURATION_MS.ACTION_REQUIRED,
-      });
-      return;
-    }
+    if (!canMutateCollectionLibrary()) return;
     if (tab.savedRequestId && tab.collectionId && !forceNew) {
       await persistSavedRequest(
         tab,
@@ -1404,6 +1683,10 @@ export function mountRequestWorkspace(
     );
     dialogLifecycle.listen(form, "submit", (event) => {
       event.preventDefault();
+      if (!canMutateCollectionLibrary()) {
+        dialog.close("conflict");
+        return;
+      }
       const requestName = formValue(form, "requestName").trim();
       const newCollectionName = formValue(form, "newCollection").trim();
       let collectionID = formValue(form, "collectionID");
@@ -1411,13 +1694,13 @@ export function mountRequestWorkspace(
         form,
         "#save-request-error",
       );
+      if (!requestName) return;
       if (newCollectionName) {
         collectionID =
           collectionLibraryStore
             .getState()
             .createCollection(newCollectionName) ?? "";
       }
-      if (!requestName) return;
       if (!collectionID) {
         collectionError.hidden = false;
         const collectionInput = form.querySelector<HTMLElement>(
@@ -1534,7 +1817,12 @@ export function mountRequestWorkspace(
     if (!tab || tab.running) return;
     const draft = draftFor(tab);
     const target = event.target;
-    if (target instanceof HTMLInputElement && target.name === "url") {
+    if (target instanceof HTMLSelectElement && target.name === "method") {
+      if (draft.method !== target.value) {
+        draft.method = target.value as HTTPMethod;
+        markDraftFields(tab.id, ["method"]);
+      }
+    } else if (target instanceof HTMLInputElement && target.name === "url") {
       if (draft.url !== target.value) {
         draft.url = target.value;
         markDraftFields(tab.id, ["url"]);
@@ -1574,8 +1862,30 @@ export function mountRequestWorkspace(
       }
     } else if (
       target instanceof HTMLInputElement &&
+      target.hasAttribute("data-variable-value")
+    ) {
+      const key = target.closest<HTMLElement>("[data-variable-row]")?.dataset
+        .variableRow;
+      const variables = variablesFor(bootstrap);
+      if (key && variables.values[key] !== target.value) {
+        suppressStoreRender += 1;
+        try {
+          workspaceStore
+            .getState()
+            .setEnvironmentVariable(
+              variables.environmentID,
+              key,
+              target.value,
+            );
+        } finally {
+          suppressStoreRender -= 1;
+        }
+      }
+    } else if (
+      target instanceof HTMLInputElement &&
       target.hasAttribute("data-new-variable-key")
     ) {
+      newVariableDraft.key = target.value;
       target.removeAttribute("aria-invalid");
       const valueInput = root.querySelector<HTMLInputElement>(
         "[data-new-variable-value]",
@@ -1593,6 +1903,11 @@ export function mountRequestWorkspace(
           valueInput.removeAttribute("aria-describedby");
         }
       }
+    } else if (
+      target instanceof HTMLInputElement &&
+      target.hasAttribute("data-new-variable-value")
+    ) {
+      newVariableDraft.value = target.value;
     }
     syncSendButton(tab, draft);
   });
@@ -1742,6 +2057,19 @@ export function mountRequestWorkspace(
       return;
     }
     event.preventDefault();
+    if (submitGuard) return;
+    // A modified Enter can produce both the explicit requestSubmit() below and
+    // an implicit form submit in some WebView/browser event pipelines. Keep
+    // one user activation to one request even when the native bridge resolves
+    // before the implicit default action is delivered.
+    submitGuard = true;
+    if (submitGuardTimer !== undefined) {
+      window.clearTimeout(submitGuardTimer);
+    }
+    submitGuardTimer = window.setTimeout(() => {
+      submitGuard = false;
+      submitGuardTimer = undefined;
+    }, 0);
     const tab = activeTab();
     if (!tab || tab.running) return;
     urlValidationTouched.add(tab.id);
@@ -1857,7 +2185,10 @@ export function mountRequestWorkspace(
             {
               label: t("requests.workbench.copyAsCurl"),
               icon: "copy",
-              action: () => copyAsCurl(currentTab, currentDraft),
+              action: () => {
+                copyAsCurl(currentTab, currentDraft);
+                focusSelectorAfterRender('[data-action="request-menu"]');
+              },
             },
             {
               label: t("requests.workbench.saveAs"),
@@ -1995,6 +2326,11 @@ export function mountRequestWorkspace(
           keyInput?.focus();
           return;
         }
+        newVariableDraft = {
+          environmentID: variables.environmentID,
+          key: "",
+          value: "",
+        };
         workspaceStore
           .getState()
           .setEnvironmentVariable(variables.environmentID, key, value);
@@ -2005,6 +2341,10 @@ export function mountRequestWorkspace(
         focusSelectorAfterRender("[data-new-variable-key]");
       } else if (action === "remove-variable" && target.dataset.key) {
         const key = target.dataset.key;
+        const keys = Object.keys(variablesFor(bootstrap).values);
+        const removedIndex = keys.indexOf(key);
+        const fallbackKey =
+          keys[removedIndex + 1] ?? keys[removedIndex - 1];
         workspaceStore
           .getState()
           .removeEnvironmentVariable(
@@ -2014,6 +2354,12 @@ export function mountRequestWorkspace(
         notify(t("requests.editor.variables.overrideRemoved", { key }));
         focusSelectorAfterRender(
           `[data-variable-row="${CSS.escape(key)}"] [data-variable-value]`,
+          ...(fallbackKey
+            ? [
+                `[data-variable-row="${CSS.escape(fallbackKey)}"] [data-variable-value]`,
+              ]
+            : []),
+          "[data-new-variable-key]",
         );
       } else if (
         action === "toggle-variable-secret" &&
@@ -2215,13 +2561,13 @@ export function mountRequestWorkspace(
       const tab = activeTab();
       if (!tab || tab.running) return;
       event.preventDefault();
-      urlValidationTouched.add(tab.id);
-      captureDraft();
-      flushPendingDrafts();
-      const currentTab = activeTab();
-      if (currentTab?.id === tab.id && !currentTab.running) {
-        void sendRequest(currentTab, draftFor(currentTab));
-      }
+      // Keep pointer and keyboard sends on the same form-submit path. Calling
+      // sendRequest here as well as handling the browser's implicit submit can
+      // dispatch twice when a fast bridge response clears `running` before the
+      // default action is processed.
+      root
+        .querySelector<HTMLFormElement>("[data-request-form]")
+        ?.requestSubmit();
       return;
     }
 
@@ -2380,28 +2726,42 @@ export function mountRequestWorkspace(
             : t("requests.tabs.pin"),
           icon: "pin",
           disabled: tab.running,
-          action: () => workspaceStore.getState().togglePin(tabID),
+          action: () => {
+            workspaceStore.getState().togglePin(tabID);
+            focusElementAfterRender(`request-tab-${tabID}`);
+          },
         },
         {
           label: t("requests.tabs.duplicate"),
           icon: "copy",
           disabled: tab.running,
-          action: () =>
+          action: () => {
             workspaceStore
               .getState()
               .duplicateTab(
                 tabID,
                 t("requests.tabs.duplicateName", { name: tab.name }),
-              ),
+              );
+            const duplicateID = workspaceStore.getState().activeTabID;
+            if (duplicateID) {
+              focusElementAfterRender(`request-tab-${duplicateID}`);
+            }
+          },
         },
         { kind: "separator" },
         {
           label: t("requests.tabs.closeOtherClean"),
-          action: () => workspaceStore.getState().closeOtherTabs(tabID),
+          action: () => {
+            workspaceStore.getState().closeOtherTabs(tabID);
+            focusElementAfterRender(`request-tab-${tabID}`);
+          },
         },
         {
           label: t("requests.tabs.closeCleanRight"),
-          action: () => workspaceStore.getState().closeTabsToRight(tabID),
+          action: () => {
+            workspaceStore.getState().closeTabsToRight(tabID);
+            focusElementAfterRender(`request-tab-${tabID}`);
+          },
         },
         {
           label: t("requests.tabs.close"),
@@ -2415,8 +2775,18 @@ export function mountRequestWorkspace(
   });
 
   lifecycle.listen(window, "keydown", (event) => {
+    if (event.defaultPrevented || event.isComposing) return;
     const command = event.metaKey || event.ctrlKey;
     if (!command || event.key.toLowerCase() !== "s") return;
+    const state = workspaceStore.getState();
+    if (
+      state.activeView !== "requests" ||
+      document.querySelector(
+        'dialog[open], [role="dialog"], [role="menu"]',
+      )
+    ) {
+      return;
+    }
     const tab = activeTab();
     if (!tab || tab.running) return;
     event.preventDefault();
@@ -2449,6 +2819,10 @@ export function mountRequestWorkspace(
 
   lifecycle.add(
     workspaceStore.subscribe((state, previous) => {
+      const remainingTabIDs = new Set(state.tabs.map((tab) => tab.id));
+      for (const tab of previous.tabs) {
+        if (!remainingTabIDs.has(tab.id)) retireRequestRuntime(tab.id);
+      }
       if (rendering || suppressStoreRender > 0) return;
       if (!requestPresentationChanged(state, previous)) return;
       render();
@@ -2486,6 +2860,10 @@ export function mountRequestWorkspace(
       if (queuedRenderTimer !== undefined) {
         window.clearTimeout(queuedRenderTimer);
         queuedRenderTimer = undefined;
+      }
+      if (submitGuardTimer !== undefined) {
+        window.clearTimeout(submitGuardTimer);
+        submitGuardTimer = undefined;
       }
       lifecycle.dispose();
       root.replaceChildren();

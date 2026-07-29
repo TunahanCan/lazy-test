@@ -52,6 +52,7 @@ import {
   virtualWindowRange,
   type VirtualWindowRange,
 } from "./sidebarVirtualization.js";
+import { matchesSidebarSearch } from "./sidebarSearch.js";
 
 const treeRowHeight = 33;
 const apiOverscan = 10;
@@ -110,7 +111,7 @@ function visibleLibraryNodes(
   query: string,
 ): LibraryTreeNode[] {
   const locale = getLocale();
-  const normalized = query.trim().toLocaleLowerCase(locale);
+  const hasQuery = query.trim().length > 0;
   const orderedRequests = [...requests].sort(bySortOrder);
   const requestsByCollection = new Map<string, SavedRequest[]>();
   for (const request of orderedRequests) {
@@ -123,24 +124,28 @@ function visibleLibraryNodes(
     (collection) => {
       const collectionRequests =
         requestsByCollection.get(collection.id) ?? [];
-      const collectionMatches = collection.name
-        .toLocaleLowerCase(locale)
-        .includes(normalized);
-      const matchingRequests = normalized
+      const collectionMatches = matchesSidebarSearch(
+        [collection.name],
+        query,
+        locale,
+      );
+      const matchingRequests = hasQuery
         ? collectionRequests.filter((request) =>
-            `${request.name} ${request.method} ${request.url}`
-              .toLocaleLowerCase(locale)
-              .includes(normalized),
+            matchesSidebarSearch(
+              [request.name, request.method, request.url],
+              query,
+              locale,
+            ),
           )
         : collectionRequests;
       if (
-        normalized &&
+        hasQuery &&
         !collectionMatches &&
         matchingRequests.length === 0
       ) {
         return [];
       }
-      const displayedRequests = normalized
+      const displayedRequests = hasQuery
         ? collectionMatches
           ? collectionRequests
           : matchingRequests
@@ -199,12 +204,18 @@ export function mountSidebar(
     const importedSpec = workspaceStore.getState().latestImportedSpec;
     if (!importedSpec) return [];
     const locale = getLocale();
-    const normalized = query.trim().toLocaleLowerCase(locale);
     return importedSpec.endpoints
       .filter((endpoint) =>
-        `${endpoint.summary} ${endpoint.method} ${endpoint.path} ${endpoint.tags.join(" ")}`
-          .toLocaleLowerCase(locale)
-          .includes(normalized),
+        matchesSidebarSearch(
+          [
+            endpoint.summary,
+            endpoint.method,
+            endpoint.path,
+            ...endpoint.tags,
+          ],
+          query,
+          locale,
+        ),
       )
       .map((endpoint) => ({
         id: importedEndpointTabID(importedSpec.specId, endpoint.id),
@@ -1067,6 +1078,10 @@ export function mountSidebar(
     });
     form.addEventListener("submit", (event) => {
       event.preventDefault();
+      if (readOnly()) {
+        dialog.close("conflict");
+        return;
+      }
       if (
         collectionLibraryStore
           .getState()
@@ -1155,6 +1170,10 @@ export function mountSidebar(
     });
     form.addEventListener("submit", (event) => {
       event.preventDefault();
+      if (readOnly()) {
+        dialog.close("conflict");
+        return;
+      }
       const library = collectionLibraryStore.getState();
       const renamed =
         target.kind === "collection"

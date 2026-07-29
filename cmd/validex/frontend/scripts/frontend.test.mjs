@@ -65,6 +65,7 @@ import {
   virtualNavigationTarget,
   virtualWindowRange,
 } from "../.typescript-build/esm/native/chrome/sidebarVirtualization.js";
+import { matchesSidebarSearch } from "../.typescript-build/esm/native/chrome/sidebarSearch.js";
 
 test("application feedback publishes normalized visible messages", () => {
   const received = [];
@@ -146,6 +147,19 @@ test("virtual API navigation renders and reveals off-window endpoints", () => {
   assert.equal(first?.index, 0);
   assert.equal(first?.scrollTop, 0);
   assert.equal(first?.window.start, 0);
+});
+
+test("sidebar search combines independent method and URL terms", () => {
+  const fields = [
+    "Update order",
+    "PATCH",
+    "https://api.example.test/orders/42",
+  ];
+
+  assert.equal(matchesSidebarSearch(fields, "PATCH orders/42", "en"), true);
+  assert.equal(matchesSidebarSearch(fields, "update PATCH", "en"), true);
+  assert.equal(matchesSidebarSearch(fields, "GET orders/42", "en"), false);
+  assert.equal(matchesSidebarSearch(fields, "   ", "en"), true);
 });
 
 test("URL query helpers preserve raw duplicate parameters", () => {
