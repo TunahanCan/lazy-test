@@ -13,6 +13,7 @@ export type IconName =
   | "copy"
   | "download"
   | "error"
+  | "export"
   | "eye"
   | "eye-off"
   | "folder"
@@ -60,6 +61,7 @@ const paths: Record<IconName, string> = {
   copy: '<rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>',
   download: '<path d="M12 3v12M7 10l5 5 5-5M4 20h16"/>',
   error: '<circle cx="12" cy="12" r="9"/><path d="M12 7v6M12 17h.01"/>',
+  export: '<path d="M12 21V9M7 14l5-5 5 5M4 4h16"/>',
   eye: '<path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/>',
   "eye-off": '<path d="M3 3l18 18M10.5 6.2A9.8 9.8 0 0 1 12 6c6 0 10 6 10 6a17 17 0 0 1-2.2 2.8M6.2 6.2C3.5 8 2 12 2 12s4 6 10 6c1.7 0 3.2-.5 4.5-1.2"/>',
   folder: '<path d="M3 6h7l2 2h9v11H3z"/>',

@@ -823,10 +823,11 @@ kbd {
 }
 
 .collection-toolbar {
-  grid-template-columns: minmax(0, 1fr) 29px;
+  grid-template-columns: minmax(0, 1fr) 29px 29px;
 }
 
-.new-collection-button {
+.new-collection-button,
+.collection-transfer-button {
   width: 29px;
   height: 29px;
   border: 1px solid var(--border);
@@ -7159,7 +7160,8 @@ label.diagnostics-field {
 }
 
 .sidebar-search,
-.new-collection-button {
+.new-collection-button,
+.collection-transfer-button {
   border-radius: 10px;
 }
 
@@ -7168,10 +7170,11 @@ label.diagnostics-field {
 }
 
 .collection-toolbar {
-  grid-template-columns: minmax(0, 1fr) 38px;
+  grid-template-columns: minmax(0, 1fr) 38px 38px;
 }
 
-.new-collection-button {
+.new-collection-button,
+.collection-transfer-button {
   width: 38px;
   height: 38px;
 }

@@ -33,6 +33,50 @@ func openSystemFile(ctx context.Context, options fileDialogOptions) (string, err
 	return "", fmt.Errorf("no supported native file picker found; install zenity or kdialog")
 }
 
+func saveSystemFile(
+	ctx context.Context,
+	options fileSaveDialogOptions,
+) (string, error) {
+	if binary, err := exec.LookPath("zenity"); err == nil {
+		arguments := []string{
+			"--file-selection",
+			"--save",
+			"--confirm-overwrite",
+			"--title=" + options.Title,
+			"--filename=" + options.DefaultFilename,
+		}
+		if len(options.Extensions) > 0 {
+			arguments = append(
+				arguments,
+				"--file-filter=Supported files | "+
+					strings.Join(fileDialogPatterns(options.Extensions), " "),
+			)
+		}
+		return runLinuxFilePicker(ctx, binary, arguments...)
+	}
+	if binary, err := exec.LookPath("kdialog"); err == nil {
+		filter := strings.Join(fileDialogPatterns(options.Extensions), " ")
+		return runLinuxFilePicker(
+			ctx,
+			binary,
+			"--getsavefilename",
+			options.DefaultFilename,
+			filter,
+			"--title",
+			options.Title,
+		)
+	}
+	return "", fmt.Errorf("no supported native file saver found; install zenity or kdialog")
+}
+
+func fileDialogPatterns(extensions []string) []string {
+	patterns := make([]string, 0, len(extensions))
+	for _, extension := range extensions {
+		patterns = append(patterns, "*."+strings.TrimPrefix(extension, "."))
+	}
+	return patterns
+}
+
 func runLinuxFilePicker(ctx context.Context, binary string, arguments ...string) (string, error) {
 	path, err := runFileDialogCommand(
 		ctx,

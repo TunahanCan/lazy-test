@@ -377,7 +377,7 @@ func (s *storageResilienceSteps) mutationsUnavailableAfterConflict() error {
 			),
 			deleteDisabled: Boolean(
 				document.querySelector(
-					'.native-menu [role="menuitem"][data-menu-index="3"]'
+					'.native-menu [role="menuitem"].danger'
 				)?.disabled
 			),
 			saveDisabled: Boolean(

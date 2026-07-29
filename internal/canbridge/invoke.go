@@ -12,6 +12,8 @@ const (
 	bridgeMethodBootstrap               = "Bootstrap"
 	bridgeMethodLoadCollectionLibrary   = "LoadCollectionLibrary"
 	bridgeMethodSaveCollectionLibrary   = "SaveCollectionLibrary"
+	bridgeMethodImportCollectionFile    = "ImportCollectionFile"
+	bridgeMethodExportCollectionFile    = "ExportCollectionFile"
 	bridgeMethodSendRequest             = "SendRequest"
 	bridgeMethodCancelRequest           = "CancelRequest"
 	bridgeMethodImportOpenAPI           = "ImportOpenAPI"
@@ -268,6 +270,14 @@ var bridgeMethodRegistry = mustBridgeMethodCatalog(
 				}
 			},
 		),
+	),
+	registerBridgeMethod0(
+		bridgeMethodImportCollectionFile,
+		(*Bridge).ImportCollectionFile,
+	),
+	registerBridgeMethod1(
+		bridgeMethodExportCollectionFile,
+		(*Bridge).ExportCollectionFile,
 	),
 	registerBridgeMethod1(bridgeMethodSendRequest, (*Bridge).SendRequest),
 	registerBridgeMethod1(

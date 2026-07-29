@@ -255,6 +255,18 @@
       }
       return result;
     },
+    ImportCollectionFile: () =>
+      call("ImportCollectionFile", undefined, {
+        data: "",
+        path: "",
+        canceled: true,
+      }),
+    ExportCollectionFile: (input) =>
+      call("ExportCollectionFile", input, {
+        exported: true,
+        path: `/fixtures/${input?.suggestedName || "collection.json"}`,
+        canceled: false,
+      }),
     SendRequest: (input) =>
       call("SendRequest", input, () => ({ response: richResponse(input) })),
     CancelRequest: async (requestID) => {

@@ -92,6 +92,25 @@ export interface CollectionLibrarySaveResult {
   error?: UserError;
 }
 
+export interface CollectionFileImportResult {
+  data: string;
+  path: string;
+  canceled: boolean;
+  error?: UserError;
+}
+
+export interface CollectionFileExportInput {
+  suggestedName: string;
+  data: string;
+}
+
+export interface CollectionFileExportResult {
+  exported: boolean;
+  path: string;
+  canceled: boolean;
+  error?: UserError;
+}
+
 export interface SendResult {
   response?: ResponseEnvelope;
   error?: UserError;

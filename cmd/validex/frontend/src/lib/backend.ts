@@ -2,6 +2,9 @@ import {
   type ActuatorInspectInput,
   type ActuatorInspectResult,
   type BootstrapData,
+  type CollectionFileExportInput,
+  type CollectionFileExportResult,
+  type CollectionFileImportResult,
   type CollectionLibraryLoadResult,
   type CollectionLibrarySaveResult,
   type CollectionRunInput,
@@ -41,6 +44,10 @@ interface CanbridgeAPI {
   Bootstrap(): Promise<BootstrapData>;
   LoadCollectionLibrary(): Promise<CollectionLibraryLoadResult>;
   SaveCollectionLibrary(data: string): Promise<CollectionLibrarySaveResult>;
+  ImportCollectionFile(): Promise<CollectionFileImportResult>;
+  ExportCollectionFile(
+    input: CollectionFileExportInput,
+  ): Promise<CollectionFileExportResult>;
   SendRequest(input: RequestInput): Promise<SendResult>;
   CancelRequest(requestID: string): Promise<boolean>;
   ImportOpenAPI(): Promise<ImportSpecResult>;
@@ -147,6 +154,35 @@ export const backend = {
     return {
       saved: false,
       error: backendUnavailable("Koleksiyon depolaması"),
+    };
+  },
+
+  async importCollectionFile(): Promise<CollectionFileImportResult> {
+    const native = nativeBridge();
+    if (native?.ImportCollectionFile) {
+      return native.ImportCollectionFile();
+    }
+    return {
+      data: "",
+      path: "",
+      canceled: false,
+      error: backendUnavailable("Koleksiyon içe aktarma"),
+    };
+  },
+
+  async exportCollectionFile(
+    input: CollectionFileExportInput,
+  ): Promise<CollectionFileExportResult> {
+    const native = nativeBridge();
+    if (native?.ExportCollectionFile) {
+      return native.ExportCollectionFile(input);
+    }
+    void input;
+    return {
+      exported: false,
+      path: "",
+      canceled: false,
+      error: backendUnavailable("Koleksiyon dışa aktarma"),
     };
   },
 

@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	pathpkg "path"
 	"path/filepath"
 	"strings"
+	"unicode"
 )
 
 var (
@@ -21,8 +23,18 @@ type fileDialogOptions struct {
 	Extensions []string
 }
 
+type fileSaveDialogOptions struct {
+	Title           string
+	Extensions      []string
+	DefaultFilename string
+}
+
 type filePicker interface {
 	Open(context.Context, fileDialogOptions) (string, error)
+}
+
+type fileSaver interface {
+	Save(context.Context, fileSaveDialogOptions) (string, error)
 }
 
 type systemFilePicker struct{}
@@ -41,25 +53,137 @@ func (systemFilePicker) Open(ctx context.Context, options fileDialogOptions) (st
 	if err != nil {
 		return "", err
 	}
-	path = strings.TrimSpace(path)
 	if path == "" {
 		return "", nil
 	}
-	if len(options.Extensions) == 0 {
-		return path, nil
+	if err := validateFileDialogExtension(path, options.Extensions); err != nil {
+		return "", err
 	}
+	return path, nil
+}
 
-	selectedExtension := strings.TrimPrefix(strings.ToLower(filepath.Ext(path)), ".")
-	for _, extension := range options.Extensions {
-		if selectedExtension == strings.TrimPrefix(strings.ToLower(extension), ".") {
-			return path, nil
+type systemFileSaver struct{}
+
+func (systemFileSaver) Save(
+	ctx context.Context,
+	options fileSaveDialogOptions,
+) (string, error) {
+	prepared, err := prepareFileSaveDialogOptions(options)
+	if err != nil {
+		return "", err
+	}
+	release, err := systemFileDialogGate.acquire(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer release()
+
+	path, err := saveSystemFile(ctx, prepared)
+	if errors.Is(err, errFileDialogCanceled) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if path == "" {
+		return "", nil
+	}
+	return normalizedSavedFilePath(path, prepared.Extensions)
+}
+
+func prepareFileSaveDialogOptions(
+	options fileSaveDialogOptions,
+) (fileSaveDialogOptions, error) {
+	prepared := options
+	prepared.Extensions = normalizedFileDialogExtensions(options.Extensions)
+	filename := strings.TrimSpace(
+		pathpkg.Base(strings.ReplaceAll(options.DefaultFilename, `\`, "/")),
+	)
+	filename = strings.Map(func(character rune) rune {
+		if unicode.IsControl(character) {
+			return -1
+		}
+		if strings.ContainsRune(`<>:"|?*`, character) {
+			return '_'
+		}
+		return character
+	}, filename)
+	if filename == "" || filename == "." || filename == ".." {
+		filename = "export"
+	}
+	if len(prepared.Extensions) > 0 {
+		extension := normalizedFileDialogExtension(filepath.Ext(filename))
+		if extension == "" || !fileDialogExtensionAllowed(
+			extension,
+			prepared.Extensions,
+		) {
+			filename += "." + prepared.Extensions[0]
 		}
 	}
-	return "", fmt.Errorf(
+	prepared.DefaultFilename = filename
+	return prepared, nil
+}
+
+func normalizedFileDialogExtensions(extensions []string) []string {
+	normalized := make([]string, 0, len(extensions))
+	seen := make(map[string]struct{}, len(extensions))
+	for _, extension := range extensions {
+		extension = normalizedFileDialogExtension(extension)
+		if extension == "" {
+			continue
+		}
+		if _, duplicate := seen[extension]; duplicate {
+			continue
+		}
+		seen[extension] = struct{}{}
+		normalized = append(normalized, extension)
+	}
+	return normalized
+}
+
+func normalizedFileDialogExtension(extension string) string {
+	return strings.TrimPrefix(strings.ToLower(strings.TrimSpace(extension)), ".")
+}
+
+func fileDialogExtensionAllowed(
+	extension string,
+	allowed []string,
+) bool {
+	extension = normalizedFileDialogExtension(extension)
+	for _, candidate := range allowed {
+		if extension == normalizedFileDialogExtension(candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func validateFileDialogExtension(path string, extensions []string) error {
+	if len(extensions) == 0 {
+		return nil
+	}
+	selectedExtension := normalizedFileDialogExtension(filepath.Ext(path))
+	if fileDialogExtensionAllowed(selectedExtension, extensions) {
+		return nil
+	}
+	return fmt.Errorf(
 		"selected file extension %q is not supported; expected one of: %s",
 		selectedExtension,
-		strings.Join(options.Extensions, ", "),
+		strings.Join(normalizedFileDialogExtensions(extensions), ", "),
 	)
+}
+
+func normalizedSavedFilePath(
+	path string,
+	extensions []string,
+) (string, error) {
+	if path == "" {
+		return "", nil
+	}
+	if err := validateFileDialogExtension(path, extensions); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 // fileDialogGate serializes the process-global native dialog resource while
@@ -132,5 +256,14 @@ func runFileDialogCommand(
 			maxFileDialogOutputBytes,
 		)
 	}
-	return strings.TrimSpace(string(output.bytes)), err
+	return normalizedFileDialogCommandOutput(string(output.bytes)), err
+}
+
+func normalizedFileDialogCommandOutput(path string) string {
+	if strings.HasSuffix(path, "\r\n") {
+		path = strings.TrimSuffix(path, "\r\n")
+	} else {
+		path = strings.TrimSuffix(path, "\n")
+	}
+	return path
 }

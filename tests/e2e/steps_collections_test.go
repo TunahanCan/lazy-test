@@ -13,6 +13,12 @@ import (
 const (
 	collectionOrderService = "Order service"
 	collectionRequestName  = "Create order"
+	postmanCollectionName  = "Postman Orders"
+	postmanRequestName     = "Create order"
+	postmanRequestMethod   = "POST"
+	postmanRequestURL      = "https://api.example.test/orders?dryRun=true"
+	postmanRequestBody     = `{"sku":"SKU-42","quantity":2}`
+	postmanV21Schema       = "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 )
 
 type collectionSteps struct {
@@ -146,6 +152,26 @@ func registerCollectionSteps(context *godog.ScenarioContext, world *browserWorld
 	context.Step(
 		`^reopening the moved request still restores its data$`,
 		steps.reopenMovedRequestRestoresData,
+	)
+	context.Step(
+		`^the collection file picker returns a Postman v2\.1 collection$`,
+		steps.collectionFilePickerReturnsPostman,
+	)
+	context.Step(
+		`^I import the Postman collection$`,
+		steps.importPostmanCollection,
+	)
+	context.Step(
+		`^the imported "([^"]+)" collection and "([^"]+)" request are visible and persisted$`,
+		steps.importedPostmanCollectionIsVisibleAndPersisted,
+	)
+	context.Step(
+		`^I export the "([^"]+)" collection$`,
+		steps.exportCollection,
+	)
+	context.Step(
+		`^the export is Postman v2\.1 and contains the "([^"]+)" request$`,
+		steps.exportedPostmanCollectionContainsRequest,
 	)
 	context.Step(
 		`^the file picker will return a valid OpenAPI document with endpoints$`,
@@ -324,7 +350,7 @@ func (s *collectionSteps) requestCollectionDeletion(name string) error {
 	}
 	if err := requestClick(
 		s.world,
-		`.native-menu [role="menuitem"][data-menu-index="3"]`,
+		`.native-menu [role="menuitem"].danger`,
 	); err != nil {
 		return err
 	}
@@ -1041,6 +1067,308 @@ func (s *collectionSteps) reopenMovedRequestRestoresData() error {
 	return nil
 }
 
+func (s *collectionSteps) collectionFilePickerReturnsPostman() error {
+	return requestConfigureBridgeCall(
+		s.world,
+		"ImportCollectionFile",
+		map[string]any{
+			"data":     postmanCollectionV21Fixture,
+			"path":     "/fixtures/postman-orders.postman_collection.json",
+			"canceled": false,
+		},
+	)
+}
+
+func (s *collectionSteps) importPostmanCollection() error {
+	before, err := requestBridgeCallCount(
+		s.world,
+		"ImportCollectionFile",
+	)
+	if err != nil {
+		return err
+	}
+	if err := requestClick(
+		s.world,
+		`.collection-toolbar [data-action="import-collection"]`,
+	); err != nil {
+		return err
+	}
+	return requestWaitFor(
+		s.world,
+		fmt.Sprintf(
+			`globalThis.__VALIDEX_E2E__.calls.filter(
+				(call) => call.method === "ImportCollectionFile"
+			).length === %d`,
+			before+1,
+		),
+		"Postman collection file import",
+	)
+}
+
+func (s *collectionSteps) importedPostmanCollectionIsVisibleAndPersisted(
+	collectionName string,
+	requestName string,
+) error {
+	if collectionName != postmanCollectionName ||
+		requestName != postmanRequestName {
+		return fmt.Errorf(
+			"unexpected Postman fixture names %q / %q",
+			collectionName,
+			requestName,
+		)
+	}
+	if err := collectionWaitForNamedCollection(
+		s.world,
+		collectionName,
+	); err != nil {
+		return err
+	}
+	if err := requestWaitFor(
+		s.world,
+		fmt.Sprintf(
+			`[...document.querySelectorAll(
+				'[data-library-kind="request"] .tree-label'
+			)].some((element) => element.textContent?.trim() === %s)`,
+			requestJSON(requestName),
+		),
+		"imported Postman request "+requestName,
+	); err != nil {
+		return err
+	}
+	if err := requestWaitFor(
+		s.world,
+		`(() => {
+			const raw = globalThis.__VALIDEX_E2E__.collectionData;
+			if (!raw) return false;
+			const document = JSON.parse(raw);
+			const collection = document.state?.collections?.find(
+				(candidate) => candidate.name === "Postman Orders"
+			);
+			return Boolean(
+				collection &&
+				document.state?.requests?.some(
+					(request) =>
+						request.collectionId === collection.id &&
+						request.name === "Create order" &&
+						request.method === "POST" &&
+						request.url ===
+							"https://api.example.test/orders?dryRun=true"
+				)
+			);
+		})()`,
+		"durable imported Postman collection",
+	); err != nil {
+		return err
+	}
+
+	document, err := collectionLatestPersistedDocument(s.world)
+	if err != nil {
+		return err
+	}
+	collectionID := ""
+	for _, collection := range document.State.Collections {
+		if collection.Name == collectionName {
+			collectionID = collection.ID
+			break
+		}
+	}
+	if collectionID == "" {
+		return fmt.Errorf(
+			"persisted Postman collection %q was not found",
+			collectionName,
+		)
+	}
+	for _, request := range document.State.Requests {
+		if request.CollectionID != collectionID ||
+			request.Name != requestName {
+			continue
+		}
+		if request.Method != postmanRequestMethod ||
+			request.URL != postmanRequestURL ||
+			request.Body != postmanRequestBody {
+			return fmt.Errorf(
+				"persisted Postman request is incomplete: %+v",
+				request,
+			)
+		}
+		return nil
+	}
+	return fmt.Errorf(
+		"persisted Postman request %q was not found",
+		requestName,
+	)
+}
+
+func (s *collectionSteps) exportCollection(collectionName string) error {
+	collectionID, err := collectionNamedItemID(
+		s.world,
+		"collection",
+		collectionName,
+	)
+	if err != nil {
+		return err
+	}
+	if collectionID == "" {
+		return fmt.Errorf(
+			"collection %q was not found for export",
+			collectionName,
+		)
+	}
+	before, err := requestBridgeCallCount(
+		s.world,
+		"ExportCollectionFile",
+	)
+	if err != nil {
+		return err
+	}
+	if err := collectionOpenLibraryMenu(
+		s.world,
+		"collection",
+		collectionID,
+	); err != nil {
+		return err
+	}
+
+	var clicked bool
+	if err := s.world.run(chromedp.Evaluate(
+		`(() => {
+			const item = [...document.querySelectorAll(
+				'.native-menu [role="menuitem"]'
+			)].find(
+				(candidate) =>
+					candidate.textContent?.trim() === "Export collection"
+			);
+			if (!(item instanceof HTMLElement)) return false;
+			item.click();
+			return true;
+		})()`,
+		&clicked,
+	)); err != nil {
+		return err
+	}
+	if !clicked {
+		return fmt.Errorf(
+			"collection export menu action was not found for %q",
+			collectionName,
+		)
+	}
+	return requestWaitFor(
+		s.world,
+		fmt.Sprintf(
+			`globalThis.__VALIDEX_E2E__.calls.filter(
+				(call) => call.method === "ExportCollectionFile"
+			).length === %d`,
+			before+1,
+		),
+		"Postman collection export",
+	)
+}
+
+func (s *collectionSteps) exportedPostmanCollectionContainsRequest(
+	requestName string,
+) error {
+	calls, err := requestBridgeCalls(s.world)
+	if err != nil {
+		return err
+	}
+	var exportCalls []requestBridgeCall
+	for _, call := range calls {
+		if call.Method == "ExportCollectionFile" {
+			exportCalls = append(exportCalls, call)
+		}
+	}
+	if len(exportCalls) != 1 {
+		return fmt.Errorf(
+			"ExportCollectionFile call count = %d, want 1",
+			len(exportCalls),
+		)
+	}
+	var input struct {
+		SuggestedName string `json:"suggestedName"`
+		Data          string `json:"data"`
+	}
+	if err := json.Unmarshal(exportCalls[0].Input, &input); err != nil {
+		return fmt.Errorf(
+			"decode ExportCollectionFile input: %w",
+			err,
+		)
+	}
+	if input.SuggestedName !=
+		postmanCollectionName+".postman_collection.json" {
+		return fmt.Errorf(
+			"export suggested name = %q",
+			input.SuggestedName,
+		)
+	}
+	var document struct {
+		Info struct {
+			ID     string `json:"_postman_id"`
+			Name   string `json:"name"`
+			Schema string `json:"schema"`
+		} `json:"info"`
+		Items []struct {
+			Name    string `json:"name"`
+			Request struct {
+				Method  string `json:"method"`
+				Headers []struct {
+					Key      string `json:"key"`
+					Value    string `json:"value"`
+					Disabled bool   `json:"disabled"`
+				} `json:"header"`
+				Body struct {
+					Mode string `json:"mode"`
+					Raw  string `json:"raw"`
+				} `json:"body"`
+				URL string `json:"url"`
+			} `json:"request"`
+		} `json:"item"`
+	}
+	if err := json.Unmarshal([]byte(input.Data), &document); err != nil {
+		return fmt.Errorf("decode exported Postman document: %w", err)
+	}
+	if document.Info.ID == "" ||
+		document.Info.Name != postmanCollectionName ||
+		document.Info.Schema != postmanV21Schema {
+		return fmt.Errorf(
+			"exported Postman v2.1 info is incomplete: %+v",
+			document.Info,
+		)
+	}
+	if len(document.Items) != 1 {
+		return fmt.Errorf(
+			"exported Postman item count = %d, want 1",
+			len(document.Items),
+		)
+	}
+	item := document.Items[0]
+	if item.Name != requestName ||
+		item.Request.Method != postmanRequestMethod ||
+		item.Request.URL != postmanRequestURL ||
+		item.Request.Body.Mode != "raw" ||
+		item.Request.Body.Raw != postmanRequestBody {
+		return fmt.Errorf(
+			"exported Postman request is incomplete: %+v",
+			item,
+		)
+	}
+	hasClientHeader := false
+	for _, header := range item.Request.Headers {
+		if header.Key == "X-Client" &&
+			header.Value == "validex-e2e" &&
+			!header.Disabled {
+			hasClientHeader = true
+			break
+		}
+	}
+	if !hasClientHeader {
+		return fmt.Errorf(
+			"exported Postman request has no enabled X-Client header: %+v",
+			item.Request.Headers,
+		)
+	}
+	return nil
+}
+
 func (s *collectionSteps) filePickerReturnsOpenAPI() error {
 	result := map[string]any{
 		"specId":  "orders-api",
@@ -1068,6 +1396,50 @@ func (s *collectionSteps) filePickerReturnsOpenAPI() error {
 	}
 	return requestConfigureBridgeCall(s.world, "ImportOpenAPI", result)
 }
+
+const postmanCollectionV21Fixture = `{
+  "info": {
+    "_postman_id": "postman-orders-e2e",
+    "name": "Postman Orders",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Create order",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          },
+          {
+            "key": "X-Client",
+            "value": "validex-e2e",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"sku\":\"SKU-42\",\"quantity\":2}"
+        },
+        "url": {
+          "raw": "https://api.example.test/orders?dryRun=true",
+          "protocol": "https",
+          "host": ["api", "example", "test"],
+          "path": ["orders"],
+          "query": [
+            {
+              "key": "dryRun",
+              "value": "true"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}`
 
 func (s *collectionSteps) importOpenAPIDocument() error {
 	before, err := requestBridgeCallCount(s.world, "ImportOpenAPI")

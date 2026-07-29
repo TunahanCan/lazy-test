@@ -13,6 +13,11 @@ import {
   type SavedRequest,
   type SavedRequestSnapshot,
 } from "../features/collections/model.js";
+import type {
+  ImportedCollection,
+  ImportedCollectionBatch,
+  ImportedRequest,
+} from "../features/collections/postmanTransfer.js";
 import { isValidHTTPMethod } from "../lib/http.js";
 import { isSafeSecretReference, isSecretKey } from "../lib/secrets.js";
 import type { HTTPMethod, KeyValue } from "../lib/types.js";
@@ -80,8 +85,17 @@ export interface CollectionLibraryData {
   expandedCollectionIds: string[];
 }
 
+export interface CollectionImportSummary {
+  collectionCount: number;
+  requestCount: number;
+  sanitizedSecretCount: number;
+}
+
 export interface CollectionLibraryState extends CollectionLibraryData {
   createCollection: (name: string) => string | undefined;
+  importCollections: (
+    batch: ImportedCollectionBatch,
+  ) => CollectionImportSummary | undefined;
   renameCollection: (collectionId: string, name: string) => boolean;
   deleteCollection: (collectionId: string) => boolean;
   toggleCollection: (collectionId: string) => void;
@@ -158,6 +172,141 @@ function persistedHeader(header: KeyValue): KeyValue {
     enabled: false,
     value: "",
   };
+}
+
+interface PreparedImportedRequest
+  extends Omit<ImportedRequest, "method" | "name"> {
+  method: HTTPMethod;
+  name: string;
+}
+
+interface PreparedImportedCollection
+  extends Omit<ImportedCollection, "name" | "requests"> {
+  name: string;
+  requests: PreparedImportedRequest[];
+}
+
+function preparedImportedHeader(
+  value: unknown,
+): ImportedRequest["headers"][number] | undefined {
+  if (
+    !isRecord(value) ||
+    typeof value.enabled !== "boolean" ||
+    typeof value.key !== "string" ||
+    typeof value.value !== "string" ||
+    (value.description !== undefined &&
+      typeof value.description !== "string") ||
+    (value.sensitive !== undefined &&
+      typeof value.sensitive !== "boolean")
+  ) {
+    return undefined;
+  }
+  const header: ImportedRequest["headers"][number] = {
+    enabled: value.enabled,
+    key: value.key,
+    value: value.value,
+  };
+  if (typeof value.description === "string") {
+    header.description = value.description;
+  }
+  if (value.sensitive === true) {
+    header.sensitive = true;
+  }
+  return header;
+}
+
+function preparedImportedRequest(
+  value: unknown,
+): PreparedImportedRequest | undefined {
+  if (
+    !isRecord(value) ||
+    typeof value.name !== "string" ||
+    !isValidHTTPMethod(value.method) ||
+    typeof value.url !== "string" ||
+    !Array.isArray(value.headers) ||
+    typeof value.body !== "string" ||
+    (value.literalValues !== undefined &&
+      typeof value.literalValues !== "boolean")
+  ) {
+    return undefined;
+  }
+  const name = normalizedLibraryName(
+    value.name,
+    SAVED_REQUEST_NAME_LENGTH_LIMITS,
+  );
+  if (!name) return undefined;
+  const headers: ImportedRequest["headers"] = [];
+  for (const candidate of value.headers) {
+    const header = preparedImportedHeader(candidate);
+    if (!header) return undefined;
+    headers.push(header);
+  }
+  return {
+    name,
+    method: value.method,
+    url: value.url,
+    headers,
+    body: value.body,
+    literalValues:
+      value.literalValues === true ? true : undefined,
+  };
+}
+
+function preparedImportedCollections(
+  value: unknown,
+): PreparedImportedCollection[] | undefined {
+  if (
+    !isRecord(value) ||
+    !Array.isArray(value.collections) ||
+    value.collections.length === 0
+  ) {
+    return undefined;
+  }
+  const collections: PreparedImportedCollection[] = [];
+  for (const candidate of value.collections) {
+    if (
+      !isRecord(candidate) ||
+      typeof candidate.name !== "string" ||
+      !Array.isArray(candidate.requests)
+    ) {
+      return undefined;
+    }
+    const name = normalizedLibraryName(
+      candidate.name,
+      COLLECTION_NAME_LENGTH_LIMITS,
+    );
+    if (!name) return undefined;
+    const requests: PreparedImportedRequest[] = [];
+    for (const importedRequest of candidate.requests) {
+      const request = preparedImportedRequest(importedRequest);
+      if (!request) return undefined;
+      requests.push(request);
+    }
+    collections.push({ name, requests });
+  }
+  return collections;
+}
+
+function uniqueImportedCollectionName(
+  name: string,
+  reservedNames: Set<string>,
+): string {
+  const normalizedKey = (value: string) => value.toLowerCase();
+  if (!reservedNames.has(normalizedKey(name))) {
+    reservedNames.add(normalizedKey(name));
+    return name;
+  }
+  const maximumLength = COLLECTION_NAME_LENGTH_LIMITS[1];
+  for (let sequence = 2; ; sequence += 1) {
+    const suffix = ` (${sequence})`;
+    const candidate = `${name
+      .slice(0, maximumLength - suffix.length)
+      .trimEnd()}${suffix}`;
+    if (!reservedNames.has(normalizedKey(candidate))) {
+      reservedNames.add(normalizedKey(candidate));
+      return candidate;
+    }
+  }
 }
 
 function persistedRequest(request: SavedRequest): SavedRequest {
@@ -385,6 +534,98 @@ const baseCollectionLibraryStore = createStore<CollectionLibraryState>(
           expandedCollectionIds,
         }));
         return id;
+      },
+      importCollections: (batch) => {
+        const importedCollections = preparedImportedCollections(batch);
+        if (!importedCollections) return undefined;
+
+        const state = get();
+        const importedAt = now();
+        const reservedNames = new Set(
+          state.collections.map((collection) =>
+            collection.name.toLowerCase(),
+          ),
+        );
+        const collections: RequestCollection[] = [];
+        const requests: SavedRequest[] = [];
+        const expandedCollectionIds = new Set(
+          state.expandedCollectionIds,
+        );
+        let collectionSortOrder = nextSortOrder(state.collections);
+        let sanitizedSecretCount = 0;
+
+        for (const importedCollection of importedCollections) {
+          const collectionId = crypto.randomUUID();
+          const name = uniqueImportedCollectionName(
+            importedCollection.name,
+            reservedNames,
+          );
+          collections.push({
+            id: collectionId,
+            name,
+            createdAt: importedAt,
+            updatedAt: importedAt,
+            sortOrder: collectionSortOrder,
+          });
+          collectionSortOrder += 1;
+          expandedCollectionIds.add(collectionId);
+
+          importedCollection.requests.forEach(
+            (importedRequest, sortOrder) => {
+              const headers = importedRequest.headers.map((header) => {
+                const sensitive =
+                  header.sensitive === true ||
+                  isSecretKey(header.key);
+                const sanitized =
+                  sensitive &&
+                  !isSafeSecretReference(header.value);
+                if (sanitized) {
+                  sanitizedSecretCount += 1;
+                }
+                return persistedHeader({
+                  id: crypto.randomUUID(),
+                  enabled: sanitized ? false : header.enabled,
+                  key: header.key,
+                  value: sanitized ? "" : header.value,
+                  ...(header.description
+                    ? { description: header.description }
+                    : {}),
+                });
+              });
+              requests.push(
+                createSavedRequest(
+                  crypto.randomUUID(),
+                  collectionId,
+                  {
+                    name: importedRequest.name,
+                    method: importedRequest.method,
+                    url: importedRequest.url,
+                    headers,
+                    body: importedRequest.body,
+                    literalValues: importedRequest.literalValues,
+                  },
+                  importedAt,
+                  sortOrder,
+                ),
+              );
+            },
+          );
+        }
+
+        const nextExpandedCollectionIds = [
+          ...expandedCollectionIds,
+        ];
+        persistExpandedCollectionIds(nextExpandedCollectionIds);
+        set({
+          collections: [...state.collections, ...collections],
+          requests: [...state.requests, ...requests],
+          expandedCollectionIds: nextExpandedCollectionIds,
+        });
+        return {
+          collectionCount: collections.length,
+          requestCount: requests.length,
+          sanitizedSecretCount,
+        };
       },
       renameCollection: (collectionId, rawName) => {
         const name = normalizedLibraryName(

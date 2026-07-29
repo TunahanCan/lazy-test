@@ -71,6 +71,7 @@ type Bridge struct {
 	observedOrder     []string
 	observedNext      int
 	filePicker        filePicker
+	fileSaver         fileSaver
 }
 
 func NewBridge() *Bridge {
@@ -100,6 +101,7 @@ func newBridge(collectionRepository collectionLibraryRepository) *Bridge {
 		observed:      map[string]int{},
 		observedOrder: make([]string, 0, maxObservedCoverageEntries),
 		filePicker:    systemFilePicker{},
+		fileSaver:     systemFileSaver{},
 	}
 }
 

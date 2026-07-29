@@ -109,6 +109,9 @@ const (
 	UserErrorCollectionOperationInvalid UserErrorCode = "collection_operation_invalid"
 	UserErrorCollectionInvalid          UserErrorCode = "collection_invalid"
 	UserErrorCollectionRunFailed        UserErrorCode = "collection_run_failed"
+	UserErrorCollectionFileInvalid      UserErrorCode = "collection_file_invalid"
+	UserErrorCollectionFileReadFailed   UserErrorCode = "collection_file_read_failed"
+	UserErrorCollectionFileWriteFailed  UserErrorCode = "collection_file_write_failed"
 	UserErrorNetworkOperationInvalid    UserErrorCode = "network_operation_invalid"
 	UserErrorNetworkInspectionFailed    UserErrorCode = "network_inspection_failed"
 	UserErrorOpenAPILintFailed          UserErrorCode = "openapi_lint_failed"
@@ -128,6 +131,25 @@ type UserError struct {
 type SendResult struct {
 	Response *ResponseEnvelope `json:"response,omitempty"`
 	Error    *UserError        `json:"error,omitempty"`
+}
+
+type CollectionFileImportResult struct {
+	Data     string     `json:"data"`
+	Path     string     `json:"path"`
+	Canceled bool       `json:"canceled"`
+	Error    *UserError `json:"error,omitempty"`
+}
+
+type CollectionFileExportInput struct {
+	Data          string `json:"data"`
+	SuggestedName string `json:"suggestedName"`
+}
+
+type CollectionFileExportResult struct {
+	Path     string     `json:"path"`
+	Exported bool       `json:"exported"`
+	Canceled bool       `json:"canceled"`
+	Error    *UserError `json:"error,omitempty"`
 }
 
 type CollectionNode struct {

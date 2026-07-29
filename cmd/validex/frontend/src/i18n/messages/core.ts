@@ -75,6 +75,27 @@ export const coreEnglish = {
   "sidebar.apis": "APIs",
   "sidebar.openRequest": "Open request",
   "sidebar.newCollection": "New collection",
+  "sidebar.importCollection": "Import collection",
+  "sidebar.importCollectionDescription":
+    "Import Postman Collection v2.1 JSON (compatible with Postman and Bruno)",
+  "sidebar.exportCollection": "Export collection",
+  "sidebar.collectionImported.one":
+    "{count} request imported into a new collection.",
+  "sidebar.collectionImported.many":
+    "{count} requests imported into a new collection.",
+  "sidebar.collectionImportWarnings.one":
+    "{count} compatibility warning; some unsupported data was skipped.",
+  "sidebar.collectionImportWarnings.many":
+    "{count} compatibility warnings; some unsupported data was skipped.",
+  "sidebar.collectionImportSecrets.one":
+    "{count} sensitive header was imported disabled.",
+  "sidebar.collectionImportSecrets.many":
+    "{count} sensitive headers were imported disabled.",
+  "sidebar.collectionImportFailed": "Collection couldn’t be imported.",
+  "sidebar.collectionExported": "“{name}” exported.",
+  "sidebar.collectionExportedWithWarning":
+    "“{name}” was exported, but the save location couldn’t be fully synchronized.",
+  "sidebar.collectionExportFailed": "Collection couldn’t be exported.",
   "sidebar.collectionName": "Collection name",
   "sidebar.collectionNamePlaceholder": "e.g. Payments API",
   "sidebar.createCollection": "Create collection",
@@ -307,6 +328,27 @@ export const coreTurkish = {
   "sidebar.apis": "API’ler",
   "sidebar.openRequest": "İsteği aç",
   "sidebar.newCollection": "Yeni koleksiyon",
+  "sidebar.importCollection": "Koleksiyon içe aktar",
+  "sidebar.importCollectionDescription":
+    "Postman ve Bruno uyumlu Collection v2.1 JSON dosyası içe aktar",
+  "sidebar.exportCollection": "Koleksiyonu dışa aktar",
+  "sidebar.collectionImported.one":
+    "{count} istek yeni bir koleksiyona aktarıldı.",
+  "sidebar.collectionImported.many":
+    "{count} istek yeni bir koleksiyona aktarıldı.",
+  "sidebar.collectionImportWarnings.one":
+    "{count} uyumluluk uyarısı var; desteklenmeyen bazı veriler atlandı.",
+  "sidebar.collectionImportWarnings.many":
+    "{count} uyumluluk uyarısı var; desteklenmeyen bazı veriler atlandı.",
+  "sidebar.collectionImportSecrets.one":
+    "{count} hassas header devre dışı olarak içe aktarıldı.",
+  "sidebar.collectionImportSecrets.many":
+    "{count} hassas header devre dışı olarak içe aktarıldı.",
+  "sidebar.collectionImportFailed": "Koleksiyon içe aktarılamadı.",
+  "sidebar.collectionExported": "“{name}” dışa aktarıldı.",
+  "sidebar.collectionExportedWithWarning":
+    "“{name}” dışa aktarıldı ancak kayıt konumu tamamen eşitlenemedi.",
+  "sidebar.collectionExportFailed": "Koleksiyon dışa aktarılamadı.",
   "sidebar.collectionName": "Koleksiyon adı",
   "sidebar.collectionNamePlaceholder": "Örn. Ödeme API’si",
   "sidebar.createCollection": "Koleksiyon oluştur",

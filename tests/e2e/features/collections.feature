@@ -44,6 +44,14 @@ Feature: Organize requests in collections
     Then both collection request counts are updated
     And reopening the moved request still restores its data
 
+  @transfer @postman
+  Scenario: Continue from an imported Postman collection and export it again
+    Given the collection file picker returns a Postman v2.1 collection
+    When I import the Postman collection
+    Then the imported "Postman Orders" collection and "Create order" request are visible and persisted
+    When I export the "Postman Orders" collection
+    Then the export is Postman v2.1 and contains the "Create order" request
+
   @openapi
   Scenario: Import an OpenAPI document and open an endpoint
     Given the file picker will return a valid OpenAPI document with endpoints

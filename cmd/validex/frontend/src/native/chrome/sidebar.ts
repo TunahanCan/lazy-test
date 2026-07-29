@@ -7,6 +7,10 @@ import {
   type TrustedHTMLFragment,
 } from "../../core/dom.js";
 import { applicationCommands } from "../../app/commands.js";
+import {
+  FEEDBACK_TONE,
+  notify,
+} from "../../core/feedback.js";
 import { icon } from "../../core/icons.js";
 import {
   openMenu,
@@ -23,10 +27,15 @@ import {
   type SavedRequest,
 } from "../../features/collections/model.js";
 import {
+  parsePostmanCollection,
+  serializePostmanCollection,
+} from "../../features/collections/postmanTransfer.js";
+import {
   getLocale,
   subscribeLocale,
   t,
 } from "../../i18n/locale.js";
+import { backend } from "../../lib/backend.js";
 import {
   importedEndpointTabID,
   importedRequestURL,
@@ -44,6 +53,7 @@ import {
   getCollectionLibraryPersistenceSnapshot,
   retryCollectionLibraryWrite,
   subscribeCollectionLibraryPersistence,
+  waitForCollectionLibraryPersistence,
 } from "../../stores/collectionLibraryStorage.js";
 import { workspaceStore } from "../../stores/workspace.js";
 import {
@@ -186,6 +196,8 @@ export function mountSidebar(
   let apiViewportHeight = 0;
   let activeMenu: OpenOverlay | undefined;
   let activeDialog: DialogHandle | undefined;
+  let collectionImportInFlight = false;
+  const collectionExportsInFlight = new Set<string>();
   let apiResizeObserver: ResizeObserver | undefined;
   let renderedAPIList: HTMLElement | undefined;
   let renderedAPIRange: VirtualWindowRange | undefined;
@@ -669,6 +681,24 @@ export function mountSidebar(
         </label>
         <button
           type="button"
+          class="icon-button collection-transfer-button"
+          data-action="import-collection"
+          data-focus="import-collection"
+          aria-label="${t("sidebar.importCollection")}"
+          aria-busy="${collectionImportInFlight ? "true" : "false"}"
+          title="${isReadOnly
+            ? t("sidebar.readOnlyAction")
+            : t("sidebar.importCollectionDescription")}"
+          ${isReadOnly || collectionImportInFlight ? "disabled" : ""}
+        >
+          ${icon(
+            collectionImportInFlight ? "spinner" : "import",
+            15,
+            collectionImportInFlight ? "spin" : "",
+          )}
+        </button>
+        <button
+          type="button"
           class="icon-button new-collection-button"
           data-action="new-collection"
           data-focus="new-collection"
@@ -725,6 +755,21 @@ export function mountSidebar(
                       ${isReadOnly ? "disabled" : ""}
                     >
                       ${icon("plus", 14)} ${t("sidebar.newCollection")}
+                    </button>
+                    <button
+                      type="button"
+                      class="button button-secondary button-sm"
+                      data-action="import-collection"
+                      data-focus="import-collection-empty"
+                      title="${isReadOnly
+                        ? t("sidebar.readOnlyAction")
+                        : t("sidebar.importCollectionDescription")}"
+                      ${isReadOnly || collectionImportInFlight
+                        ? "disabled"
+                        : ""}
+                    >
+                      ${icon("import", 14)}
+                      ${t("sidebar.importCollection")}
                     </button>
                   `}
             </div>
@@ -1282,6 +1327,160 @@ export function mountSidebar(
     });
   };
 
+  const importCollection = async (): Promise<void> => {
+    if (readOnly() || collectionImportInFlight) return;
+    collectionImportInFlight = true;
+    render();
+    try {
+      const selected = await backend.importCollectionFile();
+      if (selected.canceled) return;
+      if (selected.error) {
+        notify({
+          message: `${t("sidebar.collectionImportFailed")} ${
+            selected.error.message
+          }`,
+          tone: FEEDBACK_TONE.ERROR,
+        });
+        return;
+      }
+      const parsed = parsePostmanCollection(selected.data);
+      const summary = collectionLibraryStore
+        .getState()
+        .importCollections(parsed.batch);
+      if (!summary) {
+        throw new Error(t("sidebar.collectionImportFailed"));
+      }
+      const persisted = await waitForCollectionLibraryPersistence();
+      if (!persisted) {
+        notify({
+          message: t("sidebar.collectionImportFailed"),
+          tone: FEEDBACK_TONE.ERROR,
+        });
+        return;
+      }
+      const importedMessage = t(
+        summary.requestCount === 1
+          ? "sidebar.collectionImported.one"
+          : "sidebar.collectionImported.many",
+        { count: summary.requestCount },
+      );
+      const notices: string[] = [];
+      if (parsed.warnings.length > 0) {
+        const warningCount = parsed.warnings.reduce(
+          (total, warning) => total + warning.count,
+          0,
+        );
+        notices.push(
+          t(
+            warningCount === 1
+              ? "sidebar.collectionImportWarnings.one"
+              : "sidebar.collectionImportWarnings.many",
+            { count: warningCount },
+          ),
+        );
+        console.warn(
+          "Postman collection import warnings",
+          parsed.warnings,
+        );
+      }
+      if (summary.sanitizedSecretCount > 0) {
+        notices.push(
+          t(
+            summary.sanitizedSecretCount === 1
+              ? "sidebar.collectionImportSecrets.one"
+              : "sidebar.collectionImportSecrets.many",
+            { count: summary.sanitizedSecretCount },
+          ),
+        );
+      }
+      if (notices.length > 0) {
+        notify({
+          message: `${importedMessage} ${notices.join(" ")}`,
+          tone: FEEDBACK_TONE.WARNING,
+          durationMs: 7_000,
+        });
+      } else {
+        notify({
+          message: importedMessage,
+          tone: FEEDBACK_TONE.SUCCESS,
+        });
+      }
+    } catch (error) {
+      notify({
+        message: `${t("sidebar.collectionImportFailed")} ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        tone: FEEDBACK_TONE.ERROR,
+        durationMs: 7_000,
+      });
+    } finally {
+      collectionImportInFlight = false;
+      render();
+    }
+  };
+
+  const exportCollection = async (
+    collectionID: string,
+  ): Promise<void> => {
+    if (collectionExportsInFlight.has(collectionID)) return;
+    const library = collectionLibraryStore.getState();
+    const collection = library.collections.find(
+      (candidate) => candidate.id === collectionID,
+    );
+    if (!collection) return;
+    const requests = library.requests
+      .filter((request) => request.collectionId === collection.id)
+      .sort(bySortOrder);
+    collectionExportsInFlight.add(collectionID);
+    try {
+      const data = serializePostmanCollection(collection, requests);
+      const result = await backend.exportCollectionFile({
+        suggestedName: `${collection.name}.postman_collection.json`,
+        data,
+      });
+      if (result.canceled) return;
+      if (result.exported) {
+        if (result.error) {
+          console.warn(
+            "Collection export completed with a durability warning",
+            result.error,
+          );
+          notify({
+            message: t("sidebar.collectionExportedWithWarning", {
+              name: collection.name,
+            }),
+            tone: FEEDBACK_TONE.WARNING,
+            durationMs: 7_000,
+          });
+        } else {
+          notify({
+            message: t("sidebar.collectionExported", {
+              name: collection.name,
+            }),
+            tone: FEEDBACK_TONE.SUCCESS,
+          });
+        }
+        return;
+      }
+      notify({
+        message: `${t("sidebar.collectionExportFailed")} ${
+          result.error?.message ?? ""
+        }`.trim(),
+        tone: FEEDBACK_TONE.ERROR,
+      });
+    } catch (error) {
+      notify({
+        message: `${t("sidebar.collectionExportFailed")} ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        tone: FEEDBACK_TONE.ERROR,
+        durationMs: 7_000,
+      });
+    } finally {
+      collectionExportsInFlight.delete(collectionID);
+    }
+  };
+
   const openCollectionMenu = (
     collectionID: string,
     trigger: HTMLElement,
@@ -1322,6 +1521,14 @@ export function mountSidebar(
           icon: "settings",
           disabled: readOnly(),
           action: () => openRenameDialog(target, trigger),
+        },
+        {
+          label: t("sidebar.exportCollection"),
+          icon: "export",
+          disabled: collectionExportsInFlight.has(collection.id),
+          action: () => {
+            void exportCollection(collection.id);
+          },
         },
         { kind: "separator" },
         {
@@ -1471,6 +1678,9 @@ export function mountSidebar(
       }
       case "new-collection":
         openCreateCollectionDialog(target);
+        break;
+      case "import-collection":
+        void importCollection();
         break;
       case "toggle-collection": {
         const collectionID = target.dataset.libraryItemId;
