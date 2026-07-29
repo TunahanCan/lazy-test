@@ -3,9 +3,10 @@
 Validex maintains the application-specific Go and C glue in this directory and
 exposes only the native window operations used by `internal/canbridge`. The
 glue was derived from the WebView Go wrapper and retains its license at
-`third_party/webview_go/LICENSE`. The platform engine remains an unmodified
-upstream header because its Cocoa, GTK/WebKitGTK and Windows/WebView2
-implementations are tightly coupled.
+`third_party/webview_go/LICENSE`. The platform engine remains close to upstream
+because its Cocoa, GTK/WebKitGTK and Windows/WebView2 implementations are tightly
+coupled. The `webview.h` snapshot carries the narrow Clang compatibility patch
+documented below.
 
 Vendored snapshots:
 
@@ -13,7 +14,10 @@ Vendored snapshots:
   - Project: `webview/webview`
   - Version: 0.11.0
   - Commit: `fb6b17d826041411e6346cd9a785a5ceba7987c4`
-  - SHA-256: `8d0cb39a5228b6ce1097bded9dfb3a5d81dc434e3d621a511d69f6b719a1c663`
+  - SHA-256: `0a48d76598616ec62c27e3ded0191b8393b331dd3a5d774733dd0b6ffff75f8d`
+  - Local patch: removed the whitespace before the `_cls`, `_sel` and `_str`
+    user-defined literal suffixes. This preserves behavior while avoiding
+    Clang's `-Wdeprecated-literal-operator` diagnostic.
   - License: `third_party/webview/LICENSE`
 - `third_party/webview2/WebView2.h`
   - Project: Microsoft Edge WebView2 SDK
@@ -28,7 +32,8 @@ Vendored snapshots:
 The snapshots were previously delivered by
 `github.com/webview/webview_go` at `6173450d4dd6`, with the Linux
 `webkit2gtk-4.1` build setting taken from `github.com/lvlrt/webview_go` at
-`fc6fe8152db0`. The headers are byte-for-byte identical in those two modules.
+`fc6fe8152db0`. The upstream headers in those two modules were byte-for-byte
+identical before the compatibility patch above was applied.
 
 To verify the snapshots:
 

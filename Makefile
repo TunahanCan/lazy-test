@@ -19,10 +19,24 @@ dev:
 	@set -eu; \
 	dev_port="$$(node "$(FRONTEND_DIR)/scripts/find-port.mjs" "$(DEV_PREFERRED_PORT)")"; \
 	dev_url="http://$(DEV_HOST):$$dev_port"; \
-	cd $(FRONTEND_DIR) && node scripts/dev.mjs --host "$(DEV_HOST)" --port "$$dev_port" & \
+	( cd $(FRONTEND_DIR) && exec node scripts/dev.mjs --host "$(DEV_HOST)" --port "$$dev_port" ) & \
 	frontend_pid=$$!; \
 	windows_resource=""; \
-	trap 'kill "$$frontend_pid" 2>/dev/null || true; if [ -n "$$windows_resource" ]; then rm -f "$$windows_resource"; fi' EXIT INT TERM; \
+	cleanup() { \
+		if [ -n "$$frontend_pid" ]; then \
+			cleanup_pid="$$frontend_pid"; \
+			frontend_pid=""; \
+			kill "$$cleanup_pid" 2>/dev/null || true; \
+			wait "$$cleanup_pid" 2>/dev/null || true; \
+		fi; \
+		if [ -n "$$windows_resource" ]; then \
+			rm -f "$$windows_resource"; \
+			windows_resource=""; \
+		fi; \
+	}; \
+	trap cleanup EXIT; \
+	trap 'exit 130' INT; \
+	trap 'exit 143' TERM; \
 	attempt=0; \
 	until curl --fail --silent --show-error "$$dev_url" >/dev/null 2>&1; do \
 		attempt=$$((attempt + 1)); \

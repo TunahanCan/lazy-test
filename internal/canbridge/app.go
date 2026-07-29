@@ -185,7 +185,7 @@ func Run(options AppOptions) error {
 	if err := nativeView.Bind(nativeLogName, runtime.logBrowserMessageBinding); err != nil {
 		return fmt.Errorf("bind native canbridge logger: %w", err)
 	}
-	log.Print(canbridgeStartupBanner(
+	fmt.Fprintln(log.Writer(), "\n"+canbridgeStartupBanner(
 		options.Title,
 		targetURL,
 		options.DevURL != "",
@@ -666,30 +666,67 @@ func canbridgeStartupBanner(
 	dynamicPortFallback bool,
 ) string {
 	parsed, _ := url.Parse(targetURL)
-	mode := "production"
-	portMode := "preferred"
+	mode := "Production"
+	portMode := "preferred local port"
 	if development {
-		mode = "development"
-		portMode = "development"
+		mode = "Development"
+		portMode = "development server"
 	} else if dynamicPortFallback {
 		_, preferredPort, _ := net.SplitHostPort(productionAssetAddress)
-		portMode = "dynamic fallback; preferred " + preferredPort + " was busy"
+		portMode = "dynamic fallback · preferred " + preferredPort + " was busy"
 	}
-	return fmt.Sprintf(
-		"\n"+
-			"╭─ canbridge ─────────────────────────────────────\n"+
-			"│ %s is powered by canbridge\n"+
-			"│ Frontend  %s\n"+
-			"│ Port      %s (%s)\n"+
-			"│ Mode      %s\n"+
-			"│ Transport native WebView IPC · TypeScript ↔ Go\n"+
-			"╰─ bridge ready",
-		title,
-		targetURL,
-		parsed.Port(),
-		portMode,
-		mode,
-	)
+
+	lines := []string{
+		"Web UI. Go core. Native desktop.",
+		"",
+		"Endpoint   " + targetURL,
+		"Host       " + parsed.Hostname(),
+		"Port       " + parsed.Port() + " · " + portMode,
+		"Mode       " + mode,
+		"Transport  native WebView IPC · TypeScript ↔ Go",
+	}
+	status := "● Native bridge ready"
+	heading := "─ " + title + " · powered by canbridge "
+
+	contentWidth := 56
+	for _, line := range append(lines, status) {
+		if width := len([]rune(line)); width > contentWidth {
+			contentWidth = width
+		}
+	}
+	innerWidth := contentWidth + 4
+	if width := len([]rune(heading)); width > innerWidth {
+		innerWidth = width
+		contentWidth = innerWidth - 4
+	}
+
+	var banner strings.Builder
+	banner.WriteString("╭")
+	banner.WriteString(heading)
+	banner.WriteString(strings.Repeat("─", innerWidth-len([]rune(heading))))
+	banner.WriteString("╮\n")
+	for index, line := range lines {
+		if index == 2 {
+			banner.WriteString("├")
+			banner.WriteString(strings.Repeat("─", innerWidth))
+			banner.WriteString("┤\n")
+		}
+		banner.WriteString("│  ")
+		banner.WriteString(line)
+		banner.WriteString(strings.Repeat(" ", contentWidth-len([]rune(line))))
+		banner.WriteString("  │\n")
+	}
+	banner.WriteString("├")
+	banner.WriteString(strings.Repeat("─", innerWidth))
+	banner.WriteString("┤\n")
+	banner.WriteString("│  ")
+	banner.WriteString(status)
+	banner.WriteString(strings.Repeat(" ", contentWidth-len([]rune(status))))
+	banner.WriteString("  │\n")
+	banner.WriteString("╰")
+	banner.WriteString(strings.Repeat("─", innerWidth))
+	banner.WriteString("╯")
+	return banner.String()
 }
 
 func browserRuntime(capability string, allowedOrigin string, debug bool) string {

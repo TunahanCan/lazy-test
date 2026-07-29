@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 	"unsafe"
 
 	"validex/internal/nativewebview"
@@ -38,22 +39,81 @@ func TestAppOriginRestrictsDevelopmentBridgeToViteLoopback(t *testing.T) {
 	}
 }
 
-func TestCanbridgeStartupBannerAdvertisesSelectedURLAndPort(t *testing.T) {
-	banner := canbridgeStartupBanner(
-		"Validex",
-		"http://127.0.0.1:49152/",
-		false,
-		true,
-	)
-	for _, expected := range []string{
-		"Validex is powered by canbridge",
-		"Frontend  http://127.0.0.1:49152/",
-		"Port      49152 (dynamic fallback; preferred 34117 was busy)",
-		"Transport native WebView IPC · TypeScript ↔ Go",
+func TestCanbridgeStartupBannerAdvertisesRuntimeDetails(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name                string
+		targetURL           string
+		development         bool
+		dynamicPortFallback bool
+		expected            []string
+	}{
+		{
+			name:        "development",
+			targetURL:   "http://127.0.0.1:34116",
+			development: true,
+			expected: []string{
+				"╭─ Validex · powered by canbridge ",
+				"│  Web UI. Go core. Native desktop.",
+				"│  Endpoint   http://127.0.0.1:34116",
+				"│  Host       127.0.0.1",
+				"│  Port       34116 · development server",
+				"│  Mode       Development",
+				"│  Transport  native WebView IPC · TypeScript ↔ Go",
+				"│  ● Native bridge ready",
+			},
+		},
+		{
+			name:      "production preferred port",
+			targetURL: "http://127.0.0.1:34117/",
+			expected: []string{
+				"│  Port       34117 · preferred local port",
+				"│  Mode       Production",
+			},
+		},
+		{
+			name:                "production dynamic fallback",
+			targetURL:           "http://127.0.0.1:49152/",
+			dynamicPortFallback: true,
+			expected: []string{
+				"│  Port       49152 · dynamic fallback · preferred 34117 was busy",
+				"│  Mode       Production",
+			},
+		},
 	} {
-		if !strings.Contains(banner, expected) {
-			t.Fatalf("banner does not contain %q:\n%s", expected, banner)
-		}
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			banner := canbridgeStartupBanner(
+				"Validex",
+				test.targetURL,
+				test.development,
+				test.dynamicPortFallback,
+			)
+			if strings.HasPrefix(banner, "\n") || strings.HasSuffix(banner, "\n") {
+				t.Fatalf("banner has unexpected surrounding newline:\n%q", banner)
+			}
+			for _, expected := range test.expected {
+				if !strings.Contains(banner, expected) {
+					t.Fatalf("banner does not contain %q:\n%s", expected, banner)
+				}
+			}
+
+			lines := strings.Split(banner, "\n")
+			expectedWidth := utf8.RuneCountInString(lines[0])
+			for index, line := range lines[1:] {
+				if width := utf8.RuneCountInString(line); width != expectedWidth {
+					t.Fatalf(
+						"banner line %d width = %d, want %d:\n%s",
+						index+2,
+						width,
+						expectedWidth,
+						banner,
+					)
+				}
+			}
+		})
 	}
 }
 
