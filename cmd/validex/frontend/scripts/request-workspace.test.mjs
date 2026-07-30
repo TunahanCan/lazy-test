@@ -112,7 +112,7 @@ test("request tab keyboard navigation wraps and supports boundaries", () => {
 });
 
 test("response resizing stays bounded for pointer and keyboard input", () => {
-  assert.equal(clampResponseSize(Number.NaN), 32);
+  assert.equal(clampResponseSize(Number.NaN), 44);
   assert.equal(responseSizeFromPointer(42, 400, 200, 1_000), 62);
   assert.equal(responseSizeFromPointer(42, 400, 900, 1_000), 24);
   assert.equal(responseSizeFromKey(42, "vertical", "ArrowUp"), 44);

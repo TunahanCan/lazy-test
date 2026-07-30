@@ -5174,8 +5174,11 @@ label.diagnostics-field {
 }
 
 @container response-panel (max-width: 620px) {
-  .response-summary-secondary,
   .response-content-type {
+    display: none;
+  }
+
+  .response-summary-secondary > span {
     display: none;
   }
 }
@@ -5949,11 +5952,15 @@ label.diagnostics-field {
 }
 
 @media (max-height: 640px) {
-  .request-workbench:not(.response-horizontal) {
+  .request-workbench:not(.response-horizontal) .request-response-split {
     grid-template-rows:
-      minmax(120px, calc(100% - var(--response-size) - 4px))
+      minmax(76px, calc(100% - var(--response-size) - 4px))
       4px
-      minmax(96px, var(--response-size));
+      minmax(56px, var(--response-size));
+  }
+
+  .request-composer > .request-url-help {
+    display: none;
   }
 }
 
@@ -6532,13 +6539,26 @@ label.diagnostics-field {
 }
 
 .request-workbench {
+  display: block;
+}
+
+.request-workbench.response-horizontal {
+  grid-template-rows: none;
+  grid-template-columns: none;
+}
+
+.request-response-split {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
   grid-template-rows:
     minmax(220px, calc(100% - var(--response-size) - 4px))
     4px
     minmax(210px, var(--response-size));
+  overflow: hidden;
 }
 
-.request-workbench.response-horizontal {
+.response-horizontal .request-response-split {
   grid-template-rows: minmax(0, 1fr);
   grid-template-columns:
     minmax(280px, calc(100% - var(--response-size) - 4px))
@@ -6549,17 +6569,32 @@ label.diagnostics-field {
 .request-composer {
   container-name: request-form;
   container-type: inline-size;
-  display: flex;
+  display: grid;
+  width: 100%;
+  height: 100%;
   min-width: 0;
   min-height: 0;
-  flex-direction: column;
+  grid-template-rows: auto auto minmax(0, 1fr);
   overflow: hidden;
+}
+
+.request-composer > .request-url-row {
+  grid-row: 1;
+}
+
+.request-composer > .request-url-help,
+.request-composer > .request-validation-message {
+  grid-row: 2;
+}
+
+.request-composer > .request-response-split {
+  grid-row: 3;
 }
 
 .request-url-row {
   display: grid;
   min-width: 0;
-  grid-template-columns: 104px minmax(180px, 1fr) auto auto 34px;
+  grid-template-columns: minmax(220px, 1fr) auto auto 40px;
   align-items: center;
   gap: 8px;
   padding: 9px 12px;
@@ -6568,14 +6603,65 @@ label.diagnostics-field {
 }
 
 .response-horizontal .request-url-row {
-  grid-template-columns: 82px minmax(0, 1fr) auto auto 34px;
-  gap: 6px;
-  padding-inline: 6px;
+  grid-template-columns: minmax(220px, 1fr) auto auto 40px;
+  gap: 8px;
+  padding-inline: 12px;
+}
+
+.request-target {
+  display: grid;
+  min-width: 0;
+  height: 40px;
+  grid-template-columns: 104px minmax(0, 1fr);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-muted);
+  transition:
+    border-color var(--motion-fast),
+    background var(--motion-fast),
+    box-shadow var(--motion-fast);
+}
+
+.request-target:hover {
+  border-color: var(--border-strong);
+}
+
+.request-target:focus-within {
+  border-color: var(--focus);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 16%, transparent);
+}
+
+.request-target:has(.request-url-input[aria-invalid="true"]) {
+  border-color: var(--danger);
+}
+
+.request-target > .method-select {
+  width: 100%;
+  height: 38px;
+  border: 0;
+  border-right: 1px solid var(--border);
+  border-radius: 11px 0 0 11px;
+  background: transparent;
+}
+
+.request-target > .request-url-input {
+  height: 38px;
+  border: 0;
+  border-radius: 0 11px 11px 0;
+  background: transparent;
+}
+
+.request-target > .request-url-input:focus,
+.request-target > .request-url-input[aria-invalid="true"] {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 @container request-form (max-width: 860px) {
   .request-url-row {
-    grid-template-columns: 82px minmax(0, 1fr) minmax(84px, auto) 42px 34px;
+    grid-template-columns: minmax(0, 1fr) minmax(84px, auto) 42px 34px;
     gap: 5px;
     padding-inline: 6px;
   }
@@ -6604,35 +6690,29 @@ label.diagnostics-field {
 @container request-form (max-width: 520px) {
   .request-workbench .request-composer > .request-url-row {
     grid-template-rows: 40px 40px;
-    grid-template-columns:
-      72px minmax(0, 1fr) minmax(84px, auto) 42px 34px;
+    grid-template-columns: minmax(0, 1fr) minmax(84px, auto) 42px 34px;
     row-gap: 4px;
     padding-block: 4px;
   }
 
-  .request-url-row > .method-select {
+  .request-url-row > .request-target {
     grid-row: 1;
-    grid-column: 1;
-  }
-
-  .request-url-row > .request-url-input {
-    grid-row: 1;
-    grid-column: 2 / -1;
+    grid-column: 1 / -1;
   }
 
   .request-url-row > .send-button {
     grid-row: 2;
-    grid-column: 3;
+    grid-column: 2;
   }
 
   .request-url-row > [data-action="save-request"] {
     grid-row: 2;
-    grid-column: 4;
+    grid-column: 3;
   }
 
   .request-url-row > [data-action="request-menu"] {
     grid-row: 2;
-    grid-column: 5;
+    grid-column: 4;
   }
 
   .request-composer > .request-url-help {
@@ -7479,7 +7559,7 @@ label.diagnostics-field {
 .request-url-row {
   padding-block: 11px;
   background: var(--surface);
-  box-shadow: var(--shadow-xs);
+  box-shadow: none;
 }
 
 .request-url-input {
@@ -7508,10 +7588,10 @@ label.diagnostics-field {
 
 .request-url-help {
   display: flex;
-  min-height: 30px;
+  min-height: 25px;
   flex: 0 0 auto;
   align-items: center;
-  padding: 5px 14px;
+  padding: 3px 14px;
   border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--surface-muted) 78%, var(--surface));
   color: var(--text-muted);
@@ -7533,10 +7613,49 @@ label.diagnostics-field {
   background: var(--bg);
 }
 
+.request-response-split {
+  background: var(--surface);
+}
+
+.request-response-split .request-editor {
+  container-name: request-editor;
+  container-type: inline-size;
+}
+
+.request-response-split .request-section-content {
+  background: var(--surface);
+}
+
+.request-response-split .section-intro.compact {
+  min-height: 52px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.request-response-split .section-intro.compact > div {
+  min-width: 0;
+}
+
+.request-response-split .section-intro.compact p {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.request-response-split .section-intro.compact > .button {
+  flex: 0 0 auto;
+}
+
 .kv-editor {
   border-color: color-mix(in srgb, var(--border) 90%, transparent);
   border-radius: 14px;
   box-shadow: var(--shadow-sm);
+}
+
+.request-response-split .kv-editor {
+  margin: 12px;
+  border-radius: 9px;
+  box-shadow: none;
 }
 
 .editor-empty-state {
@@ -7567,6 +7686,12 @@ label.diagnostics-field {
 
 .section-intro.compact h2 {
   margin-bottom: 2px;
+}
+
+@container request-editor (max-width: 520px) {
+  .request-response-split .section-intro.compact p {
+    display: none;
+  }
 }
 
 .variable-key-cell {
@@ -7943,7 +8068,7 @@ label.diagnostics-field {
     align-items: flex-start;
   }
 
-  .request-workbench.response-horizontal {
+  .request-workbench.response-horizontal .request-response-split {
     grid-template-rows:
       minmax(220px, calc(100% - var(--response-size) - 4px))
       4px
@@ -8039,7 +8164,7 @@ label.diagnostics-field {
 
   .request-url-row,
   .response-horizontal .request-url-row {
-    grid-template-columns: 76px minmax(0, 1fr) minmax(84px, auto) 42px 34px;
+    grid-template-columns: minmax(0, 1fr) minmax(84px, auto) 42px 34px;
     gap: 5px;
     padding-inline: 6px;
   }

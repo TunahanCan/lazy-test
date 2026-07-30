@@ -43,7 +43,7 @@ Feature: Navigate the Validex application shell
     When I move the response panel using layout settings
     Then the response panel uses the alternate desktop placement
     When I reset the workspace layout
-    Then both request side panels and the default response placement are restored
+    Then the default spacious request layout is restored
 
   @settings @theme
   Scenario Outline: Apply every supported theme preference

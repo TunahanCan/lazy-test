@@ -2491,13 +2491,13 @@ export function mountRequestWorkspace(
       "[data-response-resizer]",
     );
     if (!separator) return;
-    const workbench = separator.closest<HTMLElement>(".request-workbench");
-    if (!workbench) return;
+    const split = separator.closest<HTMLElement>(".request-response-split");
+    if (!split) return;
     const placement =
       separator.dataset.responsePlacement === "horizontal"
         ? "horizontal"
         : "vertical";
-    const bounds = workbench.getBoundingClientRect();
+    const bounds = split.getBoundingClientRect();
     const containerExtent =
       placement === "vertical" ? bounds.height : bounds.width;
     if (containerExtent <= 0) return;

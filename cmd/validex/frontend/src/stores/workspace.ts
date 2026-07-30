@@ -401,7 +401,7 @@ export const workspaceStore = createPersistedStore<WorkspaceState>(
       leftWidth: 264,
       rightWidth: 292,
       responseSize: responseSizeDefault,
-      responsePlacement: "vertical",
+      responsePlacement: "horizontal",
       activeView: "requests",
       theme: "system",
       commandPaletteOpen: false,
@@ -608,11 +608,11 @@ export const workspaceStore = createPersistedStore<WorkspaceState>(
       resetLayout: () =>
         set({
           leftVisible: true,
-          rightVisible: true,
+          rightVisible: false,
           leftWidth: 264,
           rightWidth: 292,
           responseSize: responseSizeDefault,
-          responsePlacement: "vertical",
+          responsePlacement: "horizontal",
         }),
       setTheme: (theme) => set({ theme }),
       setCommandPaletteOpen: (commandPaletteOpen) =>
@@ -646,7 +646,7 @@ export const workspaceStore = createPersistedStore<WorkspaceState>(
     }),
   {
     name: workspaceStorageKey,
-    version: 7,
+    version: 8,
     storage: localStorageStateStorage(),
     migrate: (persistedState, persistedVersion) => {
       const state = persistedState as Partial<WorkspaceState>;
@@ -655,6 +655,15 @@ export const workspaceStore = createPersistedStore<WorkspaceState>(
       const resetBlankStarter =
         persistedVersion < 4 && isUntouchedStarterRequest(state.tabs);
       const resetToWelcome = resetLegacyDemo || resetBlankStarter;
+      const adoptSpaciousResponseLayout =
+        persistedVersion < 8 &&
+        (state.responsePlacement === undefined ||
+          state.responsePlacement === "vertical") &&
+        (state.responseSize === undefined || state.responseSize === 32);
+      const adoptSpaciousPanelLayout =
+        adoptSpaciousResponseLayout &&
+        state.leftVisible === true &&
+        state.rightVisible === true;
       const tabs = resetToWelcome ? [] : persistedTabs(state.tabs);
       return {
         ...state,
@@ -683,7 +692,18 @@ export const workspaceStore = createPersistedStore<WorkspaceState>(
           : (state.leftVisible ?? true),
         rightVisible: resetToWelcome
           ? false
-          : (state.rightVisible ?? false),
+          : adoptSpaciousPanelLayout
+            ? false
+            : (state.rightVisible ?? false),
+        responseSize: adoptSpaciousResponseLayout
+          ? responseSizeDefault
+          : (state.responseSize ?? responseSizeDefault),
+        responsePlacement: adoptSpaciousResponseLayout
+          ? "horizontal"
+          : state.responsePlacement === "vertical" ||
+              state.responsePlacement === "horizontal"
+            ? state.responsePlacement
+            : "horizontal",
         sidebarSection: "requests",
         latestImportedSpec: undefined,
       } as WorkspaceState;

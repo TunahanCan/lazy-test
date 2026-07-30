@@ -270,6 +270,14 @@ function headersMarkup(
           </h2>
           <p>${t("requests.editor.headers.description")}</p>
         </div>
+        <button
+          type="button"
+          class="button ghost sm"
+          data-action="add-header"
+          ${disabled ? "disabled" : ""}
+        >
+          ${icon("plus", 13)} ${t("requests.editor.headers.add")}
+        </button>
       </header>
       <div
         class="kv-editor request-headers-editor"
@@ -355,14 +363,6 @@ function headersMarkup(
             </div>
           `,
         )}
-        <button
-          type="button"
-          class="button ghost sm"
-          data-action="add-header"
-          ${disabled ? "disabled" : ""}
-        >
-          ${icon("plus", 13)} ${t("requests.editor.headers.add")}
-        </button>
       </div>
     </section>
   `;
@@ -383,6 +383,14 @@ function paramsMarkup(
           <h2 id="query-params-title">${t("requests.editor.query.title")}</h2>
           <p>${t("requests.editor.query.description")}</p>
         </div>
+        <button
+          type="button"
+          class="button ghost sm"
+          data-action="add-query"
+          ${disabled ? "disabled" : ""}
+        >
+          ${icon("plus", 13)} ${t("requests.editor.query.add")}
+        </button>
       </header>
       <div
         class="kv-editor query-params-editor"
@@ -439,14 +447,6 @@ function paramsMarkup(
             </div>
           `,
         )}
-        <button
-          type="button"
-          class="button ghost sm"
-          data-action="add-query"
-          ${disabled ? "disabled" : ""}
-        >
-          ${icon("plus", 13)} ${t("requests.editor.query.add")}
-        </button>
       </div>
     </section>
   `;
@@ -626,7 +626,7 @@ function editorMarkup(
     (header) => header.enabled && header.key,
   ).length;
   return html`
-    <div class="request-editor">
+    <div class="request-editor" id="request-editor-${tab.id}">
       <div
         class="request-section-tabs"
         role="tablist"
@@ -801,45 +801,47 @@ export function workbenchMarkup({
           role="group"
           aria-label="${t("requests.workbench.composer")}"
         >
-          <select
-            name="method"
-            class="method-select method-${isStandardHTTPMethod(draft.method)
-              ? draft.method.toLowerCase()
-              : "custom"}"
-            aria-label="${t("requests.editor.method.select")}"
-            ${tab.running ? "disabled" : ""}
-          >
-            ${isStandardHTTPMethod(draft.method)
-              ? ""
-              : html`
-                  <option value="${draft.method}" selected>
-                    ${draft.method}
+          <div class="request-target">
+            <select
+              name="method"
+              class="method-select method-${isStandardHTTPMethod(draft.method)
+                ? draft.method.toLowerCase()
+                : "custom"}"
+              aria-label="${t("requests.editor.method.select")}"
+              ${tab.running ? "disabled" : ""}
+            >
+              ${isStandardHTTPMethod(draft.method)
+                ? ""
+                : html`
+                    <option value="${draft.method}" selected>
+                      ${draft.method}
+                    </option>
+                  `}
+              ${HTTP_METHODS.map(
+                (method) => html`
+                  <option value="${method}" ${method === draft.method ? "selected" : ""}>
+                    ${method}
                   </option>
-                `}
-            ${HTTP_METHODS.map(
-              (method) => html`
-                <option value="${method}" ${method === draft.method ? "selected" : ""}>
-                  ${method}
-                </option>
-              `,
-            )}
-          </select>
-          <input
-            name="url"
-            class="request-url-input"
-            value="${draft.url}"
-            placeholder="${t("requests.workbench.urlPlaceholder")}"
-            aria-label="${t("requests.workbench.url")}"
-            aria-invalid="${visibleValidationError ? "true" : "false"}"
-            aria-describedby="${visibleValidationError ||
-            unresolvedVariables.length > 0
-              ? `request-validation-${tab.id}`
-              : `request-url-help-${tab.id}`}"
-            autocomplete="url"
-            autocapitalize="off"
-            spellcheck="false"
-            ${tab.running ? "disabled" : ""}
-          />
+                `,
+              )}
+            </select>
+            <input
+              name="url"
+              class="request-url-input"
+              value="${draft.url}"
+              placeholder="${t("requests.workbench.urlPlaceholder")}"
+              aria-label="${t("requests.workbench.url")}"
+              aria-invalid="${visibleValidationError ? "true" : "false"}"
+              aria-describedby="${visibleValidationError ||
+              unresolvedVariables.length > 0
+                ? `request-validation-${tab.id}`
+                : `request-url-help-${tab.id}`}"
+              autocomplete="url"
+              autocapitalize="off"
+              spellcheck="false"
+              ${tab.running ? "disabled" : ""}
+            />
+          </div>
           ${tab.running
             ? html`
                 <button
@@ -935,40 +937,42 @@ export function workbenchMarkup({
                 </div>
               `
             : ""}
-        ${editorMarkup(tab, draft, variables)}
+        <div class="request-response-split">
+          ${editorMarkup(tab, draft, variables)}
+          <p class="sr-only" id="response-resize-help-${tab.id}">
+            ${t("requests.workbench.resizeInstructions")}
+          </p>
+          <div
+            class="response-resizer"
+            data-response-resizer
+            data-response-placement="${responsePlacement}"
+            role="separator"
+            tabindex="0"
+            aria-orientation="${responsePlacement === "vertical"
+              ? "horizontal"
+              : "vertical"}"
+            aria-label="${t("requests.workbench.resize")}"
+            aria-describedby="response-resize-help-${tab.id}"
+            aria-controls="request-editor-${tab.id} response-pane-${tab.id}"
+            aria-valuemin="${responseSizeMinimum}"
+            aria-valuemax="${responseSizeMaximum}"
+            aria-valuenow="${Math.round(normalizedResponseSize)}"
+            aria-valuetext="${t("requests.workbench.resizeValue", {
+              value: Math.round(normalizedResponseSize),
+            })}"
+            title="${t("requests.workbench.resizeInstructions")}"
+          >
+            <span></span>
+          </div>
+          <div
+            class="response-pane"
+            id="response-pane-${tab.id}"
+            aria-busy="${tab.running ? "true" : "false"}"
+          >
+            ${responsePanelMarkup(tab)}
+          </div>
+        </div>
       </form>
-      <p class="sr-only" id="response-resize-help-${tab.id}">
-        ${t("requests.workbench.resizeInstructions")}
-      </p>
-      <div
-        class="response-resizer"
-        data-response-resizer
-        data-response-placement="${responsePlacement}"
-        role="separator"
-        tabindex="0"
-        aria-orientation="${responsePlacement === "vertical"
-          ? "horizontal"
-          : "vertical"}"
-        aria-label="${t("requests.workbench.resize")}"
-        aria-describedby="response-resize-help-${tab.id}"
-        aria-controls="request-composer-${tab.id} response-pane-${tab.id}"
-        aria-valuemin="${responseSizeMinimum}"
-        aria-valuemax="${responseSizeMaximum}"
-        aria-valuenow="${Math.round(normalizedResponseSize)}"
-        aria-valuetext="${t("requests.workbench.resizeValue", {
-          value: Math.round(normalizedResponseSize),
-        })}"
-        title="${t("requests.workbench.resizeInstructions")}"
-      >
-        <span></span>
-      </div>
-      <div
-        class="response-pane"
-        id="response-pane-${tab.id}"
-        aria-busy="${tab.running ? "true" : "false"}"
-      >
-        ${responsePanelMarkup(tab)}
-      </div>
     </section>
   `;
 }

@@ -1,0 +1,30 @@
+{
+  "name": "validex-desktop",
+  "version": "0.2.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "electron/dist/main.js",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "frontend:typecheck": "node frontend/scripts/typecheck.mjs",
+    "frontend:build": "node frontend/scripts/build.mjs",
+    "frontend:test": "npm run frontend:build && cd frontend && node --test",
+    "frontend:dev": "node frontend/scripts/dev.mjs --host 127.0.0.1 --port 34116",
+    "electron:typecheck": "tsc -p electron/tsconfig.json --noEmit",
+    "electron:build": "tsc -p electron/tsconfig.json",
+    "electron:test": "npm run electron:build && node --test electron/dist/*.test.js",
+    "electron:start": "electron .",
+    "electron:dev": "npm run electron:build && electron . --dev-url=http://127.0.0.1:34116",
+    "typecheck": "npm run frontend:typecheck && npm run electron:typecheck",
+    "build": "npm run frontend:build && npm run electron:build",
+    "test": "npm run frontend:test && npm run electron:test",
+    "postinstall": "node node_modules/electron/install.js",
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "43.2.0",
+    "typescript": "5.9.3"
+  }
+}

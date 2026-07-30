@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import {
   readFile,
   readdir,
@@ -7,17 +6,14 @@ import {
 import {
   dirname,
   extname,
-  isAbsolute,
   join,
-  relative,
   resolve,
-  sep,
 } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const vendorRoot = join(projectRoot, "third_party", "typescript");
+const desktopRoot = resolve(projectRoot, "..");
 
 async function json(path) {
   return JSON.parse(await readFile(path, "utf8"));
@@ -33,143 +29,91 @@ async function sourceFiles(directory) {
   return output;
 }
 
-function containedPath(parent, candidate) {
-  const fromParent = relative(parent, candidate);
-  return (
-    fromParent !== "" &&
-    fromParent !== ".." &&
-    !fromParent.startsWith(`..${sep}`) &&
-    !isAbsolute(fromParent)
-  );
-}
-
-test("frontend package metadata has no package-manager surface", async () => {
-  assert.deepEqual(
-    await json(join(projectRoot, "package.json")),
-    {
-      name: "validex-frontend",
-      private: true,
-      version: "0.2.0",
-      type: "module",
-      engines: {
-        node: ">=20",
-      },
+test("desktop npm metadata keeps only Electron and TypeScript direct dependencies", async () => {
+  const frontendManifest = await json(join(projectRoot, "package.json"));
+  assert.deepEqual(frontendManifest, {
+    name: "validex-frontend",
+    private: true,
+    version: "0.2.0",
+    type: "module",
+    engines: {
+      node: ">=20",
     },
-  );
+  });
 
-  for (const lockName of ["package-lock.json", "npm-shrinkwrap.json"]) {
-    await assert.rejects(
-      readFile(join(projectRoot, lockName)),
-      { code: "ENOENT" },
-    );
-  }
-});
-
-test("TypeScript compiler is pinned, licensed, and checksummed in-tree", async () => {
-  const manifest = await json(join(vendorRoot, "package.json"));
-  assert.equal(manifest.name, "typescript");
-  assert.equal(manifest.version, "5.9.3");
-  assert.equal(manifest.license, "Apache-2.0");
-  assert.equal(manifest.private, true);
-  assert.equal(manifest.type, "commonjs");
-  assert.match(
-    manifest._validexNotice,
-    /package metadata was reduced/,
-  );
+  const desktopManifest = await json(join(desktopRoot, "package.json"));
+  assert.equal(desktopManifest.private, true);
+  assert.equal(desktopManifest.type, "commonjs");
+  assert.equal(desktopManifest.main, "electron/dist/main.js");
+  assert.deepEqual(desktopManifest.devDependencies, {
+    electron: "43.2.0",
+    typescript: "5.9.3",
+  });
   for (const dependencyField of [
     "dependencies",
-    "devDependencies",
     "optionalDependencies",
     "peerDependencies",
     "bundledDependencies",
-    "scripts",
-    "packageManager",
   ]) {
     assert.equal(
-      Object.hasOwn(manifest, dependencyField),
+      Object.hasOwn(desktopManifest, dependencyField),
       false,
-      `vendored compiler metadata exposes ${dependencyField}`,
+      `desktop package exposes direct ${dependencyField}`,
     );
   }
 
-  const license = await readFile(join(vendorRoot, "LICENSE.txt"), "utf8");
-  const thirdPartyNotice = await readFile(
-    join(vendorRoot, "ThirdPartyNoticeText.txt"),
-    "utf8",
-  );
-  assert.match(license, /Apache License/);
-  assert.ok(thirdPartyNotice.trim().length > 0);
+  const lock = await json(join(desktopRoot, "package-lock.json"));
+  assert.deepEqual(lock.packages[""].devDependencies, {
+    electron: "43.2.0",
+    typescript: "5.9.3",
+  });
+  assert.equal(lock.packages["node_modules/electron"].version, "43.2.0");
+  assert.equal(lock.packages["node_modules/typescript"].version, "5.9.3");
 
-  const checksumLines = (
-    await readFile(join(vendorRoot, "SHA256SUMS"), "utf8")
-  ).trim().split("\n");
-  assert.ok(checksumLines.length > 0);
-
-  const checkedFiles = new Set();
-  for (const line of checksumLines) {
-    const match = /^([a-f0-9]{64}) {2}(.+)$/.exec(line);
-    assert.ok(match, `invalid SHA256SUMS line: ${line}`);
-    const [, expectedHash, listedPath] = match;
-    assert.equal(isAbsolute(listedPath), false);
-    const candidate = resolve(vendorRoot, listedPath);
-    assert.ok(
-      containedPath(vendorRoot, candidate),
-      `checksum path escapes vendor directory: ${listedPath}`,
-    );
-
-    const contents = await readFile(candidate);
-    assert.equal(
-      createHash("sha256").update(contents).digest("hex"),
-      expectedHash,
-      `checksum mismatch: ${listedPath}`,
-    );
-    checkedFiles.add(
-      listedPath.startsWith("./") ? listedPath.slice(2) : listedPath,
-    );
-  }
-
-  for (const requiredPath of [
-    "bin/tsc",
-    "lib/_tsc.js",
-    "package.json",
-    "LICENSE.txt",
-    "ThirdPartyNoticeText.txt",
+  for (const nestedMetadata of [
+    join(projectRoot, "package-lock.json"),
+    join(projectRoot, "npm-shrinkwrap.json"),
+    join(desktopRoot, "electron", "package.json"),
+    join(desktopRoot, "electron", "package-lock.json"),
   ]) {
-    assert.ok(
-      checkedFiles.has(requiredPath),
-      `SHA256SUMS does not cover ${requiredPath}`,
-    );
+    await assert.rejects(readFile(nestedMetadata), { code: "ENOENT" });
   }
-
-  const vendoredFiles = (await sourceFiles(vendorRoot))
-    .map((path) => relative(vendorRoot, path))
-    .filter((path) => path !== "SHA256SUMS")
-    .sort();
-  assert.deepEqual(
-    [...checkedFiles].sort(),
-    vendoredFiles,
-    "SHA256SUMS must cover every vendored TypeScript file",
-  );
 });
 
-test("frontend tooling and application source never resolve installed packages", async () => {
-  const files = [
-    ...await sourceFiles(join(projectRoot, "src")),
-    ...(
-      await sourceFiles(join(projectRoot, "scripts"))
-    ).filter((path) => !path.endsWith(".test.mjs")),
-  ];
-  const installedPackageDirectory = new RegExp(
-    ["node", "modules"].join("_"),
+test("frontend tooling resolves the pinned npm TypeScript installation", async () => {
+  const installedManifest = await json(
+    join(desktopRoot, "node_modules", "typescript", "package.json"),
+  );
+  assert.equal(installedManifest.version, "5.9.3");
+  assert.equal(installedManifest.license, "Apache-2.0");
+
+  await assert.rejects(
+    readdir(join(projectRoot, "third_party", "typescript")),
+    { code: "ENOENT" },
   );
 
-  for (const path of files) {
-    assert.doesNotMatch(
-      await readFile(path, "utf8"),
-      installedPackageDirectory,
-      path,
-    );
-  }
+  const buildScript = await readFile(
+    join(projectRoot, "scripts", "build.mjs"),
+    "utf8",
+  );
+  assert.match(
+    buildScript,
+    /["']node_modules["'][\s\S]*["']typescript["'][\s\S]*["']bin["'][\s\S]*["']tsc["']/,
+  );
+  assert.match(
+    await readFile(
+      join(projectRoot, "scripts", "typecheck.mjs"),
+      "utf8",
+    ),
+    /\.\.\/\.\.\/node_modules\/typescript\/lib\/tsc\.js/,
+  );
+  assert.match(
+    await readFile(
+      join(projectRoot, "scripts", "package-typescript.mjs"),
+      "utf8",
+    ),
+    /from ["']typescript["']/,
+  );
 });
 
 test("frontend application source uses TypeScript without JavaScript or JSX", async () => {

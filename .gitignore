@@ -1,7 +1,9 @@
 .DS_Store
 
-# Local frontend dependencies and generated artifacts
+# Local desktop dependencies and generated artifacts
+cmd/validex/node_modules/
 cmd/validex/frontend/node_modules/
+cmd/validex/electron/dist/
 cmd/validex/frontend/.typescript-build/
 cmd/validex/frontend/.dev-dist/
 cmd/validex/frontend/dist/*
@@ -9,4 +11,6 @@ cmd/validex/frontend/dist/*
 
 # Platform build outputs
 cmd/validex/build/bin/
+cmd/validex/build/Validex.icns
+cmd/validex/build/Validex.iconset/
 cmd/validex/app_*.syso

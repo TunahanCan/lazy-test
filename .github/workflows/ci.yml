@@ -17,18 +17,21 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "22.12.0"
+          cache: npm
+          cache-dependency-path: cmd/validex/package-lock.json
 
-      - name: Verify vendored TypeScript
-        working-directory: cmd/validex/frontend/third_party/typescript
-        run: sha256sum -c SHA256SUMS
+      - name: Install desktop dependencies
+        working-directory: cmd/validex
+        run: npm ci
 
-      - name: Check frontend
-        working-directory: cmd/validex/frontend
+      - name: Check TypeScript
+        working-directory: cmd/validex
         run: |
-          node scripts/typecheck.mjs
-          node scripts/build.mjs
-          node --test
+          npm run frontend:typecheck
+          npm run electron:typecheck
+          npm run frontend:test
+          npm run electron:test
 
       - name: Test Go packages
         run: |
@@ -37,10 +40,6 @@ jobs:
 
       - name: Race-check Go packages
         run: go test -race ./...
-
-      - name: Verify vendored native sources
-        working-directory: internal/nativewebview
-        run: sha256sum -c SHA256SUMS
 
   browser-e2e:
     runs-on: ubuntu-24.04
@@ -57,7 +56,13 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "22.12.0"
+          cache: npm
+          cache-dependency-path: cmd/validex/package-lock.json
+
+      - name: Install desktop dependencies
+        working-directory: cmd/validex
+        run: npm ci
 
       - name: Verify browser runtime
         run: google-chrome --version
@@ -73,7 +78,7 @@ jobs:
           path: tests/e2e/artifacts/
           if-no-files-found: ignore
 
-  native-macos:
+  package-macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -85,20 +90,39 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "22.12.0"
+          cache: npm
+          cache-dependency-path: cmd/validex/package-lock.json
 
-      - name: Test native bridge
-        run: |
-          go test -tags canbridge ./internal/nativewebview ./internal/canbridge ./cmd/validex
-          go vet -tags canbridge ./internal/nativewebview ./internal/canbridge ./cmd/validex
+      - name: Install desktop dependencies
+        working-directory: cmd/validex
+        run: npm ci
 
-      - name: Build native application
+      - name: Build Electron application
         run: make build
 
-      - name: Verify desktop notices
-        run: test -f cmd/validex/build/bin/Validex.app/Contents/Resources/THIRD_PARTY_NOTICES.md
+      - name: Verify packaged application
+        run: |
+          resources="cmd/validex/build/bin/Validex.app/Contents/Resources"
+          test -x "cmd/validex/build/bin/Validex.app/Contents/MacOS/Validex"
+          test -x "cmd/validex/build/bin/validex-cli"
+          test -s "$resources/frontend/index.html"
+          test -s "$resources/frontend/appicon.png"
+          test -s "$resources/frontend/appicon.svg"
+          test -s "$resources/app/electron/dist/identity.js"
+          test -s "$resources/validex-backend"
+          test -s "$resources/validex.icns"
+          test ! -e "$resources/electron.icns"
+          test -s "$resources/THIRD_PARTY_NOTICES.md"
+          test -s "$resources/LICENSE.electron"
+          test -s "$resources/LICENSES.chromium.html"
+          test "$(
+            plutil -extract CFBundleIconFile raw \
+              "cmd/validex/build/bin/Validex.app/Contents/Info.plist"
+          )" = "validex.icns"
+          cmp "cmd/validex/build/Validex.icns" "$resources/validex.icns"
 
-  native-linux:
+  package-linux:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -110,33 +134,38 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "22.12.0"
+          cache: npm
+          cache-dependency-path: cmd/validex/package-lock.json
 
-      - name: Build frontend
-        working-directory: cmd/validex/frontend
-        run: node scripts/build.mjs
+      - name: Install desktop dependencies
+        working-directory: cmd/validex
+        run: npm ci
 
-      - name: Install native WebView development libraries
+      - name: Build Electron application
+        run: make build
+
+      - name: Verify packaged application
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends \
-            g++ \
-            pkg-config \
-            libgtk-3-dev \
-            libwebkit2gtk-4.1-dev
+          resources="cmd/validex/build/bin/Validex/resources"
+          test -x "cmd/validex/build/bin/Validex/validex"
+          test -x "cmd/validex/build/bin/validex-cli"
+          test -s "$resources/frontend/index.html"
+          test -s "$resources/frontend/appicon.png"
+          test -s "$resources/frontend/appicon.svg"
+          test -s "$resources/app/electron/dist/identity.js"
+          test -s "$resources/validex-backend"
+          test -s "$resources/THIRD_PARTY_NOTICES.md"
+          test -s "$resources/LICENSE.electron"
+          test -s "$resources/LICENSES.chromium.html"
+          ldd "cmd/validex/build/bin/Validex/validex" |
+            tee "$RUNNER_TEMP/validex-ldd.txt"
+          if grep -F "not found" "$RUNNER_TEMP/validex-ldd.txt"; then
+            exit 1
+          fi
 
-      - name: Test and build native application
-        run: |
-          go test -tags canbridge ./internal/nativewebview ./internal/canbridge ./cmd/validex
-          go vet -tags canbridge ./internal/nativewebview ./internal/canbridge ./cmd/validex
-          go build -tags canbridge -o "${RUNNER_TEMP}/validex" ./cmd/validex
-
-  native-windows:
+  package-windows:
     runs-on: windows-2022
-    env:
-      CGO_ENABLED: "1"
-      CC: gcc
-      CXX: g++
     steps:
       - uses: actions/checkout@v4
 
@@ -147,19 +176,57 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "22.12.0"
+          cache: npm
+          cache-dependency-path: cmd/validex/package-lock.json
 
-      - name: Build frontend
-        working-directory: cmd/validex/frontend
-        run: node scripts/build.mjs
+      - name: Install desktop dependencies
+        working-directory: cmd/validex
+        run: npm ci
 
-      - name: Verify MinGW toolchain
+      - name: Build Electron application
+        shell: pwsh
         run: |
-          gcc --version
-          g++ --version
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          New-Item -ItemType Directory -Force `
+            "cmd/validex/build/bin" | Out-Null
+          go build -o `
+            "cmd/validex/build/bin/validex-backend.exe" `
+            ./cmd/validex-backend
+          go build -o `
+            "cmd/validex/build/bin/validex-cli.exe" `
+            ./cmd/validex-cli
+          try {
+            Push-Location cmd/validex
+            npm run build
+          }
+          finally {
+            Pop-Location
+          }
+          node cmd/validex/scripts/package-electron.mjs
 
-      - name: Test and build native application
+      - name: Verify packaged application
+        shell: pwsh
         run: |
-          go test -tags canbridge ./internal/nativewebview ./internal/canbridge ./cmd/validex
-          go vet -tags canbridge ./internal/nativewebview ./internal/canbridge ./cmd/validex
-          go build -tags canbridge -ldflags="-H windowsgui" -o "${env:RUNNER_TEMP}\validex.exe" ./cmd/validex
+          $resources = "cmd/validex/build/bin/Validex/resources"
+          $expected = @(
+            "cmd/validex/build/bin/Validex/validex.exe",
+            "cmd/validex/build/bin/validex-cli.exe",
+            "$resources/frontend/index.html",
+            "$resources/frontend/appicon.png",
+            "$resources/frontend/appicon.svg",
+            "$resources/app/electron/dist/identity.js",
+            "$resources/validex-backend.exe",
+            "$resources/THIRD_PARTY_NOTICES.md",
+            "$resources/LICENSE.electron",
+            "$resources/LICENSES.chromium.html"
+          )
+          foreach ($path in $expected) {
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+              throw "Missing packaged file: $path"
+            }
+            if ((Get-Item -LiteralPath $path).Length -eq 0) {
+              throw "Empty packaged file: $path"
+            }
+          }

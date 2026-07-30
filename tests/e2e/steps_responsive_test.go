@@ -255,19 +255,12 @@ func (w *browserWorld) responsiveOpenRequestWithResponse() error {
 	if err := w.responsiveCompleteActiveRequest(); err != nil {
 		return err
 	}
-	// The responsive contract intentionally starts from the optional desktop
-	// side-by-side response preference. The workspace itself must collapse that
-	// preference to a bottom response at narrow widths.
-	if err := w.shellOpenSettings(); err != nil {
-		return err
-	}
-	if err := w.shellClickMenuItem("response:"); err != nil {
-		return err
-	}
+	// Fresh workspaces prefer the desktop side-by-side response. The workspace
+	// itself must collapse that default to a bottom response at narrow widths.
 	return shellPoll(
 		w,
 		`Boolean(document.querySelector(".request-workbench"))`,
-		"request workbench did not render after changing response placement",
+		"request workbench did not render with the default response placement",
 	)
 }
 
@@ -1583,7 +1576,7 @@ func (w *browserWorld) responsiveResizePanelsWithKeyboard() error {
 	if err := responsiveResizeSeparator(
 		w,
 		`[data-resizer="right"]`,
-		kb.ArrowLeft,
+		kb.ArrowRight,
 		"right",
 	); err != nil {
 		return err
@@ -1591,7 +1584,7 @@ func (w *browserWorld) responsiveResizePanelsWithKeyboard() error {
 	return responsiveResizeSeparator(
 		w,
 		`[data-response-resizer]`,
-		kb.ArrowUp,
+		kb.ArrowLeft,
 		"response",
 	)
 }

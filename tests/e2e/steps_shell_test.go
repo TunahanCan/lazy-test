@@ -90,7 +90,7 @@ func registerShellSteps(context *godog.ScenarioContext, world *browserWorld) {
 		world.shellResetWorkspaceLayout,
 	)
 	context.Step(
-		`^both request side panels and the default response placement are restored$`,
+		`^the default spacious request layout is restored$`,
 		world.shellDefaultLayoutIsRestored,
 	)
 	context.Step(
@@ -551,8 +551,8 @@ func (w *browserWorld) shellDefaultLayoutIsRestored() error {
 			const right = document.querySelector("[data-right-panel]");
 			const workbench = document.querySelector(".request-workbench");
 			return left?.getAttribute("aria-hidden") === "false" &&
-				right?.getAttribute("aria-hidden") === "false" &&
-				workbench?.classList.contains("response-vertical");
+				right?.getAttribute("aria-hidden") === "true" &&
+				workbench?.classList.contains("response-horizontal");
 		})()`,
 		"default request workspace layout was not restored",
 	)

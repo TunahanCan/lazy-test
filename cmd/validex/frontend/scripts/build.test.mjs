@@ -50,21 +50,22 @@ if (sourceMaps) {
 `;
 
 async function buildFixture() {
-  const root = await mkdtemp(
+  const packageRoot = await mkdtemp(
     join(tmpdir(), "validex-typescript-build-"),
   );
+  const root = join(packageRoot, "frontend");
   await mkdir(
-    join(root, "third_party", "typescript", "bin"),
+    join(packageRoot, "node_modules", "typescript", "bin"),
     { recursive: true },
   );
-  await mkdir(join(root, "src"));
+  await mkdir(join(root, "src"), { recursive: true });
   await mkdir(join(root, "public"));
   await mkdir(join(root, ".typescript-build", "esm"), {
     recursive: true,
   });
   await mkdir(join(root, "dist"));
   await writeFile(
-    join(root, "third_party", "typescript", "bin", "tsc"),
+    join(packageRoot, "node_modules", "typescript", "bin", "tsc"),
     fakeCompiler,
   );
   await writeFile(
@@ -96,7 +97,7 @@ async function buildFixture() {
   return root;
 }
 
-test("builds a production artifact with vendored tsc and no source maps", async () => {
+test("builds a production artifact with npm TypeScript and no source maps", async () => {
   const root = await buildFixture();
   const result = await buildTypeScriptSite({
     projectRoot: root,
@@ -192,7 +193,14 @@ test("can retain compiler source maps for the development build", async () => {
 test("preserves the previous artifact when the compiler fails", async () => {
   const root = await buildFixture();
   await writeFile(
-    join(root, "third_party", "typescript", "bin", "tsc"),
+    join(
+      root,
+      "..",
+      "node_modules",
+      "typescript",
+      "bin",
+      "tsc",
+    ),
     "process.exit(7);\n",
   );
 

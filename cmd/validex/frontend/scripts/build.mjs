@@ -78,7 +78,8 @@ export function buildPaths(
     buildDirectory,
     compiler: join(
       root,
-      "third_party",
+      "..",
+      "node_modules",
       "typescript",
       "bin",
       "tsc",

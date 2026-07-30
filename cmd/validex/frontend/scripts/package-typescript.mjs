@@ -25,7 +25,7 @@ import {
 } from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-import ts from "../third_party/typescript/lib/typescript.js";
+import ts from "typescript";
 
 const moduleExtensions = new Set([".js", ".mjs"]);
 const emittedFileExtensions = new Set([".js", ".mjs", ".map"]);

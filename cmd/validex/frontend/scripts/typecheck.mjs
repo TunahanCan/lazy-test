@@ -1,5 +1,13 @@
 #!/usr/bin/env node
 
-// TypeScript is vendored so type checking is deterministic and offline.
-// The upstream CLI reads the original arguments directly from process.argv.
-await import("../third_party/typescript/lib/tsc.js");
+import { fileURLToPath } from "node:url";
+
+// TypeScript is installed by the desktop package one directory above the
+// frontend. The upstream CLI reads the original arguments from process.argv.
+if (process.argv.length === 2) {
+  process.argv.push(
+    "-p",
+    fileURLToPath(new URL("../tsconfig.json", import.meta.url)),
+  );
+}
+await import("../../node_modules/typescript/lib/tsc.js");

@@ -1,8 +1,7 @@
 # Third-party notices
 
-The Validex repository contains or derives from the following third-party
-source snapshots. This notice is distributed with the native desktop
-artifact.
+Validex uses the following third-party software. This notice is distributed
+with the desktop runtime.
 
 ## TypeScript
 
@@ -11,15 +10,14 @@ artifact.
 - Source: <https://github.com/microsoft/TypeScript/tree/v5.9.3>
 - Package artifact:
   <https://registry.npmjs.org/typescript/-/typescript-5.9.3.tgz>
-- Vendored directory: `cmd/validex/frontend/third_party/typescript`
+- Installation: npm installs the package according to
+  `cmd/validex/package-lock.json`; TypeScript is not vendored in the repository
 - Use: build-only TypeScript compiler; it is not included in the generated
-  frontend or native application runtime
+  frontend or packaged desktop runtime
 - License: Apache License 2.0
 
-The upstream `LICENSE.txt` and `ThirdPartyNoticeText.txt` files are retained in
-the vendored directory. The published `package.json` was reduced to private
-CommonJS metadata for the npm-free build; compiler and declaration sources are
-unchanged.
+The installed npm package contains the upstream `LICENSE.txt` and
+`ThirdPartyNoticeText.txt` files.
 
 ```text
 Apache License
@@ -187,102 +185,51 @@ accepting any such warranty or additional liability.
 END OF TERMS AND CONDITIONS
 ```
 
-## webview
+## Electron
 
-- Project: `webview/webview`
-- Version: 0.11.0
-- Source commit: `fb6b17d826041411e6346cd9a785a5ceba7987c4`
-- Vendored file: `internal/nativewebview/third_party/webview/webview.h`
+- Project: Electron
+- Version: 43.2.0
+- Source: <https://github.com/electron/electron/tree/v43.2.0>
+- Package artifact:
+  <https://registry.npmjs.org/electron/-/electron-43.2.0.tgz>
+- Installation: npm installs the package according to
+  `cmd/validex/package-lock.json`
+- Use: desktop shell and packaged Chromium runtime
+- License: MIT
 
-```text
-MIT License
-
-Copyright (c) 2017 Serge Zaitsev
-Copyright (c) 2022 Steffen André Langnes
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
-## Microsoft Edge WebView2 SDK header
-
-- Project: Microsoft Edge WebView2 SDK
-- Version: 1.0.1150.38
-- Vendored file:
-  `internal/nativewebview/third_party/webview2/WebView2.h`
+The packaged desktop runtime includes this license as `LICENSE.electron`.
 
 ```text
-Copyright (C) Microsoft Corporation. All rights reserved.
+Copyright (c) Electron contributors
+Copyright (c) 2013-2020 GitHub Inc.
 
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are
-met:
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
 
-   * Redistributions of source code must retain the above copyright
-notice, this list of conditions and the following disclaimer.
-   * Redistributions in binary form must reproduce the above
-copyright notice, this list of conditions and the following disclaimer
-in the documentation and/or other materials provided with the
-distribution.
-   * The name of Microsoft Corporation, or the names of its contributors
-may not be used to endorse or promote products derived from this
-software without specific prior written permission.
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
 
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-## webview Go wrapper
+## Chromium and bundled runtime components
 
-- Project: `github.com/webview/webview_go`
-- Source snapshot: `6173450d4dd6`
-- Use: the application-specific Go/CGO wrapper was derived from this project
+Electron 43.2.0 packages Chromium and other third-party runtime components.
+Those components use multiple open-source licenses. The authoritative
+copyright and license texts supplied by Electron are distributed with every
+Validex desktop runtime as `LICENSES.chromium.html`.
 
-```text
-MIT License
-
-Copyright (c) 2017 Serge Zaitsev
-Copyright (c) 2020 webview
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
+- Chromium source: <https://chromium.googlesource.com/chromium/src/>
+- Electron third-party notices:
+  `cmd/validex/node_modules/electron/dist/LICENSES.chromium.html`
