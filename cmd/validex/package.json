@@ -3,6 +3,7 @@
   "version": "0.2.0",
   "private": true,
   "type": "commonjs",
+  "packageManager": "npm@11.7.0",
   "main": "electron/dist/main.js",
   "engines": {
     "node": ">=22.12.0"

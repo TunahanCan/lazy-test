@@ -10,6 +10,7 @@ HOST_GOOS := $(shell go env GOOS)
 APP_ID := com.validex.Validex
 THIRD_PARTY_NOTICES := THIRD_PARTY_NOTICES.md
 LINUX_INSTALL_PREFIX ?= $(HOME)/.local
+NPM ?= $(if $(shell command -v npm 2>/dev/null),npm,$(if $(shell command -v corepack 2>/dev/null),corepack npm,npm))
 
 ifeq ($(HOST_GOOS),windows)
 BACKEND_BINARY := $(BUILD_DIR)/validex-backend.exe
@@ -19,12 +20,16 @@ BACKEND_BINARY := $(BUILD_DIR)/validex-backend
 CLI_BINARY := $(BUILD_DIR)/validex-cli
 endif
 
-.PHONY: deps dev build build-backend build-cli install-linux test test-e2e test-production
+.PHONY: check-node-tools deps dev build build-backend build-cli install-linux test test-e2e test-production
 
-deps: $(NPM_STAMP)
+check-node-tools:
+	@command -v node >/dev/null 2>&1 || { echo "Node.js is required but was not found in PATH." >&2; exit 1; }
+	@cd $(APP_DIR) && $(NPM) --version >/dev/null 2>&1 || { echo "npm is required; install npm or make Corepack available." >&2; exit 1; }
+
+deps: check-node-tools $(NPM_STAMP)
 
 $(NPM_STAMP): $(APP_DIR)/package.json $(APP_DIR)/package-lock.json
-	cd $(APP_DIR) && npm ci
+	cd $(APP_DIR) && $(NPM) ci
 	touch $(NPM_STAMP)
 
 build-backend:
@@ -36,7 +41,7 @@ build-cli:
 	go build -o $(CLI_BINARY) ./$(CLI_DIR)
 
 dev: deps build-backend
-	cd $(APP_DIR) && npm run electron:build
+	cd $(APP_DIR) && $(NPM) run electron:build
 	@set -eu; \
 	dev_port="$$(node "$(FRONTEND_DIR)/scripts/find-port.mjs" "$(DEV_PREFERRED_PORT)")"; \
 	dev_url="http://$(DEV_HOST):$$dev_port"; \
@@ -66,15 +71,20 @@ dev: deps build-backend
 		fi; \
 		sleep 0.1; \
 	done; \
+	if [ -n "$${XDG_DATA_DIRS_VSCODE_SNAP_ORIG:-}" ]; then \
+		XDG_DATA_DIRS="$$XDG_DATA_DIRS_VSCODE_SNAP_ORIG"; \
+		export XDG_DATA_DIRS; \
+		unset GSETTINGS_SCHEMA_DIR XDG_DATA_HOME; \
+	fi; \
 	cd $(APP_DIR); \
 	unset ELECTRON_RUN_AS_NODE; \
-	npm run start -- \
+	$(NPM) run start -- \
 		"--dev-url=$$dev_url" \
 		"--backend=$(abspath $(BACKEND_BINARY))"
 
 build: deps build-cli build-backend
 	cd $(FRONTEND_DIR) && node scripts/build.mjs
-	cd $(APP_DIR) && npm run electron:build
+	cd $(APP_DIR) && $(NPM) run electron:build
 ifeq ($(HOST_GOOS),darwin)
 	@set -eu; \
 	iconset="$(APP_DIR)/build/Validex.iconset"; \
@@ -139,7 +149,7 @@ else
 endif
 
 test: deps
-	cd $(APP_DIR) && npm run electron:typecheck && npm run electron:test
+	cd $(APP_DIR) && $(NPM) run electron:typecheck && $(NPM) run electron:test
 	cd $(FRONTEND_DIR) && node scripts/typecheck.mjs && node scripts/build.mjs && node --test
 	go test ./...
 

@@ -38,6 +38,7 @@ Kaynak koddan geliştirmek için şunlar gerekiyor:
 - Git
 - [Go](https://go.dev/dl/) 1.24 veya üzeri
 - [Node.js](https://nodejs.org/en/download) 22.12 veya üzeri
+- npm veya Corepack
 - GNU Make
 
 Make hedefleri POSIX shell kullanıyor. Windows’ta repository’yi Git Bash
@@ -53,6 +54,10 @@ make dev
 Bu komut eksik npm bağımlılıklarını kurar, TypeScript arayüzünü, Electron
 masaüstü kabuğunu ve Go arka uç sürecini birlikte başlatır. Geliştirme sunucusu
 yalnız loopback adresinde dinler ve açık bir portu otomatik seçer.
+Make hedefleri PATH'te `npm` bulamazsa `package.json` içinde sabitlenen npm
+sürümünü Corepack üzerinden çalıştırır.
+VS Code'un Snap paketi geliştirme sürecine kendi GLib şema yollarını aktarmışsa
+hedef Electron'u başlatmadan önce özgün masaüstü veri yollarını geri yükler.
 
 Uygulamayı açmadan yalnız bağımlılıkları hazırlamak isterseniz:
 
