@@ -6,6 +6,11 @@ import type {
 import { HTTP_METHODS } from "../../lib/http.js";
 import { translate, type Locale } from "../../i18n/messages.js";
 import type { Translate } from "../../i18n/locale.js";
+import {
+  hasLocalizedUserError,
+  localizeUserError,
+  userErrorTechnicalDetails,
+} from "../../lib/userErrors.js";
 
 export interface EditableRoute extends Omit<MockRoute, "headers"> {
   headersText: string;
@@ -86,6 +91,15 @@ export function operationError(
       technical: result.error,
     };
   }
+  if (hasLocalizedUserError(result.error)) {
+    const localized = localizeUserError(result.error, t);
+    return {
+      title: localized.title,
+      message: localized.message,
+      hint: localized.hint,
+      technical: userErrorTechnicalDetails(result.error),
+    };
+  }
   const translatedMessage = mockErrorTranslations[
     result.error.code as keyof typeof mockErrorTranslations
   ];
@@ -94,9 +108,7 @@ export function operationError(
       title: t("mock.operation.title"),
       message: t(translatedMessage),
       hint: t("mock.error.hint"),
-      technical: [result.error.message, result.error.technical]
-        .filter(Boolean)
-        .join(" · "),
+      technical: result.error.technical,
     };
   }
   return issueFromUserError(result.error, t);

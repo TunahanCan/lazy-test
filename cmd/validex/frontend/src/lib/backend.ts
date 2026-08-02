@@ -39,6 +39,9 @@ import {
   normalizeSSEResult,
   normalizeThreadDumpResult,
 } from "./bridge-contract.js";
+import { t } from "../i18n/locale.js";
+import type { TranslationKey } from "../i18n/messages.js";
+import { localizedBootstrapData } from "./bootstrap.js";
 
 interface CanbridgeAPI {
   Bootstrap(): Promise<BootstrapData>;
@@ -90,31 +93,33 @@ declare global {
   }
 }
 
-const developmentBootstrap: BootstrapData = {
-  appVersion: "0.2.0-dev",
-  workspaceId: "validex-workspace",
-  workspaceName: "Validex Workspace",
-  environments: [
-    {
-      id: "none",
-      name: "No Environment",
-      variables: {},
-    },
-    {
-      id: "local",
-      name: "Local",
-      variables: { baseUrl: "http://localhost:8080" },
-    },
-  ],
-  collections: [],
-  history: [],
-  recentUrls: [],
-  onboardingSteps: [
-    "İlk request’ini gönder",
-    "OpenAPI contract farklarını incele",
-    "Mock server başlat",
-  ],
-};
+function developmentBootstrap(): BootstrapData {
+  return {
+    appVersion: "0.2.0-dev",
+    workspaceId: "validex-workspace",
+    workspaceName: t("backend.bootstrap.workspaceName"),
+    environments: [
+      {
+        id: "none",
+        name: t("backend.bootstrap.environment.none"),
+        variables: {},
+      },
+      {
+        id: "local",
+        name: t("backend.bootstrap.environment.local"),
+        variables: { baseUrl: "http://localhost:8080" },
+      },
+    ],
+    collections: [],
+    history: [],
+    recentUrls: [],
+    onboardingSteps: [
+      t("backend.bootstrap.onboarding.sendRequest"),
+      t("backend.bootstrap.onboarding.reviewContract"),
+      t("backend.bootstrap.onboarding.startMockServer"),
+    ],
+  };
+}
 
 function nativeBridge(): CanbridgeAPI | undefined {
   return window.canbridge?.Bridge;
@@ -130,9 +135,11 @@ export const backend = {
 
   async bootstrap(): Promise<BootstrapData> {
     const native = nativeBridge();
-    if (native) return native.Bootstrap();
-    if (window.__VALIDEX_DEV__) return developmentBootstrap;
-    throw new Error("canbridge backend binding is unavailable.");
+    if (native) return localizedBootstrapData(await native.Bootstrap());
+    if (window.__VALIDEX_DEV__) {
+      return localizedBootstrapData(developmentBootstrap());
+    }
+    throw new Error(t("backend.error.bindingUnavailable"));
   },
 
   async loadCollectionLibrary(): Promise<CollectionLibraryLoadResult> {
@@ -141,7 +148,7 @@ export const backend = {
     return {
       data: "",
       found: false,
-      error: backendUnavailable("Koleksiyon depolaması"),
+      error: backendUnavailable("backend.feature.collectionStorage"),
     };
   },
 
@@ -153,7 +160,7 @@ export const backend = {
     void data;
     return {
       saved: false,
-      error: backendUnavailable("Koleksiyon depolaması"),
+      error: backendUnavailable("backend.feature.collectionStorage"),
     };
   },
 
@@ -166,7 +173,7 @@ export const backend = {
       data: "",
       path: "",
       canceled: false,
-      error: backendUnavailable("Koleksiyon içe aktarma"),
+      error: backendUnavailable("backend.feature.collectionImport"),
     };
   },
 
@@ -182,7 +189,7 @@ export const backend = {
       exported: false,
       path: "",
       canceled: false,
-      error: backendUnavailable("Koleksiyon dışa aktarma"),
+      error: backendUnavailable("backend.feature.collectionExport"),
     };
   },
 
@@ -192,9 +199,9 @@ export const backend = {
     return {
       error: {
         code: "backend_unavailable",
-        title: "Desktop backend bağlantısı yok",
-        message: "Request gönderimi Validex masaüstü backend’ine ulaşamadı.",
-        hint: "Gerçek istek göndermek için uygulamayı `make dev` ile canbridge içinde açın.",
+        title: t("backend.error.request.title"),
+        message: t("backend.error.request.message"),
+        hint: t("backend.error.request.hint"),
       },
     };
   },
@@ -221,9 +228,9 @@ export const backend = {
       canceled: false,
       error: {
         code: "backend_unavailable",
-        title: "Dosya seçici kullanılamıyor",
-        message: "OpenAPI içe aktarma Validex masaüstü backend’inde çalışır.",
-        hint: "Uygulamayı `make dev` ile canbridge içinde açın.",
+        title: t("backend.error.openAPIImport.title"),
+        message: t("backend.error.openAPIImport.message"),
+        hint: t("backend.error.openAPIImport.hint"),
       },
     };
   },
@@ -246,8 +253,8 @@ export const backend = {
       findings: [],
       error: {
         code: "backend_unavailable",
-        title: "Contract doğrulaması kullanılamıyor",
-        message: "OpenAPI doğrulaması native masaüstü backend’inde çalışır.",
+        title: t("backend.error.contractValidation.title"),
+        message: t("backend.error.contractValidation.message"),
       },
     };
   },
@@ -257,7 +264,7 @@ export const backend = {
     if (native) {
       return normalizeMockServerSnapshot(await native.GetMockServer());
     }
-    throw new Error("Mock server yalnızca Validex masaüstü uygulamasında çalışır.");
+    throw new Error(t("backend.error.mock.desktopOnly"));
   },
 
   async updateMockRoutes(routes: MockRoute[]): Promise<MockServerSnapshot> {
@@ -267,7 +274,7 @@ export const backend = {
         await native.UpdateMockRoutes(routes),
       );
     }
-    return unavailableMockSnapshot("Mock route’ları native backend olmadan uygulanamaz.");
+    return unavailableMockSnapshot("backend.error.mock.routesUnavailable");
   },
 
   async startMockServer(input: {
@@ -278,7 +285,7 @@ export const backend = {
     if (native) {
       return normalizeMockServerSnapshot(await native.StartMockServer(input));
     }
-    return unavailableMockSnapshot("Mock server native backend olmadan başlatılamaz.");
+    return unavailableMockSnapshot("backend.error.mock.startUnavailable");
   },
 
   async stopMockServer(): Promise<MockServerSnapshot> {
@@ -286,7 +293,7 @@ export const backend = {
     if (native) {
       return normalizeMockServerSnapshot(await native.StopMockServer());
     }
-    return unavailableMockSnapshot("Mock server native backend bağlantısı olmadan durdurulamaz.");
+    return unavailableMockSnapshot("backend.error.mock.stopUnavailable");
   },
 
   async clearMockHits(): Promise<MockServerSnapshot> {
@@ -294,7 +301,7 @@ export const backend = {
     if (native) {
       return normalizeMockServerSnapshot(await native.ClearMockHits());
     }
-    return unavailableMockSnapshot("Mock hit geçmişine native backend olmadan erişilemez.");
+    return unavailableMockSnapshot("backend.error.mock.hitsUnavailable");
   },
 
   async importMockOpenAPI(): Promise<MockServerSnapshot> {
@@ -302,7 +309,7 @@ export const backend = {
     if (native) {
       return normalizeMockServerSnapshot(await native.ImportMockOpenAPI());
     }
-    return unavailableMockSnapshot("OpenAPI dosya seçici yalnızca masaüstü uygulamasında çalışır.");
+    return unavailableMockSnapshot("backend.error.mock.importUnavailable");
   },
 
   async runSSE(input: SSEInput): Promise<SSEResult> {
@@ -313,7 +320,7 @@ export const backend = {
       headers: {},
       events: [],
       durationMs: 0,
-      error: backendUnavailable("SSE istemcisi"),
+      error: backendUnavailable("backend.feature.sseClient"),
     };
   },
 
@@ -336,7 +343,7 @@ export const backend = {
     return {
       metrics: { capturedAt: "", metrics: {} },
       deltas: [],
-      error: backendUnavailable("Spring Actuator tanılaması"),
+      error: backendUnavailable("backend.feature.springActuatorDiagnostics"),
     };
   },
 
@@ -354,7 +361,7 @@ export const backend = {
       path: input.path,
       responses: [],
       comparisons: [],
-      error: backendUnavailable("Ortam karşılaştırması"),
+      error: backendUnavailable("backend.feature.environmentComparison"),
     };
   },
 
@@ -368,7 +375,7 @@ export const backend = {
       stateCounts: {},
       deadlockDetected: false,
       truncated: false,
-      error: backendUnavailable("Thread dump analizörü"),
+      error: backendUnavailable("backend.feature.threadDumpAnalyzer"),
     };
   },
 
@@ -386,7 +393,7 @@ export const backend = {
       matches: [],
       scannedLines: 0,
       truncated: false,
-      error: backendUnavailable("Trace log araması"),
+      error: backendUnavailable("backend.feature.traceLogSearch"),
     };
   },
 
@@ -402,14 +409,14 @@ export const backend = {
       covered: 0,
       coveragePercent: 0,
       endpoints: [],
-      error: backendUnavailable("Endpoint coverage"),
+      error: backendUnavailable("backend.feature.endpointCoverage"),
     };
   },
 
   async runCollection(input: CollectionRunInput): Promise<CollectionRunResult> {
     const native = nativeBridge();
     if (native) return native.RunCollection(input);
-    return { error: backendUnavailable("Collection Runner") };
+    return { error: backendUnavailable("backend.feature.collectionRunner") };
   },
 
   async analyzeNetwork(
@@ -417,7 +424,7 @@ export const backend = {
   ): Promise<NetworkInspectResult> {
     const native = nativeBridge();
     if (native) return native.AnalyzeNetwork(input);
-    return { error: backendUnavailable("DNS ve redirect analizi") };
+    return { error: backendUnavailable("backend.feature.networkAnalysis") };
   },
 
   async lintOpenAPI(): Promise<OpenAPILintResult> {
@@ -426,21 +433,24 @@ export const backend = {
     return {
       path: "",
       canceled: false,
-      error: backendUnavailable("OpenAPI lint"),
+      error: backendUnavailable("backend.feature.openAPILint"),
     };
   },
 };
 
-function backendUnavailable(feature: string) {
+function backendUnavailable(featureKey: TranslationKey) {
+  const feature = t(featureKey);
   return {
     code: "backend_unavailable",
-    title: `${feature} kullanılamıyor`,
-    message: "Bu araç Validex masaüstü backend’inde çalışır.",
-    hint: "Uygulamayı canbridge masaüstü sürümüyle açın.",
+    title: t("backend.error.unavailable.title", { feature }),
+    message: t("backend.error.unavailable.message"),
+    hint: t("backend.error.unavailable.hint"),
   };
 }
 
-function unavailableMockSnapshot(message: string): MockServerSnapshot {
+function unavailableMockSnapshot(
+  messageKey: TranslationKey,
+): MockServerSnapshot {
   return {
     state: {
       running: false,
@@ -456,8 +466,8 @@ function unavailableMockSnapshot(message: string): MockServerSnapshot {
     hits: [],
     canceled: false,
     error: {
-      ...backendUnavailable("Mock server"),
-      message,
+      ...backendUnavailable("backend.feature.mockServer"),
+      message: t(messageKey),
     },
   };
 }

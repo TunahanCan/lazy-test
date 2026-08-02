@@ -86,23 +86,7 @@ build: deps build-cli build-backend
 	cd $(FRONTEND_DIR) && node scripts/build.mjs
 	cd $(APP_DIR) && $(NPM) run electron:build
 ifeq ($(HOST_GOOS),darwin)
-	@set -eu; \
-	iconset="$(APP_DIR)/build/Validex.iconset"; \
-	icon="$(APP_DIR)/build/Validex.icns"; \
-	rm -rf "$$iconset"; \
-	mkdir -p "$$iconset"; \
-	sips -z 16 16 "$(APP_DIR)/build/appicon.png" --out "$$iconset/icon_16x16.png" >/dev/null; \
-	sips -z 32 32 "$(APP_DIR)/build/appicon.png" --out "$$iconset/icon_16x16@2x.png" >/dev/null; \
-	sips -z 32 32 "$(APP_DIR)/build/appicon.png" --out "$$iconset/icon_32x32.png" >/dev/null; \
-	sips -z 64 64 "$(APP_DIR)/build/appicon.png" --out "$$iconset/icon_32x32@2x.png" >/dev/null; \
-	sips -z 128 128 "$(APP_DIR)/build/appicon.png" --out "$$iconset/icon_128x128.png" >/dev/null; \
-	sips -z 256 256 "$(APP_DIR)/build/appicon.png" --out "$$iconset/icon_128x128@2x.png" >/dev/null; \
-	sips -z 256 256 "$(APP_DIR)/build/appicon.png" --out "$$iconset/icon_256x256.png" >/dev/null; \
-	sips -z 512 512 "$(APP_DIR)/build/appicon.png" --out "$$iconset/icon_256x256@2x.png" >/dev/null; \
-	sips -z 512 512 "$(APP_DIR)/build/appicon.png" --out "$$iconset/icon_512x512.png" >/dev/null; \
-	cp "$(APP_DIR)/build/appicon.png" "$$iconset/icon_512x512@2x.png"; \
-	iconutil -c icns "$$iconset" -o "$$icon"; \
-	rm -rf "$$iconset"
+	node $(APP_DIR)/scripts/build-mac-icon.mjs
 endif
 	node $(APP_DIR)/scripts/package-electron.mjs
 ifeq ($(HOST_GOOS),darwin)

@@ -20,6 +20,11 @@ import type {
   UserError,
 } from "../../lib/types.js";
 import {
+  hasLocalizedUserError,
+  localizeUserError,
+  userErrorTechnicalDetails,
+} from "../../lib/userErrors.js";
+import {
   automationOperationID,
   durationLabel,
   parseVariables,
@@ -99,6 +104,71 @@ const knownLintIssueCodes = new Set([
   "response.json.example_missing",
 ]);
 
+interface TranslatedAutomationError {
+  title: TranslationKey;
+  message: TranslationKey;
+  hint?: TranslationKey;
+}
+
+const translatedAutomationErrors: Readonly<
+  Record<string, TranslatedAutomationError>
+> = {
+  backend_unavailable: {
+    title: "automation.error.backend.title",
+    message: "automation.error.backend.message",
+    hint: "automation.error.backend.hint",
+  },
+  collection_operation_invalid: {
+    title: "automation.error.collection.title",
+    message: "automation.error.operationInvalid",
+    hint: "automation.error.hint.operationID",
+  },
+  collection_invalid: {
+    title: "automation.error.collection.title",
+    message: "automation.error.collectionInvalid",
+    hint: "automation.error.hint.collection",
+  },
+  collection_run_failed: {
+    title: "automation.error.collection.title",
+    message: "automation.error.collectionRun",
+    hint: "automation.error.hint.target",
+  },
+  network_operation_invalid: {
+    title: "automation.error.network.title",
+    message: "automation.error.networkStart",
+    hint: "automation.error.hint.operationID",
+  },
+  network_inspection_failed: {
+    title: "automation.error.network.title",
+    message: "automation.error.networkRun",
+    hint: "automation.error.hint.target",
+  },
+  runtime_unavailable: {
+    title: "automation.error.openapi.title",
+    message: "automation.error.runtime",
+    hint: "automation.error.hint.native",
+  },
+  openapi_lint_failed: {
+    title: "automation.error.openapi.title",
+    message: "automation.error.openapiRead",
+    hint: "automation.error.hint.file",
+  },
+  file_dialog_failed: {
+    title: "automation.error.openapi.title",
+    message: "automation.error.fileDialog",
+    hint: "automation.error.hint.fileDialog",
+  },
+  tool_canceled: {
+    title: "automation.error.operation.title",
+    message: "automation.error.canceled",
+  },
+  tool_timeout: {
+    title: "automation.error.operation.title",
+    message: "automation.error.timeout",
+    hint: "automation.error.hint.timeout",
+  },
+};
+
 function localizedRunnerFailure(
   failure: NonNullable<CollectionRequestResult["failure"]>,
 ): { message: string; hint?: string } {
@@ -130,6 +200,29 @@ function localizedLintIssue(
 function errorNotice(error: unknown, fallback: string): ToolNotice {
   if (error && typeof error === "object") {
     const candidate = error as Partial<UserError> & { message?: unknown };
+    if (hasLocalizedUserError(candidate)) {
+      const localized = localizeUserError(candidate as UserError, t);
+      return {
+        tone: "error",
+        title: localized.title,
+        message: localized.message,
+        hint: localized.hint,
+        technical: userErrorTechnicalDetails(candidate),
+      };
+    }
+    const translated =
+      typeof candidate.code === "string"
+        ? translatedAutomationErrors[candidate.code]
+        : undefined;
+    if (translated) {
+      return {
+        tone: "error",
+        title: t(translated.title),
+        message: t(translated.message),
+        hint: translated.hint ? t(translated.hint) : undefined,
+        technical: candidate.technical,
+      };
+    }
     return {
       tone: "error",
       title: candidate.title,

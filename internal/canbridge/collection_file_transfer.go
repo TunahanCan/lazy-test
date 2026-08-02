@@ -248,48 +248,21 @@ func writeCollectionTransferFile(
 }
 
 func collectionFileRuntimeUnavailableError() *UserError {
-	return &UserError{
-		Code:    UserErrorRuntimeUnavailable,
-		Title:   "Koleksiyon dosyası açılamadı",
-		Message: "Desktop runtime henüz hazır değil.",
-	}
+	return newUserError(errorCollectionFileRuntimeUnavailable, nil, nil)
 }
 
 func collectionFileDialogError(err error) *UserError {
-	return &UserError{
-		Code:      UserErrorFileDialogFailed,
-		Title:     "Koleksiyon dosyası seçilemedi",
-		Message:   "Sistem dosya seçicisi tamamlanamadı.",
-		Technical: err.Error(),
-	}
+	return newUserError(errorCollectionFileDialogFailed, nil, err)
 }
 
 func collectionFileInvalidError(err error) *UserError {
-	return &UserError{
-		Code:      UserErrorCollectionFileInvalid,
-		Title:     "Koleksiyon dosyası geçersiz",
-		Message:   "Koleksiyon aktarımı geçerli, boyut sınırları içindeki bir UTF-8 JSON dosyası olmalıdır.",
-		Hint:      "Dosyanın JSON biçimini ve boyutunu kontrol edin.",
-		Technical: err.Error(),
-	}
+	return newUserError(errorCollectionFileInvalid, nil, err)
 }
 
 func collectionFileReadError(err error) *UserError {
-	return &UserError{
-		Code:      UserErrorCollectionFileReadFailed,
-		Title:     "Koleksiyon dosyası okunamadı",
-		Message:   "Seçilen koleksiyon dosyasının içeriği okunamadı.",
-		Hint:      "Dosya izinlerini ve dosyanın hâlâ erişilebilir olduğunu kontrol edin.",
-		Technical: err.Error(),
-	}
+	return newUserError(errorCollectionFileReadFailed, nil, err)
 }
 
 func collectionFileWriteError(err error) *UserError {
-	return &UserError{
-		Code:      UserErrorCollectionFileWriteFailed,
-		Title:     "Koleksiyon dosyası yazılamadı",
-		Message:   "Koleksiyonlar seçilen konuma kaydedilemedi.",
-		Hint:      "Klasör izinlerini ve kullanılabilir disk alanını kontrol edin.",
-		Technical: err.Error(),
-	}
+	return newUserError(errorCollectionFileWriteFailed, nil, err)
 }

@@ -49,13 +49,40 @@ export interface JWTAnalysis {
   signaturePresent: boolean;
 }
 
+export type DeveloperToolErrorCode =
+  | "json.empty"
+  | "json.invalid"
+  | "jsonpath.root"
+  | "jsonpath.unsupported"
+  | "jsonpath.missing"
+  | "jwt.threeParts"
+  | "jwt.invalidBase64"
+  | "jwt.invalidJSON"
+  | "dto.empty"
+  | "dto.unsupported";
+
+export interface DeveloperToolErrorParams {
+  details?: string;
+  path?: string;
+}
+
+export class DeveloperToolError extends Error {
+  constructor(
+    readonly code: DeveloperToolErrorCode,
+    readonly params: Readonly<DeveloperToolErrorParams> = {},
+  ) {
+    super(code);
+    this.name = "DeveloperToolError";
+  }
+}
+
 function parseJSON(input: string): unknown {
-  if (!input.trim()) throw new Error("JSON içeriği boş.");
+  if (!input.trim()) throw new DeveloperToolError("json.empty");
   try {
     return JSON.parse(input);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Geçersiz JSON: ${message}`);
+    const details = error instanceof Error ? error.message : String(error);
+    throw new DeveloperToolError("json.invalid", { details });
   }
 }
 
@@ -167,7 +194,7 @@ export function compareJSON(
 function jsonPathParts(path: string): Array<string | number> {
   const trimmed = path.trim();
   if (!trimmed.startsWith("$")) {
-    throw new Error("JSONPath $ ile başlamalıdır.");
+    throw new DeveloperToolError("jsonpath.root");
   }
   const parts: Array<string | number> = [];
   const expression = /(?:\.([A-Za-z_$][\w$-]*))|\[(\d+)\]|\[['"]([^'"]+)['"]\]/g;
@@ -175,7 +202,7 @@ function jsonPathParts(path: string): Array<string | number> {
   let match: RegExpExecArray | null;
   while ((match = expression.exec(trimmed)) !== null) {
     if (match.index !== cursor) {
-      throw new Error("Bu JSONPath ifadesi desteklenmiyor.");
+      throw new DeveloperToolError("jsonpath.unsupported");
     }
     if (match[1] !== undefined) parts.push(match[1]);
     else if (match[2] !== undefined) parts.push(Number(match[2]));
@@ -183,7 +210,7 @@ function jsonPathParts(path: string): Array<string | number> {
     cursor = expression.lastIndex;
   }
   if (cursor !== trimmed.length) {
-    throw new Error("Bu JSONPath ifadesi desteklenmiyor.");
+    throw new DeveloperToolError("jsonpath.unsupported");
   }
   return parts;
 }
@@ -196,7 +223,7 @@ export function queryJSONPath(input: string, path: string): unknown {
       typeof current !== "object" ||
       !(part in current)
     ) {
-      throw new Error(`${path} için değer bulunamadı.`);
+      throw new DeveloperToolError("jsonpath.missing", { path });
     }
     current = (current as Record<string | number, unknown>)[part];
   }
@@ -349,7 +376,7 @@ function decodeBase64URL(value: string): string {
     );
     return new TextDecoder().decode(bytes);
   } catch {
-    throw new Error("JWT bölümü base64url olarak çözülemedi.");
+    throw new DeveloperToolError("jwt.invalidBase64");
   }
 }
 
@@ -367,7 +394,7 @@ export function analyzeJWT(input: string, now = Date.now()): JWTAnalysis {
   const token = input.trim().replace(/^Bearer\s+/i, "");
   const parts = token.split(".");
   if (parts.length !== 3) {
-    throw new Error("JWT üç bölümden oluşmalıdır.");
+    throw new DeveloperToolError("jwt.threeParts");
   }
   let header: Record<string, unknown>;
   let payload: Record<string, unknown>;
@@ -375,7 +402,10 @@ export function analyzeJWT(input: string, now = Date.now()): JWTAnalysis {
     header = record(JSON.parse(decodeBase64URL(parts[0]))) ?? {};
     payload = record(JSON.parse(decodeBase64URL(parts[1]))) ?? {};
   } catch (error) {
-    throw error instanceof Error ? error : new Error(String(error));
+    if (error instanceof DeveloperToolError) throw error;
+    throw new DeveloperToolError("jwt.invalidJSON", {
+      details: error instanceof Error ? error.message : String(error),
+    });
   }
   const nowSeconds = Math.floor(now / 1000);
   const expiresAt = typeof payload.exp === "number" ? payload.exp : undefined;
@@ -708,13 +738,11 @@ function javaTypeSample(
 // javaDTOToJSONExample converts pasted Java response DTO declarations into a
 // deterministic JSON example. It does not write Java source or project files.
 export function javaDTOToJSONExample(input: string): string {
-  if (!input.trim()) throw new Error("Java response DTO içeriği boş.");
+  if (!input.trim()) throw new DeveloperToolError("dto.empty");
   const types = parseJavaDTOs(input);
   const root = types.find((type) => type.fields.length > 0);
   if (!root) {
-    throw new Error(
-      "Desteklenen record veya field içeren class bulunamadı.",
-    );
+    throw new DeveloperToolError("dto.unsupported");
   }
   const definitions = new Map(types.map((type) => [type.name, type]));
   return JSON.stringify(

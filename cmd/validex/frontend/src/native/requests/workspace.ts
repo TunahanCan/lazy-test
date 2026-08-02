@@ -25,6 +25,11 @@ import {
 } from "../../i18n/messages.js";
 import { subscribeLocale, t } from "../../i18n/locale.js";
 import { backend } from "../../lib/backend.js";
+import { localizedBootstrapEnvironmentName } from "../../lib/bootstrap.js";
+import {
+  hasLocalizedUserError,
+  localizeUserError,
+} from "../../lib/userErrors.js";
 import { methodAllowsBody } from "../../lib/http.js";
 import { requestURLMatchesOpenAPIPath } from "../../lib/openapi.js";
 import {
@@ -192,7 +197,9 @@ function variablesFor(
   const overrides = state.environmentVariables[environmentID] ?? {};
   return {
     environmentID,
-    environmentName: environment?.name ?? t("requests.workbench.workspace"),
+    environmentName: environment
+      ? localizedBootstrapEnvironmentName(environment)
+      : t("requests.workbench.workspace"),
     values: { ...(environment?.variables ?? {}), ...overrides },
     overridden: new Set(Object.keys(overrides)),
   };
@@ -330,9 +337,7 @@ export function mountRequestWorkspace(
       return true;
     }
     notify({
-      message:
-        persistence.error?.message ??
-        t("requests.workbench.saveWriteFailed"),
+      message: t("requests.workbench.saveWriteFailed"),
       tone: FEEDBACK_TONE.ERROR,
       durationMs: REQUEST_FEEDBACK_DURATION_MS.ACTION_REQUIRED,
     });
@@ -1745,6 +1750,7 @@ export function mountRequestWorkspace(
       if (result.canceled) return;
       if (result.error) {
         importedNoticeTone = "danger";
+        const localized = localizeUserError(result.error, t);
         const knownErrors = {
           runtime_unavailable: "requests.openapiImport.runtimeUnavailable",
           file_dialog_failed: "requests.openapiImport.fileDialogFailed",
@@ -1753,7 +1759,9 @@ export function mountRequestWorkspace(
         const key = knownErrors[
           result.error.code as keyof typeof knownErrors
         ];
-        importedNotice = key
+        importedNotice = hasLocalizedUserError(result.error)
+          ? `${localized.title}: ${localized.message}`
+          : key
           ? t(key)
           : t("requests.openapiImport.failed", {
               details: result.error.message,

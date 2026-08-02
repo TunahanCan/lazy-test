@@ -285,6 +285,23 @@ export const requestMessages = defineMessages(
       "The response headers exceeded the 1 MiB safety limit, so the request was stopped.",
     "requests.error.responseHeadersTooLarge.hint":
       "Reduce oversized header values or remove unnecessary response headers on the server.",
+    "requests.error.unsupportedEncoding.title":
+      "Unsupported response compression",
+    "requests.error.unsupportedEncoding.message":
+      "The response uses a Content-Encoding that Validex cannot decode.",
+    "requests.error.unsupportedEncoding.hint":
+      "Request gzip or deflate, or remove the unsupported encoding from the server response.",
+    "requests.error.tooManyEncodings.title":
+      "Too many response compression layers",
+    "requests.error.tooManyEncodings.message":
+      "The response contains more nested Content-Encoding layers than Validex can safely decode.",
+    "requests.error.tooManyEncodings.hint":
+      "Configure the service to return fewer compression layers.",
+    "requests.error.responseDecode.title": "Couldn’t decode response body",
+    "requests.error.responseDecode.message":
+      "The response body does not match its declared Content-Encoding.",
+    "requests.error.responseDecode.hint":
+      "Check that the service sends a valid body for its Content-Encoding header.",
 
     "requests.editor.method.select": "Select HTTP method",
     "requests.editor.method.search": "Search method",
@@ -450,6 +467,12 @@ export const requestMessages = defineMessages(
       "No matching JSON media schema was found for the {status} response with content type {contentType}.",
     "requests.response.contract.schemaUnavailable.hint":
       "Add a JSON schema under this status or default response using the actual response media type.",
+    "requests.response.contract.bodyEncodingInvalid.title":
+      "Couldn’t decode response body",
+    "requests.response.contract.bodyEncodingInvalid.message":
+      "The stored response body encoding is not valid for contract validation.",
+    "requests.response.contract.bodyEncodingInvalid.hint":
+      "Send the request again, then repeat contract validation.",
     "requests.response.contract.operationUnavailable.title":
       "OpenAPI operation unavailable",
     "requests.response.contract.operationUnavailable.message":
@@ -795,6 +818,23 @@ export const requestMessages = defineMessages(
       "Response header’ları 1 MiB güvenlik sınırını aştığı için istek durduruldu.",
     "requests.error.responseHeadersTooLarge.hint":
       "Sunucudaki büyük header değerlerini küçültün veya gereksiz response header’larını kaldırın.",
+    "requests.error.unsupportedEncoding.title":
+      "Response sıkıştırması desteklenmiyor",
+    "requests.error.unsupportedEncoding.message":
+      "Response, Validex’in çözemediği bir Content-Encoding kullanıyor.",
+    "requests.error.unsupportedEncoding.hint":
+      "gzip veya deflate isteyin ya da desteklenmeyen encoding’i sunucu yanıtından kaldırın.",
+    "requests.error.tooManyEncodings.title":
+      "Response sıkıştırma katmanı çok fazla",
+    "requests.error.tooManyEncodings.message":
+      "Response, Validex’in güvenle çözebileceğinden daha fazla iç içe Content-Encoding katmanı içeriyor.",
+    "requests.error.tooManyEncodings.hint":
+      "Servisi daha az sıkıştırma katmanı döndürecek şekilde yapılandırın.",
+    "requests.error.responseDecode.title": "Response body çözülemedi",
+    "requests.error.responseDecode.message":
+      "Response body, bildirilen Content-Encoding ile eşleşmiyor.",
+    "requests.error.responseDecode.hint":
+      "Servisin Content-Encoding header’ına uygun geçerli bir body gönderdiğini kontrol edin.",
 
     "requests.editor.method.select": "HTTP metodu seç",
     "requests.editor.method.search": "Metotta ara",
@@ -960,6 +1000,12 @@ export const requestMessages = defineMessages(
       "{status} yanıtı için {contentType} content type ile eşleşen JSON media şeması bulunamadı.",
     "requests.response.contract.schemaUnavailable.hint":
       "Bu status veya default yanıt altına gerçek response media type ile eşleşen bir JSON şeması ekleyin.",
+    "requests.response.contract.bodyEncodingInvalid.title":
+      "Response body çözülemedi",
+    "requests.response.contract.bodyEncodingInvalid.message":
+      "Kaydedilen response body encoding değeri contract doğrulaması için geçerli değil.",
+    "requests.response.contract.bodyEncodingInvalid.hint":
+      "Request’i yeniden gönderip contract doğrulamasını tekrarlayın.",
     "requests.response.contract.operationUnavailable.title":
       "OpenAPI operation bulunamadı",
     "requests.response.contract.operationUnavailable.message":

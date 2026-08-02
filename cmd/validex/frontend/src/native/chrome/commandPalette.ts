@@ -11,6 +11,7 @@ import { icon, type IconName } from "../../core/icons.js";
 import { presentDialog, type DialogHandle } from "../../core/overlays.js";
 import { getLocale, subscribeLocale, t } from "../../i18n/locale.js";
 import type { BootstrapData, WorkspaceView } from "../../lib/types.js";
+import { localizedBootstrapWorkspaceName } from "../../lib/bootstrap.js";
 import { fuzzyMatch } from "../../lib/utils.js";
 import { workspaceStore } from "../../stores/workspace.js";
 import { workspaceDefinitions } from "../workspaces.js";
@@ -271,7 +272,7 @@ export function mountCommandPalette(
               autocomplete="off"
               spellcheck="false"
               placeholder="${t("palette.search", {
-                workspace: bootstrap.workspaceName,
+                workspace: localizedBootstrapWorkspaceName(bootstrap),
               })}"
               value="${query}"
             />

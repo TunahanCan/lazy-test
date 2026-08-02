@@ -11,7 +11,12 @@ import (
 	"github.com/cucumber/godog"
 )
 
-const diagnosticsEditedActuatorURL = "http://edited.example.test/actuator"
+const (
+	diagnosticsEditedActuatorURL = "http://edited.example.test/actuator"
+	diagnosticsPerformanceURL    = "https://performance.example.test/health"
+	diagnosticsStaleHealthMarker = "STALE_HEALTH_SHOULD_NOT_RENDER"
+	diagnosticsStaleMetricMarker = "stale.metric.should.not.render"
+)
 
 func registerDiagnosticsSteps(
 	context *godog.ScenarioContext,
@@ -97,6 +102,54 @@ func registerDiagnosticsSteps(
 		`^the edited input value and focus are preserved$`,
 		world.diagnosticsEditedInputAndFocusArePreserved,
 	)
+	context.Step(
+		`^I switch Diagnostics to the opposite locale while it is busy$`,
+		world.diagnosticsSwitchLocaleWhileBusy,
+	)
+	context.Step(
+		`^Diagnostics is idle and reports the stale operation in the new locale$`,
+		world.diagnosticsLocaleChangeIsReportedStale,
+	)
+	context.Step(
+		`^Diagnostics stays idle after the stale bridge completion$`,
+		world.diagnosticsRemainsIdleAfterStaleCompletion,
+	)
+	context.Step(
+		`^Diagnostics uses the "([^"]+)" locale$`,
+		world.diagnosticsUseLocale,
+	)
+	context.Step(
+		`^a URL performance sample is still in progress$`,
+		world.diagnosticsStartDeferredPerformanceSample,
+	)
+	context.Step(
+		`^the backend rejects the first performance Stop command$`,
+		world.diagnosticsRejectFirstPerformanceStop,
+	)
+	context.Step(
+		`^I stop the URL performance test$`,
+		world.diagnosticsStopPerformanceTest,
+	)
+	context.Step(
+		`^the URL performance test stays busy with a localized actionable Stop error$`,
+		world.diagnosticsPerformanceStopErrorIsActionable,
+	)
+	context.Step(
+		`^Stop can be retried for the same active URL performance operation$`,
+		world.diagnosticsPerformanceStopCanBeRetried,
+	)
+	context.Step(
+		`^I retry stopping the URL performance test$`,
+		world.diagnosticsRetryPerformanceStop,
+	)
+	context.Step(
+		`^the URL performance test becomes idle and announces cancellation$`,
+		world.diagnosticsPerformanceCancellationIsAnnounced,
+	)
+	context.Step(
+		`^both Stop commands used the active URL performance operation identifier$`,
+		world.diagnosticsPerformanceCancelIDsMatch,
+	)
 }
 
 func diagnosticsQuoted(value string) string {
@@ -112,6 +165,8 @@ func diagnosticsMode(label string) (mainMode, threadMode string, err error) {
 		return "jwt", "", nil
 	case "Runtime":
 		return "runtime", "", nil
+	case "Performance":
+		return "performance", "", nil
 	case "Environments":
 		return "environments", "", nil
 	case "Thread":
@@ -361,6 +416,23 @@ func diagnosticsJWT() string {
 	}, ".")
 }
 
+func diagnosticsPerformanceReport(
+	durationMs int,
+	statusCode int,
+) map[string]any {
+	return map[string]any{
+		"report": map[string]any{
+			"inputUrl":        diagnosticsPerformanceURL,
+			"dnsLookups":      []map[string]any{},
+			"hops":            []map[string]any{},
+			"finalUrl":        diagnosticsPerformanceURL,
+			"finalStatusCode": statusCode,
+			"totalDurationMs": durationMs,
+			"usedGetFallback": false,
+		},
+	}
+}
+
 func (w *browserWorld) diagnosticsProvideFixture(name string) error {
 	control := func(name string) string {
 		return fmt.Sprintf(`[data-diagnostics-control="%s"]`, name)
@@ -416,6 +488,28 @@ func (w *browserWorld) diagnosticsProvideFixture(name string) error {
 			control("include-mappings"),
 			chromedp.ByQuery,
 		))
+	case "URL performance target":
+		if err := w.diagnosticsConfigure(map[string]any{
+			"overrides": map[string]any{
+				"AnalyzeNetwork": []any{
+					diagnosticsPerformanceReport(12, 200),
+					diagnosticsPerformanceReport(4, 204),
+					diagnosticsPerformanceReport(8, 200),
+				},
+			},
+		}); err != nil {
+			return err
+		}
+		if err := w.diagnosticsSetControl(
+			control("performance-url"),
+			diagnosticsPerformanceURL,
+		); err != nil {
+			return err
+		}
+		return w.diagnosticsSetControl(
+			control("performance-samples"),
+			"3",
+		)
 	case "three environment targets":
 		targets := []struct {
 			index int
@@ -497,6 +591,7 @@ func diagnosticsAction(operation string) (string, error) {
 		"analyze Spring response":     "analyze-spring",
 		"decode JWT":                  "analyze-jwt",
 		"capture runtime snapshot":    "runtime-snapshot",
+		"test URL performance":        "performance-run",
 		"compare environments":        "compare-environments",
 		"analyze thread dump":         "analyze-threads",
 		"search trace logs":           "search-logs",
@@ -578,6 +673,58 @@ func (w *browserWorld) diagnosticsResultShowsSummary(name string) error {
 				text.includes("Metric snapshot") &&
 				panel.querySelectorAll(".diagnostics-table").length >= 2;
 		})()`,
+		"URL timing samples": fmt.Sprintf(`(() => {
+			const panel = document.querySelector(
+				"#diagnostics-panel-performance[aria-busy]"
+			);
+			const cards = [...(panel?.querySelectorAll(
+				".diagnostics-performance-cards > article"
+			) ?? [])];
+			const cardText = cards.map((card) =>
+				(card.textContent || "").replace(/\s+/g, " ").trim()
+			);
+			const rows = [...(panel?.querySelectorAll(
+				".diagnostics-table tbody tr"
+			) ?? [])];
+			const rowValues = rows.map((row) =>
+				[...row.cells].map((cell) => cell.textContent?.trim() || "")
+			);
+			const calls = globalThis.__VALIDEX_E2E__.calls.filter(
+				(call) => call.method === "AnalyzeNetwork"
+			);
+			const operationIds = calls.map(
+				(call) => call.input?.operationId
+			);
+			return cards.length === 4 &&
+				cardText[0].includes("Fastest") &&
+				cardText[0].includes("4 ms") &&
+				cardText[1].includes("Average") &&
+				cardText[1].includes("8 ms") &&
+				cardText[2].includes("Slowest") &&
+				cardText[2].includes("12 ms") &&
+				cardText[3].includes("Completed samples") &&
+				cardText[3].includes("3") &&
+				rows.length === 3 &&
+				rowValues[0][0] === "1" &&
+				rowValues[0][1] === "HTTP 200" &&
+				rowValues[0][2] === "12 ms" &&
+				rowValues[1][0] === "2" &&
+				rowValues[1][1] === "HTTP 204" &&
+				rowValues[1][2] === "4 ms" &&
+				rowValues[2][0] === "3" &&
+				rowValues[2][1] === "HTTP 200" &&
+				rowValues[2][2] === "8 ms" &&
+				rowValues.every((row) => row[3] === %s) &&
+				calls.length === 3 &&
+				calls.every((call) => call.input?.url === %s) &&
+				operationIds.every((id) =>
+					typeof id === "string" && id.length > 0
+				) &&
+				new Set(operationIds).size === 3;
+		})()`,
+			diagnosticsQuoted(diagnosticsPerformanceURL),
+			diagnosticsQuoted(diagnosticsPerformanceURL),
+		),
 		"response differences": `(() => {
 			const panel = document.querySelector(
 				'[id^="diagnostics-panel-"][aria-busy]'
@@ -980,6 +1127,118 @@ func (w *browserWorld) diagnosticsChangePendingInput() error {
 	))
 }
 
+func (w *browserWorld) diagnosticsSwitchLocaleWhileBusy() error {
+	var busy bool
+	if err := w.run(chromedp.Evaluate(
+		`document.querySelector(
+			"#diagnostics-panel-runtime"
+		)?.getAttribute("aria-busy") === "true"`,
+		&busy,
+	)); err != nil {
+		return err
+	}
+	if !busy {
+		return fmt.Errorf("diagnostics was not busy before switching locale")
+	}
+
+	if err := w.run(
+		chromedp.Click(`[data-action="settings"]`, chromedp.ByQuery),
+		chromedp.WaitVisible(`[role="menu"]`, chromedp.ByQuery),
+	); err != nil {
+		return fmt.Errorf("open settings while diagnostics is busy: %w", err)
+	}
+
+	var targetLocale string
+	if err := w.run(chromedp.Evaluate(`(() => {
+		const current = document.documentElement.lang;
+		const target = current === "tr" ? "en" : "tr";
+		const label = target === "tr" ? "Türkçe" : "English";
+		const item = [...document.querySelectorAll(
+			'[role="menuitem"]:not(:disabled)'
+		)].find((candidate) => candidate.textContent?.trim() === label);
+		if (!(item instanceof HTMLButtonElement)) return "";
+		item.click();
+		return target;
+	})()`, &targetLocale)); err != nil {
+		return err
+	}
+	if targetLocale == "" {
+		return fmt.Errorf("opposite diagnostics locale action was not available")
+	}
+
+	return w.run(chromedp.Poll(
+		fmt.Sprintf(
+			`document.documentElement.lang === %s &&
+			document.querySelector(
+				"#diagnostics-panel-runtime"
+			)?.getAttribute("aria-busy") === "false"`,
+			diagnosticsQuoted(targetLocale),
+		),
+		nil,
+		chromedp.WithPollingInterval(25*time.Millisecond),
+		chromedp.WithPollingTimeout(3*time.Second),
+	))
+}
+
+func diagnosticsStaleNotice(locale string) (string, error) {
+	switch locale {
+	case "en":
+		return "The input or tool changed; the previous operation result was ignored.", nil
+	case "tr":
+		return "Girdi veya araç değişti; önceki işlemin sonucu yok sayıldı.", nil
+	default:
+		return "", fmt.Errorf("unsupported diagnostics locale %q", locale)
+	}
+}
+
+func (w *browserWorld) diagnosticsLocaleChangeIsReportedStale() error {
+	var state struct {
+		Locale      string `json:"locale"`
+		Busy        string `json:"busy"`
+		Text        string `json:"text"`
+		Role        string `json:"role"`
+		Live        string `json:"live"`
+		Info        bool   `json:"info"`
+		HasProgress bool   `json:"hasProgress"`
+	}
+	if err := w.run(chromedp.Evaluate(`(() => {
+		const notice = document.querySelector(
+			'[data-diagnostics-slot="notice"] .tool-notice.info'
+		);
+		return {
+			locale: document.documentElement.lang,
+			busy: document.querySelector("#diagnostics-panel-runtime")
+				?.getAttribute("aria-busy") || "",
+			text: notice?.textContent?.trim() || "",
+			role: notice?.getAttribute("role") || "",
+			live: notice?.getAttribute("aria-live") || "",
+			info: notice?.classList.contains("info") || false,
+			hasProgress: Boolean(document.querySelector(".diagnostics-progress"))
+		};
+	})()`, &state)); err != nil {
+		return err
+	}
+	expected, err := diagnosticsStaleNotice(state.Locale)
+	if err != nil {
+		return err
+	}
+	if state.Busy != "false" || state.Text != expected ||
+		state.Role != "status" || state.Live != "polite" ||
+		!state.Info || state.HasProgress {
+		return fmt.Errorf(
+			"localized stale diagnostics state is incomplete: locale=%q busy=%q text=%q role=%q live=%q info=%t progress=%t",
+			state.Locale,
+			state.Busy,
+			state.Text,
+			state.Role,
+			state.Live,
+			state.Info,
+			state.HasProgress,
+		)
+	}
+	return nil
+}
+
 func (w *browserWorld) diagnosticsResolveDeferredOperation() error {
 	staleResult := diagnosticsSnapshot(
 		"2026-07-29T10:00:00Z",
@@ -987,9 +1246,22 @@ func (w *browserWorld) diagnosticsResolveDeferredOperation() error {
 		[]map[string]any{},
 	)
 	staleResult["health"] = map[string]any{
-		"status":     "STALE_SHOULD_NOT_RENDER",
+		"status":     diagnosticsStaleHealthMarker,
 		"components": map[string]any{},
 		"data":       map[string]any{},
+	}
+	staleResult["metrics"] = map[string]any{
+		"capturedAt": "2026-07-29T10:00:00Z",
+		"metrics": map[string]any{
+			diagnosticsStaleMetricMarker: map[string]any{
+				"name":        diagnosticsStaleMetricMarker,
+				"description": "Stale metric that must not render",
+				"baseUnit":    "widgets",
+				"measurements": map[string]any{
+					"VALUE": 999_999,
+				},
+			},
+		},
 	}
 	encoded, err := stdjson.Marshal(staleResult)
 	if err != nil {
@@ -999,16 +1271,35 @@ func (w *browserWorld) diagnosticsResolveDeferredOperation() error {
 	if err := w.run(
 		chromedp.Evaluate(
 			fmt.Sprintf(
-				`globalThis.__VALIDEX_E2E__.resolve("InspectActuator", %s)`,
+				`(() => {
+					globalThis.__VALIDEX_E2E_DIAGNOSTICS_STALE_SETTLED__ = false;
+					const resolved = globalThis.__VALIDEX_E2E__.resolve(
+						"InspectActuator",
+						%s
+					);
+					if (resolved) {
+						requestAnimationFrame(() => {
+							requestAnimationFrame(() => {
+								globalThis.__VALIDEX_E2E_DIAGNOSTICS_STALE_SETTLED__ = true;
+							});
+						});
+					}
+					return resolved;
+				})()`,
 				string(encoded),
 			),
 			&resolved,
 		),
 		chromedp.Poll(
-			`document.querySelector(
+			`globalThis.__VALIDEX_E2E_DIAGNOSTICS_STALE_SETTLED__ === true &&
+			document.querySelector(
+				'#diagnostics-panel-runtime'
+			)?.getAttribute("aria-busy") === "false" &&
+			Boolean(document.querySelector(
 				'[data-diagnostics-slot="notice"] .tool-notice.info[role="status"]'
-			)?.textContent?.includes("previous operation result was ignored")`,
+			))`,
 			nil,
+			chromedp.WithPollingInterval(25*time.Millisecond),
 			chromedp.WithPollingTimeout(3*time.Second),
 		),
 	); err != nil {
@@ -1022,26 +1313,29 @@ func (w *browserWorld) diagnosticsResolveDeferredOperation() error {
 
 func (w *browserWorld) diagnosticsStaleResultIsNotRendered() error {
 	var state struct {
-		HasStaleResult bool `json:"hasStaleResult"`
-		HasMetric      bool `json:"hasMetric"`
+		HasStaleHealth bool `json:"hasStaleHealth"`
+		HasStaleMetric bool `json:"hasStaleMetric"`
 		HasEmptyState  bool `json:"hasEmptyState"`
 	}
-	if err := w.run(chromedp.Evaluate(`(() => {
+	if err := w.run(chromedp.Evaluate(fmt.Sprintf(`(() => {
 		const panel = document.querySelector("#diagnostics-panel-runtime");
 		const text = panel?.textContent || "";
 		return {
-			hasStaleResult: text.includes("STALE_SHOULD_NOT_RENDER"),
-			hasMetric: text.includes("999,999"),
-			hasEmptyState: text.includes("No runtime snapshot")
+			hasStaleHealth: text.includes(%s),
+			hasStaleMetric: text.includes(%s),
+			hasEmptyState: Boolean(panel?.querySelector(".tool-empty-result"))
 		};
-	})()`, &state)); err != nil {
+	})()`,
+		diagnosticsQuoted(diagnosticsStaleHealthMarker),
+		diagnosticsQuoted(diagnosticsStaleMetricMarker),
+	), &state)); err != nil {
 		return err
 	}
-	if state.HasStaleResult || state.HasMetric || !state.HasEmptyState {
+	if state.HasStaleHealth || state.HasStaleMetric || !state.HasEmptyState {
 		return fmt.Errorf(
-			"stale diagnostics result leaked into UI: marker=%t metric=%t empty=%t",
-			state.HasStaleResult,
-			state.HasMetric,
+			"stale diagnostics result leaked into UI: health=%t metric=%t empty=%t",
+			state.HasStaleHealth,
+			state.HasStaleMetric,
 			state.HasEmptyState,
 		)
 	}
@@ -1120,6 +1414,454 @@ func (w *browserWorld) diagnosticsEditedInputAndFocusArePreserved() error {
 			state.SelectionStart,
 			state.SelectionEnd,
 			state.Busy,
+		)
+	}
+	return nil
+}
+
+func (w *browserWorld) diagnosticsRemainsIdleAfterStaleCompletion() error {
+	var state struct {
+		Busy            string `json:"busy"`
+		HasProgress     bool   `json:"hasProgress"`
+		SnapshotEnabled bool   `json:"snapshotEnabled"`
+		PendingCalls    int    `json:"pendingCalls"`
+	}
+	if err := w.run(chromedp.Evaluate(`(() => {
+		const action = document.querySelector(
+			'[data-diagnostics-action="runtime-snapshot"]'
+		);
+		return {
+			busy: document.querySelector("#diagnostics-panel-runtime")
+				?.getAttribute("aria-busy") || "",
+			hasProgress: Boolean(document.querySelector(".diagnostics-progress")),
+			snapshotEnabled: action instanceof HTMLButtonElement && !action.disabled,
+			pendingCalls: globalThis.__VALIDEX_E2E__.pendingCount("InspectActuator")
+		};
+	})()`, &state)); err != nil {
+		return err
+	}
+	if state.Busy != "false" || state.HasProgress ||
+		!state.SnapshotEnabled || state.PendingCalls != 0 {
+		return fmt.Errorf(
+			"diagnostics returned to a busy state after stale completion: busy=%q progress=%t snapshotEnabled=%t pending=%d",
+			state.Busy,
+			state.HasProgress,
+			state.SnapshotEnabled,
+			state.PendingCalls,
+		)
+	}
+	return nil
+}
+
+func (w *browserWorld) diagnosticsUseLocale(label string) error {
+	targetLocale := ""
+	switch label {
+	case "English":
+		targetLocale = "en"
+	case "Türkçe":
+		targetLocale = "tr"
+	default:
+		return fmt.Errorf("unsupported diagnostics locale label %q", label)
+	}
+
+	var currentLocale string
+	if err := w.run(chromedp.Evaluate(
+		`document.documentElement.lang`,
+		&currentLocale,
+	)); err != nil {
+		return err
+	}
+	if currentLocale == targetLocale {
+		return nil
+	}
+
+	if err := w.run(
+		chromedp.Click(`[data-action="settings"]`, chromedp.ByQuery),
+		chromedp.WaitVisible(`[role="menu"]`, chromedp.ByQuery),
+	); err != nil {
+		return fmt.Errorf("open settings to select %q: %w", label, err)
+	}
+
+	var selected bool
+	if err := w.run(
+		chromedp.Evaluate(fmt.Sprintf(`(() => {
+			const item = [...document.querySelectorAll(
+				'[role="menuitem"]:not(:disabled)'
+			)].find((candidate) => candidate.textContent?.trim() === %s);
+			if (!(item instanceof HTMLButtonElement)) return false;
+			item.click();
+			return true;
+		})()`, diagnosticsQuoted(label)), &selected),
+		chromedp.Poll(
+			fmt.Sprintf(
+				`document.documentElement.lang === %s`,
+				diagnosticsQuoted(targetLocale),
+			),
+			nil,
+			chromedp.WithPollingInterval(25*time.Millisecond),
+			chromedp.WithPollingTimeout(3*time.Second),
+		),
+	); err != nil {
+		return fmt.Errorf("select diagnostics locale %q: %w", label, err)
+	}
+	if !selected {
+		return fmt.Errorf("diagnostics locale action %q was not available", label)
+	}
+	return nil
+}
+
+func (w *browserWorld) diagnosticsStartDeferredPerformanceSample() error {
+	if err := w.diagnosticsOpenMode("Performance"); err != nil {
+		return err
+	}
+	if err := w.diagnosticsSetControl(
+		`[data-diagnostics-control="performance-url"]`,
+		diagnosticsPerformanceURL,
+	); err != nil {
+		return err
+	}
+	if err := w.diagnosticsSetControl(
+		`[data-diagnostics-control="performance-samples"]`,
+		"3",
+	); err != nil {
+		return err
+	}
+	if err := w.run(chromedp.Evaluate(
+		`globalThis.__VALIDEX_E2E__.defer("AnalyzeNetwork")`,
+		nil,
+	)); err != nil {
+		return err
+	}
+	if err := w.run(
+		chromedp.Click(
+			`[data-diagnostics-action="performance-run"]`,
+			chromedp.ByQuery,
+		),
+		chromedp.Poll(
+			`document.querySelector(
+				"#diagnostics-panel-performance"
+			)?.getAttribute("aria-busy") === "true" &&
+			globalThis.__VALIDEX_E2E__.pendingCount("AnalyzeNetwork") === 1 &&
+			Boolean(document.querySelector(
+				'[data-diagnostics-action="performance-stop"]:not(:disabled)'
+			))`,
+			nil,
+			chromedp.WithPollingInterval(25*time.Millisecond),
+			chromedp.WithPollingTimeout(3*time.Second),
+		),
+	); err != nil {
+		return fmt.Errorf("start deferred URL performance sample: %w", err)
+	}
+	return nil
+}
+
+func (w *browserWorld) diagnosticsRejectFirstPerformanceStop() error {
+	return w.diagnosticsConfigure(map[string]any{
+		"overrides": map[string]any{
+			"CancelToolOperation": []any{false, true},
+		},
+	})
+}
+
+func (w *browserWorld) diagnosticsStopPerformanceTest() error {
+	var cancelCallsBefore int
+	if err := w.run(chromedp.Evaluate(
+		`globalThis.__VALIDEX_E2E__.calls.filter(
+			(call) => call.method === "CancelToolOperation"
+		).length`,
+		&cancelCallsBefore,
+	)); err != nil {
+		return err
+	}
+	if err := w.run(
+		chromedp.Click(
+			`[data-diagnostics-action="performance-stop"]`,
+			chromedp.ByQuery,
+		),
+		chromedp.Poll(
+			fmt.Sprintf(`globalThis.__VALIDEX_E2E__.calls.filter(
+				(call) => call.method === "CancelToolOperation"
+			).length > %d`, cancelCallsBefore),
+			nil,
+			chromedp.WithPollingInterval(25*time.Millisecond),
+			chromedp.WithPollingTimeout(3*time.Second),
+		),
+	); err != nil {
+		return fmt.Errorf("stop URL performance test: %w", err)
+	}
+	return nil
+}
+
+func diagnosticsPerformanceStopMessages(
+	locale string,
+) (title string, message string, hint string, err error) {
+	switch locale {
+	case "en":
+		return "URL test could not be stopped",
+			"The backend did not accept the stop command for the active sample.",
+			"Retry Stop; the bounded sample remains active until it finishes or reaches its timeout.",
+			nil
+	case "tr":
+		return "URL testi durdurulamadı",
+			"Backend, etkin örnek için durdurma komutunu kabul etmedi.",
+			"Durdur’u yeniden deneyin; sınırlı örnek tamamlanana veya zaman aşımına ulaşana kadar etkin kalır.",
+			nil
+	default:
+		return "", "", "", fmt.Errorf(
+			"unsupported diagnostics locale %q",
+			locale,
+		)
+	}
+}
+
+func (w *browserWorld) diagnosticsPerformanceStopErrorIsActionable() error {
+	if err := w.run(chromedp.Poll(
+		`document.querySelector(
+			"#diagnostics-panel-performance"
+		)?.getAttribute("aria-busy") === "true" &&
+		Boolean(document.querySelector(
+			'[data-diagnostics-slot="notice"] .tool-notice.error[role="alert"]'
+		)) &&
+		Boolean(document.querySelector(
+			'[data-diagnostics-action="performance-stop"]:not(:disabled)'
+		))`,
+		nil,
+		chromedp.WithPollingInterval(25*time.Millisecond),
+		chromedp.WithPollingTimeout(3*time.Second),
+	)); err != nil {
+		return fmt.Errorf("wait for rejected performance Stop state: %w", err)
+	}
+
+	var state struct {
+		Locale      string `json:"locale"`
+		Busy        string `json:"busy"`
+		Title       string `json:"title"`
+		Message     string `json:"message"`
+		Hint        string `json:"hint"`
+		Role        string `json:"role"`
+		Live        string `json:"live"`
+		StopEnabled bool   `json:"stopEnabled"`
+		HasProgress bool   `json:"hasProgress"`
+	}
+	if err := w.run(chromedp.Evaluate(`(() => {
+		const notice = document.querySelector(
+			'[data-diagnostics-slot="notice"] .tool-notice.error'
+		);
+		const stop = document.querySelector(
+			'[data-diagnostics-action="performance-stop"]'
+		);
+		return {
+			locale: document.documentElement.lang,
+			busy: document.querySelector("#diagnostics-panel-performance")
+				?.getAttribute("aria-busy") || "",
+			title: notice?.querySelector("strong")?.textContent?.trim() || "",
+			message: notice?.querySelector("span")?.textContent?.trim() || "",
+			hint: notice?.querySelector("small")?.textContent?.trim() || "",
+			role: notice?.getAttribute("role") || "",
+			live: notice?.getAttribute("aria-live") || "",
+			stopEnabled: stop instanceof HTMLButtonElement && !stop.disabled,
+			hasProgress: Boolean(document.querySelector(".diagnostics-progress"))
+		};
+	})()`, &state)); err != nil {
+		return err
+	}
+	expectedTitle, expectedMessage, expectedHint, err :=
+		diagnosticsPerformanceStopMessages(state.Locale)
+	if err != nil {
+		return err
+	}
+	if state.Busy != "true" || state.Title != expectedTitle ||
+		state.Message != expectedMessage || state.Hint != expectedHint ||
+		state.Role != "alert" || state.Live != "assertive" ||
+		!state.StopEnabled || !state.HasProgress {
+		return fmt.Errorf(
+			"rejected performance Stop state is incomplete: locale=%q busy=%q title=%q message=%q hint=%q role=%q live=%q stopEnabled=%t progress=%t",
+			state.Locale,
+			state.Busy,
+			state.Title,
+			state.Message,
+			state.Hint,
+			state.Role,
+			state.Live,
+			state.StopEnabled,
+			state.HasProgress,
+		)
+	}
+	return nil
+}
+
+func (w *browserWorld) diagnosticsPerformanceStopCanBeRetried() error {
+	var state struct {
+		AnalyzeID    string `json:"analyzeID"`
+		CancelID     string `json:"cancelID"`
+		AnalyzeCalls int    `json:"analyzeCalls"`
+		CancelCalls  int    `json:"cancelCalls"`
+		Pending      int    `json:"pending"`
+		StopEnabled  bool   `json:"stopEnabled"`
+	}
+	if err := w.run(chromedp.Evaluate(`(() => {
+		const analyzes = globalThis.__VALIDEX_E2E__.calls.filter(
+			(call) => call.method === "AnalyzeNetwork"
+		);
+		const cancels = globalThis.__VALIDEX_E2E__.calls.filter(
+			(call) => call.method === "CancelToolOperation"
+		);
+		const stop = document.querySelector(
+			'[data-diagnostics-action="performance-stop"]'
+		);
+		return {
+			analyzeID: analyzes.at(-1)?.input?.operationId || "",
+			cancelID: cancels.at(-1)?.input || "",
+			analyzeCalls: analyzes.length,
+			cancelCalls: cancels.length,
+			pending: globalThis.__VALIDEX_E2E__.pendingCount("AnalyzeNetwork"),
+			stopEnabled: stop instanceof HTMLButtonElement && !stop.disabled
+		};
+	})()`, &state)); err != nil {
+		return err
+	}
+	if state.AnalyzeID == "" || state.AnalyzeID != state.CancelID ||
+		state.AnalyzeCalls != 1 || state.CancelCalls != 1 ||
+		state.Pending != 1 || !state.StopEnabled {
+		return fmt.Errorf(
+			"performance Stop is not retryable for its active operation: analyze=%q cancel=%q calls=%d/%d pending=%d enabled=%t",
+			state.AnalyzeID,
+			state.CancelID,
+			state.AnalyzeCalls,
+			state.CancelCalls,
+			state.Pending,
+			state.StopEnabled,
+		)
+	}
+	return nil
+}
+
+func (w *browserWorld) diagnosticsRetryPerformanceStop() error {
+	if err := w.run(
+		chromedp.Click(
+			`[data-diagnostics-action="performance-stop"]`,
+			chromedp.ByQuery,
+		),
+		chromedp.Poll(
+			`globalThis.__VALIDEX_E2E__.calls.filter(
+				(call) => call.method === "CancelToolOperation"
+			).length === 2 &&
+			globalThis.__VALIDEX_E2E__.pendingCount("AnalyzeNetwork") === 0 &&
+			document.querySelector(
+				"#diagnostics-panel-performance"
+			)?.getAttribute("aria-busy") === "false" &&
+			Boolean(document.querySelector(
+				'[data-diagnostics-slot="notice"] .tool-notice.info[role="status"]'
+			))`,
+			nil,
+			chromedp.WithPollingInterval(25*time.Millisecond),
+			chromedp.WithPollingTimeout(3*time.Second),
+		),
+	); err != nil {
+		return fmt.Errorf("retry URL performance Stop: %w", err)
+	}
+	return nil
+}
+
+func diagnosticsPerformanceCanceledNotice(locale string) (string, error) {
+	switch locale {
+	case "en":
+		return "URL performance test stopped.", nil
+	case "tr":
+		return "URL performans testi durduruldu.", nil
+	default:
+		return "", fmt.Errorf("unsupported diagnostics locale %q", locale)
+	}
+}
+
+func (w *browserWorld) diagnosticsPerformanceCancellationIsAnnounced() error {
+	var state struct {
+		Locale      string `json:"locale"`
+		Busy        string `json:"busy"`
+		Text        string `json:"text"`
+		Role        string `json:"role"`
+		Live        string `json:"live"`
+		Info        bool   `json:"info"`
+		RunEnabled  bool   `json:"runEnabled"`
+		HasStop     bool   `json:"hasStop"`
+		HasProgress bool   `json:"hasProgress"`
+	}
+	if err := w.run(chromedp.Evaluate(`(() => {
+		const notice = document.querySelector(
+			'[data-diagnostics-slot="notice"] .tool-notice.info'
+		);
+		const run = document.querySelector(
+			'[data-diagnostics-action="performance-run"]'
+		);
+		return {
+			locale: document.documentElement.lang,
+			busy: document.querySelector("#diagnostics-panel-performance")
+				?.getAttribute("aria-busy") || "",
+			text: notice?.querySelector("span")?.textContent?.trim() || "",
+			role: notice?.getAttribute("role") || "",
+			live: notice?.getAttribute("aria-live") || "",
+			info: notice?.classList.contains("info") || false,
+			runEnabled: run instanceof HTMLButtonElement && !run.disabled,
+			hasStop: Boolean(document.querySelector(
+				'[data-diagnostics-action="performance-stop"]'
+			)),
+			hasProgress: Boolean(document.querySelector(".diagnostics-progress"))
+		};
+	})()`, &state)); err != nil {
+		return err
+	}
+	expected, err := diagnosticsPerformanceCanceledNotice(state.Locale)
+	if err != nil {
+		return err
+	}
+	if state.Busy != "false" || state.Text != expected ||
+		state.Role != "status" || state.Live != "polite" ||
+		!state.Info || !state.RunEnabled || state.HasStop || state.HasProgress {
+		return fmt.Errorf(
+			"performance cancellation announcement is incomplete: locale=%q busy=%q text=%q role=%q live=%q info=%t runEnabled=%t stop=%t progress=%t",
+			state.Locale,
+			state.Busy,
+			state.Text,
+			state.Role,
+			state.Live,
+			state.Info,
+			state.RunEnabled,
+			state.HasStop,
+			state.HasProgress,
+		)
+	}
+	return nil
+}
+
+func (w *browserWorld) diagnosticsPerformanceCancelIDsMatch() error {
+	var state struct {
+		AnalyzeID    string   `json:"analyzeID"`
+		CancelIDs    []string `json:"cancelIDs"`
+		AnalyzeCalls int      `json:"analyzeCalls"`
+	}
+	if err := w.run(chromedp.Evaluate(`(() => {
+		const analyzes = globalThis.__VALIDEX_E2E__.calls.filter(
+			(call) => call.method === "AnalyzeNetwork"
+		);
+		return {
+			analyzeID: analyzes.at(-1)?.input?.operationId || "",
+			cancelIDs: globalThis.__VALIDEX_E2E__.calls
+				.filter((call) => call.method === "CancelToolOperation")
+				.map((call) => call.input || ""),
+			analyzeCalls: analyzes.length
+		};
+	})()`, &state)); err != nil {
+		return err
+	}
+	if state.AnalyzeID == "" || state.AnalyzeCalls != 1 ||
+		len(state.CancelIDs) != 2 ||
+		state.CancelIDs[0] != state.AnalyzeID ||
+		state.CancelIDs[1] != state.AnalyzeID {
+		return fmt.Errorf(
+			"performance cancellation operation identifiers differ: analyze=%q analyzeCalls=%d cancels=%q",
+			state.AnalyzeID,
+			state.AnalyzeCalls,
+			state.CancelIDs,
 		)
 	}
 	return nil

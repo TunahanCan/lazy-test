@@ -9,6 +9,7 @@ import {
   type IpcMainInvokeEvent,
   type NativeImage,
 } from "electron";
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
 
@@ -23,9 +24,14 @@ import {
   applicationIconPath,
   applicationID,
   applicationName,
+  applyApplicationProcessIdentity,
   configureMacDockIcon,
+  isBrandedMacRuntime,
+  isPackagedApplicationRuntime,
 } from "./identity";
 import { SidecarClient } from "./sidecar";
+
+applyApplicationProcessIdentity(process);
 
 const applicationScheme = "app";
 const applicationHost = "validex";
@@ -74,8 +80,45 @@ function commandLineValue(name: string): string | undefined {
   return undefined;
 }
 
+let developmentMarkerLoaded = false;
+let developmentMarker: unknown;
+
+function readDevelopmentRuntimeMarker(): unknown {
+  if (developmentMarkerLoaded) return developmentMarker;
+  developmentMarkerLoaded = true;
+  try {
+    developmentMarker = JSON.parse(
+      readFileSync(
+        join(
+          process.resourcesPath,
+          ".validex-development-runtime.json",
+        ),
+        "utf8",
+      ),
+    );
+  } catch {
+    developmentMarker = undefined;
+  }
+  return developmentMarker;
+}
+
+function packagedApplication(): boolean {
+  return isPackagedApplicationRuntime({
+    applicationVersion: app.getVersion(),
+    architecture: process.arch,
+    developmentMarker: readDevelopmentRuntimeMarker(),
+    developmentRuntime: commandLineValue(
+      "validex-development-runtime",
+    ),
+    electronPackaged: app.isPackaged,
+    electronVersion: process.versions.electron,
+    executablePath: process.execPath,
+    platform: process.platform,
+  });
+}
+
 function developmentURL(): string | undefined {
-  if (app.isPackaged) return undefined;
+  if (packagedApplication()) return undefined;
 
   const raw =
     commandLineValue("dev-url") ?? process.env.VALIDEX_DEV_URL?.trim();
@@ -106,7 +149,7 @@ function executableName(): string {
 }
 
 function backendExecutable(): string {
-  if (app.isPackaged) {
+  if (packagedApplication()) {
     return join(process.resourcesPath, executableName());
   }
 
@@ -119,7 +162,9 @@ function backendExecutable(): string {
 }
 
 function frontendRoot(): string {
-  if (app.isPackaged) return join(process.resourcesPath, "frontend");
+  if (packagedApplication()) {
+    return join(process.resourcesPath, "frontend");
+  }
   return resolve(app.getAppPath(), "frontend", "dist");
 }
 
@@ -339,14 +384,24 @@ function loadApplicationIcon(path: string): NativeImage {
 
 async function startApplication(): Promise<void> {
   const devURL = developmentURL();
+  if (process.platform === "darwin") {
+    app.setAboutPanelOptions({
+      applicationName,
+      applicationVersion: app.getVersion(),
+    });
+  }
   const iconLocation = {
     applicationRoot: app.getAppPath(),
-    packaged: app.isPackaged,
+    packaged: packagedApplication(),
     resourcesRoot: process.resourcesPath,
   };
   const icon = loadApplicationIcon(applicationIconPath(iconLocation));
   const reinforceDockIcon = await configureMacDockIcon({
     ...iconLocation,
+    brandedRuntime: isBrandedMacRuntime(
+      process.platform,
+      process.execPath,
+    ),
     dock: app.dock,
     loadIcon: loadApplicationIcon,
     platform: process.platform,
@@ -365,8 +420,7 @@ async function startApplication(): Promise<void> {
   sidecar = new SidecarClient();
   await sidecar.start(backend);
   await createWindow(devURL, icon);
-  // Creating the first stock Electron window can restore the bundle artwork.
-  // Apply the Validex image once more after that lifecycle boundary.
+  // Reinforce the artwork after the first native window lifecycle boundary.
   reinforceDockIcon();
   process.stderr.write(
     `\n${startupBanner({

@@ -11,6 +11,8 @@ cmd/validex/frontend/dist/*
 
 # Platform build outputs
 cmd/validex/build/bin/
+cmd/validex/build/dev/
 cmd/validex/build/Validex.icns
+cmd/validex/build/.validex-mac-icon.json
 cmd/validex/build/Validex.iconset/
 cmd/validex/app_*.syso

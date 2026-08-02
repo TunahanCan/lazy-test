@@ -43,6 +43,7 @@ test("desktop npm metadata keeps only Electron and TypeScript direct dependencie
 
   const desktopManifest = await json(join(desktopRoot, "package.json"));
   assert.equal(desktopManifest.private, true);
+  assert.equal(desktopManifest.productName, "Validex");
   assert.equal(desktopManifest.type, "commonjs");
   assert.equal(desktopManifest.main, "electron/dist/main.js");
   assert.deepEqual(desktopManifest.devDependencies, {

@@ -75,6 +75,8 @@ export interface ResponseEnvelope {
 
 export interface UserError {
   code: string;
+  messageKey?: string;
+  params?: Readonly<Record<string, string>>;
   title: string;
   message: string;
   hint?: string;

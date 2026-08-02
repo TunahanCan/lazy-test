@@ -1,20 +1,44 @@
-import type { SpringErrorAnalysis } from "../../lib/developerTools.js";
+import {
+  DeveloperToolError,
+  type SpringErrorAnalysis,
+} from "../../lib/developerTools.js";
 import type { Locale, TranslationKey } from "../../i18n/messages.js";
 import type { Translate } from "../../i18n/locale.js";
 import type {
   CoverageInput,
   EnvironmentCompareResult,
+  NetworkReport,
   ResponseEnvelope,
   UserError,
 } from "../../lib/types.js";
+import {
+  hasLocalizedUserError,
+  localizeUserError,
+  userErrorTechnicalDetails,
+} from "../../lib/userErrors.js";
 
 export type DiagnosticsMode =
   | "spring"
   | "jwt"
   | "runtime"
+  | "performance"
   | "environments"
   | "thread-logs"
   | "coverage";
+
+export interface URLPerformanceSample {
+  number: number;
+  statusCode: number;
+  durationMs: number;
+  finalURL: string;
+}
+
+export interface URLPerformanceSummary {
+  samples: URLPerformanceSample[];
+  fastestMs: number;
+  averageMs: number;
+  slowestMs: number;
+}
 
 export interface DiagnosticsNotice {
   tone: "error" | "success" | "info";
@@ -33,10 +57,18 @@ export const diagnosticsModes: readonly DiagnosticsMode[] = [
   "spring",
   "jwt",
   "runtime",
+  "performance",
   "environments",
   "thread-logs",
   "coverage",
 ];
+
+export const urlPerformanceLimits = {
+  minimumSamples: 1,
+  maximumSamples: 10,
+  maximumTimeoutMs: 30_000,
+  maximumTotalBudgetMs: 30_000,
+} as const;
 
 export const defaultMetricNames = [
   "jvm.memory.used",
@@ -105,6 +137,22 @@ const translatedDiagnosticsErrors: Readonly<
     message: "diagnostics.error.coverageSpecMissingMessage",
     hint: "diagnostics.error.coverageSpecMissingHint",
   },
+  network_operation_invalid: {
+    message: "diagnostics.error.networkOperationInvalidMessage",
+    hint: "diagnostics.error.invalidInputHint",
+  },
+  network_inspection_failed: {
+    message: "diagnostics.error.networkInspectionFailedMessage",
+    hint: "diagnostics.error.networkInspectionFailedHint",
+  },
+  tool_timeout: {
+    message: "diagnostics.error.toolTimeoutMessage",
+    hint: "diagnostics.error.networkInspectionFailedHint",
+  },
+  tool_canceled: {
+    message: "diagnostics.error.toolCanceledMessage",
+    hint: "diagnostics.error.operationHint",
+  },
 };
 
 export function isSafeEnvironmentMethod(method: string): boolean {
@@ -124,10 +172,7 @@ export function errorText(error: unknown): string {
 }
 
 function structuredErrorDetails(error: Partial<UserError>): string | undefined {
-  const details = [error.title, error.message, error.hint, error.technical]
-    .filter((part): part is string => Boolean(part))
-    .join(" · ");
-  return details || undefined;
+  return userErrorTechnicalDetails(error);
 }
 
 export function resultIssue(
@@ -143,13 +188,23 @@ export function resultIssue(
       technical: result.error,
     };
   }
+  if (hasLocalizedUserError(result.error)) {
+    const localized = localizeUserError(result.error, t);
+    return {
+      tone: "error",
+      title: localized.title,
+      text: localized.message,
+      hint: localized.hint,
+      technical: userErrorTechnicalDetails(result.error),
+    };
+  }
   if (result.error.code === "backend_unavailable") {
     return {
       tone: "error",
       title: t("diagnostics.error.bridgeTitle"),
       text: t("diagnostics.error.operationMessage"),
       hint: t("diagnostics.error.bridgeHint"),
-      technical: structuredErrorDetails(result.error),
+      technical: result.error.technical,
     };
   }
   const translated = translatedDiagnosticsErrors[result.error.code];
@@ -162,7 +217,9 @@ export function resultIssue(
     hint: translated
       ? t(translated.hint)
       : t("diagnostics.error.operationHint"),
-    technical: structuredErrorDetails(result.error),
+    technical: translated
+      ? result.error.technical
+      : structuredErrorDetails(result.error),
   };
 }
 
@@ -227,6 +284,109 @@ export function parseList(input: string): string[] {
     .split(/[\n,]+/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+export function validateURLPerformanceTarget(
+  input: string,
+  t: Translate,
+): string {
+  const value = input.trim();
+  if (!value) {
+    throw new Error(t("diagnostics.performance.urlRequired"));
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(t("diagnostics.performance.urlInvalid"));
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(t("diagnostics.performance.urlProtocol"));
+  }
+  if (!parsed.hostname) {
+    throw new Error(t("diagnostics.performance.urlInvalid"));
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error(t("diagnostics.performance.urlCredentials"));
+  }
+  if (parsed.hash || value.includes("#")) {
+    throw new Error(t("diagnostics.performance.urlFragment"));
+  }
+  return value;
+}
+
+export function validateURLPerformanceOptions(
+  sampleCount: number,
+  timeoutMs: number,
+  t: Translate,
+): void {
+  if (
+    !Number.isInteger(sampleCount) ||
+    sampleCount < urlPerformanceLimits.minimumSamples ||
+    sampleCount > urlPerformanceLimits.maximumSamples
+  ) {
+    throw new Error(
+      t("diagnostics.performance.sampleRange", {
+        minimum: urlPerformanceLimits.minimumSamples,
+        maximum: urlPerformanceLimits.maximumSamples,
+      }),
+    );
+  }
+  if (
+    !Number.isInteger(timeoutMs) ||
+    timeoutMs < 1 ||
+    timeoutMs > urlPerformanceLimits.maximumTimeoutMs
+  ) {
+    throw new Error(
+      t("diagnostics.performance.timeoutRange", {
+        maximum: urlPerformanceLimits.maximumTimeoutMs,
+      }),
+    );
+  }
+  if (
+    sampleCount * timeoutMs > urlPerformanceLimits.maximumTotalBudgetMs
+  ) {
+    throw new Error(
+      t("diagnostics.performance.budgetExceeded", {
+        samples: sampleCount,
+        timeout: timeoutMs,
+        maximum: urlPerformanceLimits.maximumTotalBudgetMs,
+      }),
+    );
+  }
+}
+
+export function summarizeURLPerformance(
+  reports: readonly NetworkReport[],
+): URLPerformanceSummary | undefined {
+  if (reports.length === 0) return undefined;
+  const samples = reports.map((report, index) => ({
+    number: index + 1,
+    statusCode: report.finalStatusCode ?? 0,
+    durationMs: Math.max(0, report.totalDurationMs),
+    finalURL: report.finalUrl ?? report.inputUrl,
+  }));
+  const durations = samples.map((sample) => sample.durationMs);
+  return {
+    samples,
+    fastestMs: Math.min(...durations),
+    averageMs:
+      durations.reduce((total, duration) => total + duration, 0) /
+      durations.length,
+    slowestMs: Math.max(...durations),
+  };
+}
+
+export function formatURLPerformanceDuration(
+  durationMs: number,
+  locale: Locale,
+): string {
+  if (!Number.isFinite(durationMs) || durationMs < 0) return "—";
+  if (durationMs < 1) return "< 1 ms";
+  return `${durationMs.toLocaleString(locale, {
+    maximumFractionDigits: 1,
+  })} ms`;
 }
 
 export function formatUnknown(value: unknown): string {
@@ -363,14 +523,18 @@ export function springAdvice(
 }
 
 export function jwtErrorText(error: unknown, t: Translate): string {
-  const message = errorText(error);
-  if (message === "JWT üç bölümden oluşmalıdır.") {
-    return t("diagnostics.jwt.threeParts");
+  if (error instanceof DeveloperToolError) {
+    if (error.code === "jwt.threeParts") {
+      return t("diagnostics.jwt.threeParts");
+    }
+    if (error.code === "jwt.invalidBase64") {
+      return t("diagnostics.jwt.invalidBase64");
+    }
+    if (error.code === "jwt.invalidJSON") {
+      return t("diagnostics.jwt.invalidJSON");
+    }
   }
-  if (message === "JWT bölümü base64url olarak çözülemedi.") {
-    return t("diagnostics.jwt.invalidBase64");
-  }
-  return message;
+  return errorText(error);
 }
 
 export function localizeSpringFallbacks(

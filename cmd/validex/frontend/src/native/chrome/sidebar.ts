@@ -46,6 +46,10 @@ import type {
   RequestTab,
 } from "../../lib/types.js";
 import {
+  localizeUserError,
+  userErrorTechnicalDetails,
+} from "../../lib/userErrors.js";
+import {
   collectionLibraryStore,
 } from "../../stores/collectionLibrary.js";
 import {
@@ -805,6 +809,12 @@ export function mountSidebar(
     }
     const conflict =
       snapshot.error?.code === "collection_library_conflict";
+    const storageError = snapshot.error
+      ? localizeUserError(snapshot.error, t)
+      : undefined;
+    const technical = snapshot.error
+      ? userErrorTechnicalDetails(snapshot.error)
+      : undefined;
     return html`
       <div class="library-storage-notice" role="alert">
         ${icon("warning", 15)}
@@ -812,16 +822,17 @@ export function mountSidebar(
           ${conflict
             ? t("sidebar.libraryConflict")
             : t("sidebar.libraryWriteFailed")}
-          ${snapshot.error?.message || snapshot.error?.hint
+          ${storageError?.message
+            ? html`<small>${storageError.message}</small>`
+            : ""}
+          ${storageError?.hint
+            ? html`<small>${storageError.hint}</small>`
+            : ""}
+          ${technical
             ? html`
                 <details>
                   <summary>${t("common.technicalDetails")}</summary>
-                  ${snapshot.error.message
-                    ? html`<small>${snapshot.error.message}</small>`
-                    : ""}
-                  ${snapshot.error.hint
-                    ? html`<small>${snapshot.error.hint}</small>`
-                    : ""}
+                  <code>${technical}</code>
                 </details>
               `
             : ""}
@@ -1335,9 +1346,10 @@ export function mountSidebar(
       const selected = await backend.importCollectionFile();
       if (selected.canceled) return;
       if (selected.error) {
+        const error = localizeUserError(selected.error, t);
         notify({
           message: `${t("sidebar.collectionImportFailed")} ${
-            selected.error.message
+            error.message
           }`,
           tone: FEEDBACK_TONE.ERROR,
         });
@@ -1462,9 +1474,12 @@ export function mountSidebar(
         }
         return;
       }
+      const error = result.error
+        ? localizeUserError(result.error, t)
+        : undefined;
       notify({
         message: `${t("sidebar.collectionExportFailed")} ${
-          result.error?.message ?? ""
+          error?.message ?? ""
         }`.trim(),
         tone: FEEDBACK_TONE.ERROR,
       });

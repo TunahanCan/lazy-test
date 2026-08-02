@@ -29,6 +29,8 @@ import type {
   CoverageResult,
   EnvironmentCompareResult,
   LogSearchResult,
+  NetworkInspectResult,
+  NetworkReport,
   ThreadDumpResult,
 } from "../../lib/types.js";
 import { workspaceStore } from "../../stores/workspace.js";
@@ -42,6 +44,7 @@ import {
   formatEnvironmentDuration,
   formatEpoch,
   formatUnknown,
+  formatURLPerformanceDuration,
   isSafeEnvironmentMethod,
   jwtErrorText,
   localizeSpringFallbacks,
@@ -52,9 +55,14 @@ import {
   responseHeadersText,
   resultIssue,
   springAdvice,
+  summarizeURLPerformance,
+  urlPerformanceLimits,
+  validateURLPerformanceOptions,
+  validateURLPerformanceTarget,
   type DiagnosticsMode,
   type DiagnosticsNotice,
   type PendingOperation,
+  type URLPerformanceSummary,
 } from "../../features/diagnostics/model.js";
 import {
   emptyToolResult,
@@ -85,6 +93,11 @@ interface DiagnosticsState {
   includeMappings: boolean;
   runtimeResult: ActuatorInspectResult | null;
   runtimeBaseline: ActuatorMetricSnapshot | undefined;
+  performanceURL: string;
+  performanceTimeout: number;
+  performanceSampleCount: number;
+  performanceResult: URLPerformanceSummary | null;
+  performanceCanceling: boolean;
   environmentMethod: string;
   environmentPath: string;
   environmentBody: string;
@@ -117,6 +130,7 @@ const modeIcons: Record<DiagnosticsMode, IconName> = {
   spring: "warning",
   jwt: "eye",
   runtime: "activity",
+  performance: "automation",
   environments: "refresh",
   "thread-logs": "terminal",
   coverage: "check",
@@ -130,6 +144,7 @@ function diagnosticsModeLabel(
     spring: "diagnostics.mode.spring",
     jwt: "diagnostics.mode.jwt",
     runtime: "diagnostics.mode.runtime",
+    performance: "diagnostics.mode.performance",
     environments: "diagnostics.mode.environments",
     "thread-logs": "diagnostics.mode.threadLogs",
     coverage: "diagnostics.mode.coverage",
@@ -145,6 +160,7 @@ function diagnosticsModeDescription(
     spring: "diagnostics.mode.springDescription",
     jwt: "diagnostics.mode.jwtDescription",
     runtime: "diagnostics.mode.runtimeDescription",
+    performance: "diagnostics.mode.performanceDescription",
     environments: "diagnostics.mode.environmentsDescription",
     "thread-logs": "diagnostics.mode.threadLogsDescription",
     coverage: "diagnostics.mode.coverageDescription",
@@ -750,6 +766,84 @@ function runtimeResult(
             }),
           })
         : ""}
+    </div>
+  `;
+}
+
+function performanceResult(
+  result: URLPerformanceSummary,
+): TrustedHTMLFragment {
+  const locale = getLocale();
+  return html`
+    <div class="diagnostics-result-stack">
+      <article class="tool-panel">
+        ${cardHeader(
+          t("diagnostics.performance.resultTitle"),
+          t("diagnostics.performance.resultDescription"),
+        )}
+        <div class="diagnostics-runtime-cards diagnostics-performance-cards">
+          ${[
+            {
+              label: t("diagnostics.performance.fastest"),
+              value: formatURLPerformanceDuration(result.fastestMs, locale),
+            },
+            {
+              label: t("diagnostics.performance.average"),
+              value: formatURLPerformanceDuration(result.averageMs, locale),
+            },
+            {
+              label: t("diagnostics.performance.slowest"),
+              value: formatURLPerformanceDuration(result.slowestMs, locale),
+            },
+            {
+              label: t("diagnostics.performance.completedSamples"),
+              value: result.samples.length.toLocaleString(locale),
+            },
+          ].map(
+            (summary) => html`
+              <article>
+                <span class="tool-eyebrow">${summary.label}</span>
+                <strong class="diagnostics-big-value">
+                  ${summary.value}
+                </strong>
+              </article>
+            `,
+          )}
+        </div>
+        <div class="diagnostics-table-wrap">
+          <table class="diagnostics-table">
+            <thead>
+              <tr>
+                <th scope="col">${t("diagnostics.performance.sample")}</th>
+                <th scope="col">${t("diagnostics.performance.status")}</th>
+                <th scope="col">${t("diagnostics.performance.duration")}</th>
+                <th scope="col">${t("diagnostics.performance.finalURL")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${result.samples.map(
+                (sample) => html`
+                  <tr>
+                    <td>${sample.number.toLocaleString(locale)}</td>
+                    <td>
+                      <span class="diagnostics-status">
+                        HTTP ${sample.statusCode}
+                      </span>
+                    </td>
+                    <td>
+                      ${formatURLPerformanceDuration(
+                        sample.durationMs,
+                        locale,
+                      )}
+                    </td>
+                    <td><code>${sample.finalURL}</code></td>
+                  </tr>
+                `,
+              )}
+            </tbody>
+          </table>
+        </div>
+      </article>
     </div>
   `;
 }
@@ -1462,6 +1556,91 @@ function runtimePanel(state: DiagnosticsState): TrustedHTMLFragment {
   `;
 }
 
+function performancePanel(state: DiagnosticsState): TrustedHTMLFragment {
+  const running = state.busy === "performance";
+  const stopping = running && state.performanceCanceling;
+  return html`
+    <div class="diagnostics-result-stack">
+      <article class="tool-panel diagnostics-panel-padded">
+        ${cardHeader(
+          t("diagnostics.performance.targetTitle"),
+          t("diagnostics.performance.targetDescription"),
+        )}
+        <div class="diagnostics-runtime-form">
+          <label class="diagnostics-field diagnostics-field-wide">
+            ${t("diagnostics.performance.url")}
+            <input
+              type="url"
+              value="${state.performanceURL}"
+              data-diagnostics-control="performance-url"
+              placeholder="https://api.example.test/health"
+              aria-describedby="diagnostics-performance-url-help"
+              autocomplete="url"
+              required
+            />
+            <small id="diagnostics-performance-url-help">
+              ${t("diagnostics.performance.urlHelp")}
+            </small>
+          </label>
+          <label class="diagnostics-field">
+            ${t("diagnostics.performance.timeout")}
+            <input
+              type="number"
+              min="1"
+              max="${urlPerformanceLimits.maximumTimeoutMs}"
+              step="1"
+              value="${state.performanceTimeout}"
+              data-diagnostics-control="performance-timeout"
+            />
+          </label>
+          <label class="diagnostics-field">
+            ${t("diagnostics.performance.samples")}
+            <input
+              type="number"
+              min="${urlPerformanceLimits.minimumSamples}"
+              max="${urlPerformanceLimits.maximumSamples}"
+              step="1"
+              value="${state.performanceSampleCount}"
+              data-diagnostics-control="performance-samples"
+            />
+          </label>
+        </div>
+        <div class="diagnostics-action-row">
+          ${running
+            ? button(
+                stopping
+                  ? t("diagnostics.performance.stopping")
+                  : t("diagnostics.performance.stop"),
+                "performance-stop",
+                {
+                  variant: "secondary",
+                  icon: "stop",
+                  disabled: stopping,
+                },
+              )
+            : button(
+                t("diagnostics.performance.run"),
+                "performance-run",
+                {
+                  variant: "primary",
+                  icon: "play",
+                  disabled: Boolean(state.busy),
+                },
+              )}
+          <span>${t("diagnostics.performance.safetyHint")}</span>
+        </div>
+      </article>
+      ${state.performanceResult
+        ? performanceResult(state.performanceResult)
+        : emptyPanel(
+            "automation",
+            t("diagnostics.performance.emptyTitle"),
+            t("diagnostics.performance.emptyDescription"),
+          )}
+    </div>
+  `;
+}
+
 function environmentPanel(state: DiagnosticsState): TrustedHTMLFragment {
   const unsafe = !isSafeEnvironmentMethod(state.environmentMethod);
   return html`
@@ -1908,11 +2087,13 @@ function pageMarkup(state: DiagnosticsState): TrustedHTMLFragment {
             ? jwtPanel(state)
             : state.mode === "runtime"
               ? runtimePanel(state)
-              : state.mode === "environments"
-                ? environmentPanel(state)
-                : state.mode === "thread-logs"
-                  ? threadAndLogsPanel(state)
-                  : coveragePanel(state)}
+              : state.mode === "performance"
+                ? performancePanel(state)
+                : state.mode === "environments"
+                  ? environmentPanel(state)
+                  : state.mode === "thread-logs"
+                    ? threadAndLogsPanel(state)
+                    : coveragePanel(state)}
       </div>
     </section>
   `;
@@ -1926,6 +2107,9 @@ function asyncInputSignature(state: DiagnosticsState): string {
     actuatorTimeout: state.actuatorTimeout,
     metricNames: state.metricNames,
     includeMappings: state.includeMappings,
+    performanceURL: state.performanceURL,
+    performanceTimeout: state.performanceTimeout,
+    performanceSampleCount: state.performanceSampleCount,
     environmentMethod: state.environmentMethod,
     environmentPath: state.environmentPath,
     environmentBody: state.environmentBody,
@@ -1972,6 +2156,11 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
     includeMappings: false,
     runtimeResult: null,
     runtimeBaseline: undefined,
+    performanceURL: "http://localhost:8080/actuator/health",
+    performanceTimeout: 5_000,
+    performanceSampleCount: 3,
+    performanceResult: null,
+    performanceCanceling: false,
     environmentMethod: "GET",
     environmentPath: "/actuator/health",
     environmentBody: "",
@@ -2007,6 +2196,9 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
   );
   let disposed = false;
   let operationSequence = 0;
+  let performanceOperationSequence = 0;
+  let activePerformanceOperationID: string | undefined;
+  let pendingPerformanceCancellationID: string | undefined;
   let pendingFocus:
     | {
         kind: "control" | "action" | "mode" | "thread-mode";
@@ -2120,8 +2312,25 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
     pendingFocus = undefined;
   };
 
+  const cancelActivePerformanceOperation = () => {
+    const operationID = activePerformanceOperationID;
+    if (!operationID) return;
+    activePerformanceOperationID = undefined;
+    void backend.cancelToolOperation(operationID).catch(() => {
+      // Invalidation already detached the UI; cancellation is best effort.
+    });
+  };
+
+  const nextPerformanceOperationID = (): string => {
+    performanceOperationSequence += 1;
+    return `diagnostics-performance-${Date.now().toString(36)}-${performanceOperationSequence.toString(36)}`;
+  };
+
   const invalidatePendingOperation = (): boolean => {
     operationSequence += 1;
+    cancelActivePerformanceOperation();
+    pendingPerformanceCancellationID = undefined;
+    state.performanceCanceling = false;
     if (!state.busy) return false;
     state.busy = "";
     state.notice = {
@@ -2298,6 +2507,164 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
       }
     } finally {
       finishOperation(operation);
+    }
+  };
+
+  const runURLPerformanceTest = async () => {
+    let targetURL: string;
+    const sampleCount = state.performanceSampleCount;
+    const timeoutMs = state.performanceTimeout;
+    try {
+      targetURL = validateURLPerformanceTarget(state.performanceURL, t);
+      validateURLPerformanceOptions(sampleCount, timeoutMs, t);
+    } catch (error) {
+      showValidationError(errorText(error));
+      return;
+    }
+
+    state.performanceResult = null;
+    state.performanceCanceling = false;
+    const operation = startOperation("performance");
+    const reports: NetworkReport[] = [];
+    try {
+      for (let index = 0; index < sampleCount; index += 1) {
+        if (!isCurrentOperation(operation)) return;
+        const operationID = nextPerformanceOperationID();
+        activePerformanceOperationID = operationID;
+        let result: NetworkInspectResult;
+        try {
+          result = await backend.analyzeNetwork({
+            operationId: operationID,
+            url: targetURL,
+            timeoutMs,
+            maxRedirects: 5,
+            insecureSkipVerify: false,
+          });
+        } finally {
+          if (activePerformanceOperationID === operationID) {
+            activePerformanceOperationID = undefined;
+          }
+        }
+        if (!isCurrentOperation(operation)) return;
+        if (pendingPerformanceCancellationID === operationID) {
+          if (!result.error && result.report?.finalStatusCode) {
+            reports.push(result.report);
+            state.performanceResult =
+              summarizeURLPerformance(reports) ?? null;
+          }
+          pendingPerformanceCancellationID = undefined;
+          state.performanceCanceling = false;
+          invalidatePendingOperation();
+          state.notice = {
+            tone: "info",
+            text: t("diagnostics.performance.canceled"),
+          };
+          render();
+          return;
+        }
+        const failure = resultIssue(result, t);
+        if (failure || !result.report?.finalStatusCode) {
+          state.performanceResult = summarizeURLPerformance(reports) ?? null;
+          state.notice =
+            failure ?? {
+              tone: "error",
+              title: t("diagnostics.error.operationTitle"),
+              text: t("diagnostics.performance.failure"),
+              hint: t("diagnostics.error.operationHint"),
+            };
+          return;
+        }
+        reports.push(result.report);
+        state.performanceResult = summarizeURLPerformance(reports) ?? null;
+      }
+
+      if (!isCurrentOperation(operation)) return;
+      state.performanceResult = summarizeURLPerformance(reports) ?? null;
+      state.notice = {
+        tone: "success",
+        text: t("diagnostics.performance.success", {
+          count: reports.length,
+        }),
+      };
+    } catch (error) {
+      if (isCurrentOperation(operation)) {
+        state.performanceResult = summarizeURLPerformance(reports) ?? null;
+        state.notice = bridgeIssue(
+          error,
+          t("diagnostics.performance.failure"),
+          t,
+        );
+      }
+    } finally {
+      if (isCurrentOperation(operation)) {
+        pendingPerformanceCancellationID = undefined;
+        state.performanceCanceling = false;
+      }
+      finishOperation(operation);
+    }
+  };
+
+  const stopURLPerformanceTest = async () => {
+    const operationID = activePerformanceOperationID;
+    if (
+      state.busy !== "performance" ||
+      state.performanceCanceling ||
+      !operationID
+    ) {
+      return;
+    }
+    pendingPerformanceCancellationID = operationID;
+    state.performanceCanceling = true;
+    state.notice = null;
+    render();
+    try {
+      const accepted = await backend.cancelToolOperation(operationID);
+      if (
+        disposed ||
+        state.busy !== "performance" ||
+        pendingPerformanceCancellationID !== operationID ||
+        activePerformanceOperationID !== operationID
+      ) {
+        return;
+      }
+      if (!accepted) {
+        pendingPerformanceCancellationID = undefined;
+        state.performanceCanceling = false;
+        state.notice = {
+          tone: "error",
+          title: t("diagnostics.performance.cancelRejectedTitle"),
+          text: t("diagnostics.performance.cancelRejectedMessage"),
+          hint: t("diagnostics.performance.cancelRejectedHint"),
+        };
+        render();
+        return;
+      }
+      activePerformanceOperationID = undefined;
+      pendingPerformanceCancellationID = undefined;
+      state.performanceCanceling = false;
+      invalidatePendingOperation();
+      state.notice = {
+        tone: "info",
+        text: t("diagnostics.performance.canceled"),
+      };
+      render();
+    } catch (error) {
+      if (
+        disposed ||
+        state.busy !== "performance" ||
+        pendingPerformanceCancellationID !== operationID ||
+        activePerformanceOperationID !== operationID
+      ) {
+        return;
+      }
+      pendingPerformanceCancellationID = undefined;
+      state.performanceCanceling = false;
+      state.notice = bridgeIssue(
+        error,
+        t("diagnostics.performance.cancelFailure"),
+        t,
+      );
+      render();
     }
   };
 
@@ -2543,6 +2910,15 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
     return invalidatePendingOperation() || changed;
   };
 
+  const clearPerformanceInputResult = (): boolean => {
+    const changed = Boolean(
+      state.performanceResult || state.notice || state.busy,
+    );
+    state.performanceResult = null;
+    state.notice = null;
+    return invalidatePendingOperation() || changed;
+  };
+
   const clearEnvironmentInputResult = (): boolean => {
     const changed = Boolean(
       state.environmentResult || state.notice || state.busy,
@@ -2641,6 +3017,36 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
           shouldRender = clearRuntimeInputResult();
         }
         break;
+      case "performance-url":
+        state.performanceURL = element.value;
+        shouldRender = clearPerformanceInputResult();
+        break;
+      case "performance-timeout": {
+        const timeout = Math.max(
+          1,
+          Math.min(
+            urlPerformanceLimits.maximumTimeoutMs,
+            Number(element.value) || 1,
+          ),
+        );
+        state.performanceTimeout = timeout;
+        element.value = String(timeout);
+        shouldRender = clearPerformanceInputResult();
+        break;
+      }
+      case "performance-samples": {
+        const samples = Math.max(
+          urlPerformanceLimits.minimumSamples,
+          Math.min(
+            urlPerformanceLimits.maximumSamples,
+            Number(element.value) || urlPerformanceLimits.minimumSamples,
+          ),
+        );
+        state.performanceSampleCount = samples;
+        element.value = String(samples);
+        shouldRender = clearPerformanceInputResult();
+        break;
+      }
       case "environment-method":
         state.environmentMethod = element.value;
         if (isSafeEnvironmentMethod(element.value)) {
@@ -2830,6 +3236,12 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
         };
         render();
         break;
+      case "performance-run":
+        void runURLPerformanceTest();
+        break;
+      case "performance-stop":
+        void stopURLPerformanceTest();
+        break;
       case "compare-environments":
         void compareEnvironments();
         break;
@@ -2857,7 +3269,8 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
 
   lifecycle.add(
     subscribeLocale(() => {
-      state.notice = null;
+      const stale = invalidatePendingOperation();
+      if (!stale) state.notice = null;
       const nextDefaultEnvironmentNames = [
         t("diagnostics.environment.defaultName.local"),
         t("diagnostics.environment.defaultName.test"),
@@ -2901,6 +3314,7 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
     }),
   );
   lifecycle.add(() => {
+    cancelActivePerformanceOperation();
     disposed = true;
     operationSequence += 1;
     root.replaceChildren();

@@ -22,7 +22,7 @@ func (b *Bridge) UpdateMockRoutes(routes []MockRoute) MockServerSnapshot {
 	defer b.mockMu.Unlock()
 	server := b.currentMockServer()
 	if err := server.ReplaceRoutes(toMockRoutes(routes)); err != nil {
-		return mockFailure(server, UserErrorMockRoutesInvalid, "Mock route’ları uygulanamadı", err)
+		return mockFailure(server, userErrorMockRoutesUpdate, err)
 	}
 	return mockSnapshot(server, "")
 }
@@ -32,15 +32,15 @@ func (b *Bridge) StartMockServer(input MockStartInput) MockServerSnapshot {
 	defer b.mockMu.Unlock()
 	current := b.currentMockServer()
 	if current.Status().Running {
-		return mockFailure(current, UserErrorMockAlreadyRunning, "Mock server zaten çalışıyor", errors.New("önce çalışan server’ı durdurun"))
+		return mockFailure(current, userErrorMockAlreadyRunning, nil)
 	}
 	routes := current.Routes()
 	server := mockserver.New(mockserver.Options{EnableCORS: input.EnableCORS})
 	if err := server.ReplaceRoutes(routes); err != nil {
-		return mockFailure(current, UserErrorMockRoutesInvalid, "Mock route’ları uygulanamadı", err)
+		return mockFailure(current, userErrorMockRoutesPrepareStart, err)
 	}
 	if _, err := server.Start(input.Port); err != nil {
-		return mockFailure(current, UserErrorMockStartFailed, "Mock server başlatılamadı", err)
+		return mockFailure(current, userErrorMockServerStart, err)
 	}
 	b.mu.Lock()
 	b.mock = server
@@ -55,7 +55,7 @@ func (b *Bridge) StopMockServer() MockServerSnapshot {
 	ctx, cancel := context.WithTimeout(b.operationContext(), 3*time.Second)
 	defer cancel()
 	if err := server.Stop(ctx); err != nil {
-		return mockFailure(server, UserErrorMockStopFailed, "Mock server durdurulamadı", err)
+		return mockFailure(server, userErrorMockServerStop, err)
 	}
 	return mockSnapshot(server, "")
 }
@@ -72,11 +72,7 @@ func (b *Bridge) ImportMockOpenAPI() MockServerSnapshot {
 	ctx := b.runtimeContext()
 	if ctx == nil {
 		out := b.snapshotMockServer("")
-		out.Error = &UserError{
-			Code:    UserErrorRuntimeUnavailable,
-			Title:   "OpenAPI dosyası seçilemedi",
-			Message: "Desktop runtime henüz hazır değil.",
-		}
+		out.Error = newUserError(userErrorMockImportRuntimeUnavailable, nil, nil)
 		return out
 	}
 	path, err := b.filePicker.Open(ctx, fileDialogOptions{
@@ -85,10 +81,7 @@ func (b *Bridge) ImportMockOpenAPI() MockServerSnapshot {
 	})
 	if err != nil {
 		out := b.snapshotMockServer("")
-		out.Error = &UserError{
-			Code: UserErrorFileDialogFailed, Title: "OpenAPI dosyası seçilemedi",
-			Message: "Sistem dosya seçicisi tamamlanamadı.", Technical: err.Error(),
-		}
+		out.Error = newUserError(userErrorMockImportFileDialog, nil, err)
 		return out
 	}
 	if path == "" {
@@ -100,7 +93,11 @@ func (b *Bridge) ImportMockOpenAPI() MockServerSnapshot {
 	if err != nil {
 		b.mockMu.Lock()
 		defer b.mockMu.Unlock()
-		return mockFailure(b.currentMockServer(), UserErrorInvalidOpenAPI, "Mock route’ları üretilemedi", err)
+		return mockFailure(
+			b.currentMockServer(),
+			userErrorMockImportInvalidOpenAPI,
+			err,
+		)
 	}
 	b.mockMu.Lock()
 	defer b.mockMu.Unlock()
@@ -108,13 +105,12 @@ func (b *Bridge) ImportMockOpenAPI() MockServerSnapshot {
 	if !b.runtimeContextIsCurrent(ctx) {
 		return mockFailure(
 			server,
-			UserErrorOperationCanceled,
-			"Mock route içe aktarma iptal edildi",
+			userErrorMockImportCanceled,
 			context.Canceled,
 		)
 	}
 	if err := server.ReplaceRoutes(routes); err != nil {
-		return mockFailure(server, UserErrorMockRoutesInvalid, "Mock route’ları uygulanamadı", err)
+		return mockFailure(server, userErrorMockImportApplyRoutes, err)
 	}
 	return mockSnapshot(server, path)
 }
@@ -125,7 +121,7 @@ func (b *Bridge) RunSSE(input SSEInput) SSEResult {
 		return SSEResult{
 			Headers: map[string][]string{},
 			Events:  []SSEEvent{},
-			Error:   toolError(UserErrorSSEFailed, "SSE akışı başlatılamadı", err),
+			Error:   toolError(userErrorProtocolSSEStart, err),
 		}
 	}
 	defer finish()
@@ -154,7 +150,7 @@ func mapSSEResult(result protocols.SSEResult, err error) SSEResult {
 		})
 	}
 	if err != nil {
-		out.Error = toolError(UserErrorSSEFailed, "SSE akışı tamamlanamadı", err)
+		out.Error = toolError(userErrorProtocolSSERead, err)
 	}
 	return out
 }
@@ -170,13 +166,13 @@ func (b *Bridge) InspectActuator(input ActuatorInspectInput) ActuatorInspectResu
 		Timeout: durationFromMS(input.TimeoutMS),
 	})
 	if err != nil {
-		out.Error = diagnosticError("Actuator bağlantısı hazırlanamadı", err)
+		out.Error = diagnosticError(userErrorDiagnosticsActuatorPrepare, err)
 		return out
 	}
 	ctx := b.operationContext()
 	health, err := client.FetchHealth(ctx)
 	if err != nil {
-		out.Error = diagnosticError("Actuator health okunamadı", err)
+		out.Error = diagnosticError(userErrorDiagnosticsActuatorHealth, err)
 		return out
 	}
 	out.Health = &ActuatorHealth{
@@ -185,14 +181,17 @@ func (b *Bridge) InspectActuator(input ActuatorInspectInput) ActuatorInspectResu
 	}
 	metrics, err := client.FetchMetrics(ctx, input.MetricNames)
 	if err != nil {
-		out.Error = diagnosticError("Actuator metric’leri okunamadı", err)
+		out.Error = diagnosticError(userErrorDiagnosticsActuatorMetrics, err)
 		return out
 	}
 	out.Metrics = fromMetricSnapshot(metrics)
 	if input.IncludeMappings {
 		mappings, mappingsErr := client.FetchMappings(ctx)
 		if mappingsErr != nil {
-			out.Error = diagnosticError("Actuator mappings okunamadı", mappingsErr)
+			out.Error = diagnosticError(
+				userErrorDiagnosticsActuatorMappings,
+				mappingsErr,
+			)
 			return out
 		}
 		out.Mappings = &ActuatorMappings{
@@ -232,7 +231,10 @@ func (b *Bridge) CompareEnvironments(input EnvironmentCompareInput) EnvironmentC
 		AllowUnsafe: input.AllowUnsafe,
 	}, diagnostics.EnvironmentCompareOptions{Timeout: durationFromMS(input.TimeoutMS)})
 	if err != nil {
-		out.Error = diagnosticError("Ortam karşılaştırması tamamlanamadı", err)
+		out.Error = diagnosticError(
+			userErrorDiagnosticsEnvironmentCompare,
+			err,
+		)
 		return out
 	}
 	out.Method = result.Method
@@ -276,7 +278,10 @@ func (b *Bridge) AnalyzeThreadDump(input ThreadDumpInput) ThreadDumpResult {
 	if err != nil {
 		return ThreadDumpResult{
 			StateCounts: map[string]int{},
-			Error:       diagnosticError("Thread dump analiz edilemedi", err),
+			Error: diagnosticError(
+				userErrorDiagnosticsThreadDumpAnalyze,
+				err,
+			),
 		}
 	}
 	out := ThreadDumpResult{
@@ -306,7 +311,10 @@ func (b *Bridge) SearchTraceLog(input LogSearchInput) LogSearchResult {
 	if err != nil {
 		return LogSearchResult{
 			Matches: []LogMatch{},
-			Error:   diagnosticError("Log araması tamamlanamadı", err),
+			Error: diagnosticError(
+				userErrorDiagnosticsTraceLogSearch,
+				err,
+			),
 		}
 	}
 	out := LogSearchResult{
@@ -327,12 +335,11 @@ func (b *Bridge) AnalyzeEndpointCoverage(input CoverageInput) CoverageResult {
 		if len(input.Known) == 0 {
 			return CoverageResult{
 				Endpoints: []EndpointCoverage{},
-				Error: &UserError{
-					Code:    UserErrorCoverageSpecMissing,
-					Title:   "Coverage kaynağı bulunamadı",
-					Message: "Bu oturumda içe aktarılmış OpenAPI endpoint’i yok.",
-					Hint:    "Önce OpenAPI dosyası içe aktarın veya endpoint listesini elle girin.",
-				},
+				Error: newUserError(
+					userErrorDiagnosticsCoverageSpecMissing,
+					nil,
+					nil,
+				),
 			}
 		}
 	}
@@ -352,7 +359,10 @@ func (b *Bridge) AnalyzeEndpointCoverage(input CoverageInput) CoverageResult {
 	if err != nil {
 		return CoverageResult{
 			Endpoints: []EndpointCoverage{},
-			Error:     diagnosticError("Endpoint coverage hesaplanamadı", err),
+			Error: diagnosticError(
+				userErrorDiagnosticsCoverageAnalyze,
+				err,
+			),
 		}
 	}
 	out := CoverageResult{
@@ -547,15 +557,11 @@ func mockSnapshot(server *mockserver.Server, importedPath string) MockServerSnap
 
 func mockFailure(
 	server *mockserver.Server,
-	code UserErrorCode,
-	title string,
+	definition userErrorDefinition,
 	err error,
 ) MockServerSnapshot {
 	out := mockSnapshot(server, "")
-	out.Error = &UserError{
-		Code: code, Title: title, Message: err.Error(),
-		Hint: "Route, port ve server durumunu kontrol edin.",
-	}
+	out.Error = newUserError(definition, nil, err)
 	return out
 }
 
@@ -566,55 +572,48 @@ func durationFromMS(value int) time.Duration {
 	return time.Duration(value) * time.Millisecond
 }
 
-func toolError(code UserErrorCode, title string, err error) *UserError {
-	userError := &UserError{
-		Code: code, Title: title, Message: "Bağlantı veya protokol işlemi başarısız oldu.",
-		Hint:      "Adres, timeout, TLS ve kimlik doğrulama bilgilerini kontrol edin.",
-		Technical: err.Error(),
-	}
+func toolError(
+	definitions protocolUserErrorDefinitions,
+	err error,
+) *UserError {
+	definition := definitions.Failed
 	if errors.Is(err, context.DeadlineExceeded) {
-		userError.Code = UserErrorToolTimeout
-		userError.Message = "Hedef belirtilen sürede yanıt vermedi."
-		userError.Technical = ""
+		definition = definitions.Timeout
 	} else if errors.Is(err, context.Canceled) {
-		userError.Code = UserErrorToolCanceled
-		userError.Message = "İşlem iptal edildi."
-		userError.Technical = ""
+		definition = definitions.Canceled
 	} else if errors.Is(err, errInvalidToolOperation) ||
 		errors.Is(err, protocols.ErrInvalidRequest) {
-		userError.Code = UserErrorInvalidInput
-		userError.Message = classifiedErrorDetail(
-			err,
-			errInvalidToolOperation,
-			protocols.ErrInvalidRequest,
-		)
-		userError.Technical = ""
+		definition = definitions.InvalidInput
 	}
-	return userError
+	return newUserError(definition, nil, err)
 }
 
-func classifiedErrorDetail(err error, sentinels ...error) string {
-	message := err.Error()
-	for _, sentinel := range sentinels {
-		if errors.Is(err, sentinel) {
-			return strings.TrimPrefix(
-				message,
-				sentinel.Error()+": ",
-			)
+func diagnosticError(
+	contextDefinition diagnosticUserErrorContext,
+	err error,
+) *UserError {
+	class := diagnosticErrorFailed
+	if errors.Is(err, context.DeadlineExceeded) {
+		class = diagnosticErrorTimeout
+	} else if errors.Is(err, context.Canceled) {
+		class = diagnosticErrorCanceled
+	} else {
+		switch diagnostics.ErrorCode(err) {
+		case diagnostics.CodeInvalidInput:
+			class = diagnosticErrorInvalidInput
+		case diagnostics.CodeUnsafeMethod:
+			class = diagnosticErrorUnsafeMethod
+		case diagnostics.CodeRequestFailed:
+			class = diagnosticErrorRequestFailed
+		case diagnostics.CodeResponseTooLarge:
+			class = diagnosticErrorResponseTooLarge
+		case diagnostics.CodeInvalidResponse:
+			class = diagnosticErrorInvalidResponse
+		case diagnostics.CodeLimitExceeded:
+			class = diagnosticErrorLimitExceeded
 		}
 	}
-	return message
-}
-
-func diagnosticError(title string, err error) *UserError {
-	code := UserErrorCode(diagnostics.ErrorCode(err))
-	if code == "" {
-		code = UserErrorDiagnosticFailed
-	}
-	return &UserError{
-		Code: code, Title: title, Message: err.Error(),
-		Hint: "Girdi, erişim yetkisi, Actuator görünürlüğü ve timeout değerlerini kontrol edin.",
-	}
+	return newUserError(contextDefinition.definition(class), nil, err)
 }
 
 func fromMetricSnapshot(snapshot diagnostics.MetricSnapshot) ActuatorMetricSnapshot {

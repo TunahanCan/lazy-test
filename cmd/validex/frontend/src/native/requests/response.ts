@@ -14,6 +14,11 @@ import type {
   UserError,
 } from "../../lib/types.js";
 import {
+  hasLocalizedUserError,
+  localizeUserError,
+  userErrorTechnicalDetails,
+} from "../../lib/userErrors.js";
+import {
   formatBytes,
   formatDuration,
   statusTone,
@@ -58,7 +63,14 @@ const baseSections: readonly {
   },
 ];
 
+function structuredErrorDetails(error: UserError): string | undefined {
+  return userErrorTechnicalDetails(error);
+}
+
 function localizedError(error: UserError): UserError {
+  if (hasLocalizedUserError(error)) {
+    return localizeUserError(error, t);
+  }
   const keys: Record<
     string,
     {
@@ -142,6 +154,21 @@ function localizedError(error: UserError): UserError {
       message: "requests.error.responseHeadersTooLarge.message",
       hint: "requests.error.responseHeadersTooLarge.hint",
     },
+    unsupported_content_encoding: {
+      title: "requests.error.unsupportedEncoding.title",
+      message: "requests.error.unsupportedEncoding.message",
+      hint: "requests.error.unsupportedEncoding.hint",
+    },
+    too_many_content_encodings: {
+      title: "requests.error.tooManyEncodings.title",
+      message: "requests.error.tooManyEncodings.message",
+      hint: "requests.error.tooManyEncodings.hint",
+    },
+    response_decode_failed: {
+      title: "requests.error.responseDecode.title",
+      message: "requests.error.responseDecode.message",
+      hint: "requests.error.responseDecode.hint",
+    },
   };
   const mapped = keys[error.code];
   if (!mapped) return error;
@@ -150,6 +177,7 @@ function localizedError(error: UserError): UserError {
     title: t(mapped.title),
     message: t(mapped.message),
     hint: mapped.hint ? t(mapped.hint) : undefined,
+    technical: error.technical,
   };
 }
 
@@ -325,6 +353,9 @@ function localizedContractError(
 ): UserError | undefined {
   const error = contract.error;
   if (!error) return;
+  if (hasLocalizedUserError(error)) {
+    return localizeUserError(error, t);
+  }
   switch (error.code) {
     case "spec_unavailable":
       return {
@@ -368,6 +399,18 @@ function localizedContractError(
         ...error,
         title: t("requests.error.contractCheck.title"),
         message: t("requests.error.contractCheck.message"),
+      };
+    case "response_body_encoding_invalid":
+      return {
+        ...error,
+        title: t(
+          "requests.response.contract.bodyEncodingInvalid.title",
+        ),
+        message: t(
+          "requests.response.contract.bodyEncodingInvalid.message",
+        ),
+        hint: t("requests.response.contract.bodyEncodingInvalid.hint"),
+        technical: error.technical,
       };
     default:
       return error;

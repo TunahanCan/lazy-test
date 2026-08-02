@@ -22,6 +22,7 @@ Feature: Diagnose backend and runtime behavior
       | Spring       | Spring ProblemDetail response | analyze Spring response      | HTTP and error advice      |
       | JWT          | valid JWT token               | decode JWT                   | header payload and claims  |
       | Runtime      | Actuator endpoint             | capture runtime snapshot     | components and metrics     |
+      | Performance  | URL performance target        | test URL performance         | URL timing samples         |
       | Environments | three environment targets     | compare environments         | response differences       |
       | Thread       | blocked thread dump           | analyze thread dump          | thread states              |
       | Logs         | trace-bearing log text        | search trace logs            | matching log lines         |
@@ -46,6 +47,33 @@ Feature: Diagnose backend and runtime behavior
     Then its stale result is not rendered
     And the operation is reported as stale
     And the edited input value and focus are preserved
+
+  @concurrency @i18n
+  Scenario: Ignore a stale diagnostics response after changing locale
+    Given a diagnostics bridge operation is still in progress
+    When I switch Diagnostics to the opposite locale while it is busy
+    Then Diagnostics is idle and reports the stale operation in the new locale
+    When the previous bridge operation completes
+    Then its stale result is not rendered
+    And Diagnostics stays idle after the stale bridge completion
+
+  @performance @cancellation @error @i18n
+  Scenario Outline: Retry URL performance cancellation when the backend rejects Stop
+    Given Diagnostics uses the "<locale>" locale
+    And a URL performance sample is still in progress
+    And the backend rejects the first performance Stop command
+    When I stop the URL performance test
+    Then the URL performance test stays busy with a localized actionable Stop error
+    And Stop can be retried for the same active URL performance operation
+    When I retry stopping the URL performance test
+    Then the URL performance test becomes idle and announces cancellation
+    And both Stop commands used the active URL performance operation identifier
+    And the diagnostics workspace has no uncaught frontend error
+
+    Examples:
+      | locale  |
+      | English |
+      | Türkçe  |
 
   @active-request @helper-actions
   Scenario: Reuse active request data and recorded coverage

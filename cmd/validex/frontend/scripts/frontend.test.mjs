@@ -16,18 +16,50 @@ import {
   normalizedLibraryName,
 } from "../.typescript-build/esm/features/collections/model.js";
 import { issueFrom } from "../.typescript-build/esm/features/protocols/model.js";
+import {
+  formatURLPerformanceDuration,
+  jwtErrorText,
+  summarizeURLPerformance,
+  validateURLPerformanceOptions,
+  validateURLPerformanceTarget,
+} from "../.typescript-build/esm/features/diagnostics/model.js";
 import { parseMockServerPort } from "../.typescript-build/esm/features/mock-server/model.js";
 import { createPersistedStore, createStore } from "../.typescript-build/esm/core/store.js";
+import { localizedBootstrapData } from "../.typescript-build/esm/lib/bootstrap.js";
+import {
+  localizeUserError,
+  userErrorTechnicalDetails,
+} from "../.typescript-build/esm/lib/userErrors.js";
 import {
   FEEDBACK_TONE,
   notify,
   subscribeFeedback,
 } from "../.typescript-build/esm/core/feedback.js";
-import { translate } from "../.typescript-build/esm/i18n/messages.js";
+import {
+  messages,
+  translate,
+} from "../.typescript-build/esm/i18n/messages.js";
+import {
+  backendUserErrorHintKeys,
+  backendUserErrorMessageKeys,
+} from "../.typescript-build/esm/i18n/messages/backendErrors.js";
+import {
+  backendAutomationErrorHintKeys,
+  backendAutomationErrorMessageKeys,
+} from "../.typescript-build/esm/i18n/messages/backendErrorsAutomation.js";
+import {
+  backendRequestErrorHintKeys,
+  backendRequestErrorMessageKeys,
+} from "../.typescript-build/esm/i18n/messages/backendErrorsRequest.js";
+import {
+  backendToolsErrorHintKeys,
+  backendToolsErrorMessageKeys,
+} from "../.typescript-build/esm/i18n/messages/backendErrorsTools.js";
 import {
   analyzeJWT,
   analyzeSpringError,
   compareJSON,
+  DeveloperToolError,
   formatJSON,
   inferJSONSchema,
   javaDTOToJSONExample,
@@ -66,6 +98,46 @@ import {
   virtualWindowRange,
 } from "../.typescript-build/esm/native/chrome/sidebarVirtualization.js";
 import { matchesSidebarSearch } from "../.typescript-build/esm/native/chrome/sidebarSearch.js";
+
+test("built-in bootstrap labels follow locale without replacing custom names", () => {
+  const bootstrap = {
+    appVersion: "0.2.0",
+    workspaceId: "validex-workspace",
+    workspaceName: "Validex Workspace",
+    environments: [
+      { id: "none", name: "No Environment", variables: {} },
+      { id: "local", name: "Local", variables: { baseUrl: "http://localhost" } },
+      { id: "custom", name: "QA özel", variables: {} },
+    ],
+    collections: [],
+    history: [],
+    recentUrls: [],
+    onboardingSteps: [],
+  };
+  const english = localizedBootstrapData(
+    bootstrap,
+    (key, values) => translate("en", key, values),
+  );
+  const turkish = localizedBootstrapData(
+    bootstrap,
+    (key, values) => translate("tr", key, values),
+  );
+  assert.equal(english.workspaceName, "Validex Workspace");
+  assert.deepEqual(
+    english.environments.map((environment) => environment.name),
+    ["No environment", "Local", "QA özel"],
+  );
+  assert.equal(turkish.workspaceName, "Validex Çalışma Alanı");
+  assert.deepEqual(
+    turkish.environments.map((environment) => environment.name),
+    ["Ortam yok", "Yerel", "QA özel"],
+  );
+  assert.deepEqual(turkish.onboardingSteps, [
+    "İlk isteğini gönder",
+    "OpenAPI contract farklarını incele",
+    "Mock server başlat",
+  ]);
+});
 
 test("application feedback publishes normalized visible messages", () => {
   const received = [];
@@ -388,7 +460,12 @@ test("developer JSON tools format, compare and query safely", () => {
     queryJSONPath('{"users":[{"name":"Ada"}]}', "$.users[0].name"),
     "Ada",
   );
-  assert.throws(() => queryJSONPath("{}", "$..name"), /desteklenmiyor/);
+  assert.throws(
+    () => queryJSONPath("{}", "$..name"),
+    (error) =>
+      error instanceof DeveloperToolError &&
+      error.code === "jsonpath.unsupported",
+  );
 });
 
 test("Spring and JWT analyzers expose structured diagnostics", () => {
@@ -424,6 +501,77 @@ test("Spring and JWT analyzers expose structured diagnostics", () => {
   assert.deepEqual(jwt.roles, ["admin"]);
   assert.deepEqual(jwt.scopes, ["orders:read", "orders:write"]);
   assert.equal(jwt.signaturePresent, true);
+  for (const locale of ["en", "tr"]) {
+    const translator = (key, values) => translate(locale, key, values);
+    assert.equal(
+      jwtErrorText(new DeveloperToolError("jwt.threeParts"), translator),
+      translator("diagnostics.jwt.threeParts"),
+    );
+    assert.equal(
+      jwtErrorText(new DeveloperToolError("jwt.invalidBase64"), translator),
+      translator("diagnostics.jwt.invalidBase64"),
+    );
+    assert.equal(
+      jwtErrorText(new DeveloperToolError("jwt.invalidJSON"), translator),
+      translator("diagnostics.jwt.invalidJSON"),
+    );
+  }
+  assert.throws(
+    () => analyzeJWT("e30.ew.signature"),
+    (error) =>
+      error instanceof DeveloperToolError && error.code === "jwt.invalidJSON",
+  );
+});
+
+test("URL performance diagnostics validate and summarize bounded samples", () => {
+  const translator = (key, values) => translate("en", key, values);
+  assert.equal(
+    validateURLPerformanceTarget(
+      "  https://api.example.test/health  ",
+      translator,
+    ),
+    "https://api.example.test/health",
+  );
+  for (const invalid of [
+    "ftp://api.example.test/health",
+    "https://user:secret@api.example.test/health",
+    "https://api.example.test/health#details",
+  ]) {
+    assert.throws(() => validateURLPerformanceTarget(invalid, translator));
+  }
+  assert.doesNotThrow(() =>
+    validateURLPerformanceOptions(3, 5_000, translator),
+  );
+  assert.throws(
+    () => validateURLPerformanceOptions(10, 5_000, translator),
+    /safety budget/,
+  );
+
+  const report = (duration, status, finalUrl) => ({
+    inputUrl: "https://api.example.test/start",
+    dnsLookups: [],
+    hops: [],
+    finalUrl,
+    finalStatusCode: status,
+    totalDurationMs: duration,
+    usedGetFallback: false,
+  });
+  const summary = summarizeURLPerformance([
+    report(12, 200, "https://api.example.test/health"),
+    report(4, 204, "https://api.example.test/health"),
+    report(8, 200, "https://api.example.test/health"),
+  ]);
+  assert.ok(summary);
+  assert.equal(summary.fastestMs, 4);
+  assert.equal(summary.averageMs, 8);
+  assert.equal(summary.slowestMs, 12);
+  assert.deepEqual(
+    summary.samples.map((sample) => sample.statusCode),
+    [200, 204, 200],
+  );
+  assert.equal(formatURLPerformanceDuration(0, "en"), "< 1 ms");
+  assert.equal(formatURLPerformanceDuration(8.25, "en"), "8.3 ms");
+  assert.equal(summarizeURLPerformance([]), undefined);
 });
 
 test("schema inference and Java DTO examples remain dependency-free", () => {
@@ -465,8 +613,107 @@ test("protocol errors localize backend failures and retain technical context", (
     );
     assert.equal(issue.title, translator("protocol.error.sseFailedTitle"));
     assert.equal(issue.message, translator("protocol.error.sseFailedMessage"));
-    assert.match(issue.technical ?? "", /RAW backend title/);
-    assert.match(issue.technical ?? "", /raw stack/);
+    assert.equal(issue.technical, "raw stack");
+    assert.doesNotMatch(issue.technical ?? "", /RAW backend title/);
+  }
+});
+
+test("semantic backend errors localize without leaking fallback text", () => {
+  const backendError = {
+    code: "network_operation_invalid",
+    messageKey: "backend.error.automation.network.operation_invalid",
+    title: "Ağ analizi başlatılamadı",
+    message: "DNS ve redirect işlemi başlatılamadı.",
+    hint:
+      "Aynı operationId ile çalışan başka bir işlem olmadığını kontrol edin.",
+    technical: "operation network-1 is already running",
+  };
+
+  const english = localizeUserError(
+    backendError,
+    (key, values) => translate("en", key, values),
+  );
+  assert.equal(english.title, "Network analysis could not be started");
+  assert.equal(
+    english.message,
+    "The DNS and redirect operation could not be started.",
+  );
+  assert.doesNotMatch(english.title, /Ağ/);
+  assert.equal(
+    userErrorTechnicalDetails(backendError),
+    "operation network-1 is already running",
+  );
+
+  const turkish = localizeUserError(
+    backendError,
+    (key, values) => translate("tr", key, values),
+  );
+  assert.equal(turkish.title, backendError.title);
+  assert.equal(turkish.message, backendError.message);
+});
+
+test("backend error catalogs interpolate request, collection, and tool contexts", () => {
+  const english = (key, values) => translate("en", key, values);
+  const headerError = localizeUserError(
+    {
+      code: "invalid_request",
+      messageKey: "backend.error.request.contentLengthMismatch",
+      params: {
+        headerName: "Content-Length",
+        declaredLength: "10",
+        bodyLength: "8",
+      },
+      title: "fallback",
+      message: "fallback",
+    },
+    english,
+  );
+  assert.equal(headerError.title, "Content-Length header is invalid");
+  assert.match(headerError.message, /10/);
+  assert.match(headerError.message, /8 bytes/);
+
+  const collectionError = localizeUserError(
+    {
+      code: "collection_file_read_failed",
+      messageKey: "backend.error.collectionFile.readFailed",
+      title: "fallback",
+      message: "fallback",
+    },
+    english,
+  );
+  assert.equal(collectionError.title, "Collection file could not be read");
+
+  const protocolIssue = issueFrom(
+    {
+      code: "tool_timeout",
+      messageKey: "backend.error.protocol.sse.read.timeout",
+      title: "fallback",
+      message: "fallback",
+      technical: "context deadline exceeded",
+    },
+    english,
+  );
+  assert.equal(protocolIssue.title, "The SSE stream could not be completed");
+  assert.equal(protocolIssue.technical, "context deadline exceeded");
+});
+
+test("every registered backend error has complete EN and TR catalog fields", () => {
+  const catalogs = [
+    [backendUserErrorMessageKeys, backendUserErrorHintKeys],
+    [backendAutomationErrorMessageKeys, backendAutomationErrorHintKeys],
+    [backendRequestErrorMessageKeys, backendRequestErrorHintKeys],
+    [backendToolsErrorMessageKeys, backendToolsErrorHintKeys],
+  ];
+  for (const [messageKeys, hintKeys] of catalogs) {
+    for (const messageKey of messageKeys) {
+      for (const locale of ["en", "tr"]) {
+        assert.ok(messages[locale][`${messageKey}.title`]);
+        assert.ok(messages[locale][`${messageKey}.message`]);
+        if (hintKeys.has(messageKey)) {
+          assert.ok(messages[locale][`${messageKey}.hint`]);
+        }
+      }
+    }
   }
 });
 

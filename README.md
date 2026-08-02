@@ -26,7 +26,7 @@ koleksiyonlar bilgisayarınızda tutulur, istekleriniz Validex’e ait bir sunuc
 | OpenAPI | YAML veya JSON belge içe aktarın, endpoint’ten istek oluşturun ve response contract farklarını görün. |
 | Mock Server | Route’ları elle ya da OpenAPI’den üretin; status, header, body ve gecikme davranışını belirleyin. |
 | JSON Lab | JSON biçimlendirin, karşılaştırın, JSON Path çalıştırın, şema çıkarın ve örnek veri üretin. |
-| Diagnostics | Spring hatalarını, JWT’leri, Actuator verilerini, thread dump’ları, logları ve environment farklarını inceleyin. |
+| Diagnostics | Spring hatalarını, JWT’leri, Actuator verilerini, URL yanıt sürelerini, thread dump’ları, logları ve environment farklarını inceleyin. |
 | SSE | Header ve timeout desteğiyle Server-Sent Events akışlarını canlı izleyin ve durdurun. |
 | Automation | Koleksiyonları assertion’larla çalıştırın, ağ yönlendirmelerini inceleyin ve OpenAPI lint alın. |
 | CLI | Otomasyon, network inspection ve lint işlerini masaüstü arayüzü olmadan çalıştırın. |

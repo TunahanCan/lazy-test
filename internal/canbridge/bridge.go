@@ -208,11 +208,12 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 	requestTimeout, timeoutValid := requestTimeoutDuration(input.TimeoutMS)
 	if !timeoutValid {
 		return failed(
-			UserErrorInvalidRequest,
-			"Timeout geçerli değil",
-			"Request gönderilmedi çünkü timeout desteklenen aralığın dışında.",
-			fmt.Sprintf("Timeout değerini %d ile %d ms arasında girin.", minHTTPRequestTimeoutMS, maxHTTPRequestTimeoutMS),
-			"",
+			userErrorRequestTimeoutInvalid,
+			UserErrorParams{
+				"minTimeoutMs": fmt.Sprintf("%d", minHTTPRequestTimeoutMS),
+				"maxTimeoutMs": fmt.Sprintf("%d", maxHTTPRequestTimeoutMS),
+			},
+			nil,
 		)
 	}
 	if strings.TrimSpace(input.ID) == "" {
@@ -225,22 +226,22 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 		var missing []string
 		resolvedURL, missing = resolveVariables(input.URL, input.Variables)
 		if len(missing) > 0 {
-			return failed(UserErrorMissingVariables, "Eksik değişken var", "Request gönderilmedi çünkü URL içindeki bazı değişkenlerin değeri yok.", "Environment veya context panelinden şu değerleri tanımlayın: "+strings.Join(missing, ", "), "")
+			return failed(
+				userErrorRequestURLVariablesMissing,
+				UserErrorParams{"variables": strings.Join(missing, ", ")},
+				nil,
+			)
 		}
 	}
 	parsedURL, err := neturl.Parse(resolvedURL)
 	if err != nil || parsedURL.Host == "" || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
-		technical := ""
-		if err != nil {
-			technical = err.Error()
-		}
-		return failed(UserErrorInvalidRequest, "URL geçerli değil", "Request gönderilmedi çünkü URL eksiksiz bir HTTP adresi değil.", "URL’yi http:// veya https:// ile başlayacak şekilde açıkça yazın.", technical)
+		return failed(userErrorRequestURLInvalid, nil, err)
 	}
 	if parsedURL.User != nil {
-		return failed(UserErrorInvalidRequest, "URL içinde kullanıcı bilgisi desteklenmiyor", "URL’deki kullanıcı adı veya parola gizli bir Authorization header’ına dönüşebilir.", "Kimlik bilgisini URL’den kaldırın; gerekiyorsa Authorization header’ını açıkça ekleyip etkinleştirin.", "")
+		return failed(userErrorRequestURLUserInfoUnsupported, nil, nil)
 	}
 	if parsedURL.Fragment != "" || strings.Contains(resolvedURL, "#") {
-		return failed(UserErrorInvalidRequest, "URL fragment içeriyor", "URL’nin # işaretinden sonraki bölümü HTTP request’ine gönderilmez.", "Fragment bölümünü URL’den kaldırın.", "")
+		return failed(userErrorRequestURLFragmentUnsupported, nil, nil)
 	}
 
 	sessionContext := b.operationContext()
@@ -251,11 +252,9 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 		b.mu.Unlock()
 		cancel()
 		return failed(
-			UserErrorRequestAlreadyRunning,
-			"Request zaten çalışıyor",
-			"Aynı request ID ile başka bir istek halen devam ediyor.",
-			"Çalışan isteği iptal edin veya tamamlanmasını bekleyin.",
-			"",
+			userErrorRequestAlreadyRunning,
+			nil,
+			nil,
 		)
 	}
 	b.cancels[input.ID] = operation
@@ -279,7 +278,11 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 			var bodyMissing []string
 			resolvedBody, bodyMissing = resolveVariables(input.Body, input.Variables)
 			if len(bodyMissing) > 0 {
-				return failed(UserErrorMissingVariables, "Body içinde eksik değişken var", "Request body çözümlenemedi.", "Şu değişkenleri tanımlayın: "+strings.Join(bodyMissing, ", "), "")
+				return failed(
+					userErrorRequestBodyVariablesMissing,
+					UserErrorParams{"variables": strings.Join(bodyMissing, ", ")},
+					nil,
+				)
 			}
 		}
 	}
@@ -294,7 +297,14 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 			var headerMissing []string
 			value, headerMissing = resolveVariables(header.Value, input.Variables)
 			if len(headerMissing) > 0 {
-				return failed(UserErrorMissingVariables, "Header içinde eksik değişken var", header.Key+" header değeri çözümlenemedi.", "Şu değişkenleri tanımlayın: "+strings.Join(headerMissing, ", "), "")
+				return failed(
+					userErrorRequestHeaderVariablesMissing,
+					UserErrorParams{
+						"headerName": header.Key,
+						"variables":  strings.Join(headerMissing, ", "),
+					},
+					nil,
+				)
 			}
 		}
 		headers = append(headers, httpexec.HeaderField{
@@ -337,10 +347,14 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 			return responseTooLarge()
 		}
 		if errors.Is(err, context.Canceled) {
-			return failed(UserErrorRequestCanceled, "Request iptal edildi", "İstek kullanıcı tarafından durduruldu.", "URL ve form değerleri sekmede korunuyor.", "")
+			return failed(userErrorRequestCanceled, nil, nil)
 		}
 		if errors.Is(err, context.DeadlineExceeded) {
-			return failed(UserErrorRequestTimeout, "Request zaman aşımına uğradı", fmt.Sprintf("%d ms içinde yanıt alınamadı.", input.TimeoutMS), "Timeout değerini artırın veya hedef servisin erişilebilirliğini kontrol edin.", err.Error())
+			return failed(
+				userErrorRequestTimeout,
+				UserErrorParams{"timeoutMs": fmt.Sprintf("%d", input.TimeoutMS)},
+				err,
+			)
 		}
 		if errors.Is(err, httpexec.ErrUnsupportedContentEncoding) {
 			var encodingError *httpexec.ContentEncodingError
@@ -365,18 +379,16 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 		}
 		if errors.Is(err, httpexec.ErrInvalidRequest) {
 			return failed(
-				UserErrorInvalidRequest,
-				"Request oluşturulamadı",
-				"Method, URL veya header tanımı geçerli görünmüyor.",
-				"URL’yi, method seçimini ve etkin header’ları kontrol edin.",
-				err.Error(),
+				userErrorRequestInvalidDefinition,
+				nil,
+				err,
 			)
 		}
 		var netErr net.Error
 		if errors.As(err, &netErr) {
-			return failed(UserErrorNetwork, "Sunucuya ulaşılamadı", "Ağ bağlantısı kurulamadı.", "Base URL, VPN, proxy ve sunucu durumunu kontrol edin.", err.Error())
+			return failed(userErrorRequestNetwork, nil, err)
 		}
-		return failed(UserErrorRequestFailed, "Request tamamlanamadı", "Beklenmeyen bir bağlantı hatası oluştu.", "Teknik ayrıntıyı kopyalayıp servis loglarıyla karşılaştırın.", err.Error())
+		return failed(userErrorRequestFailed, nil, err)
 	}
 	raw := response.Body
 	end := time.Now()
@@ -461,7 +473,7 @@ func (b *Bridge) ImportOpenAPI() ImportSpecResult {
 	result := ImportSpecResult{Endpoints: []ImportedEndpoint{}}
 	ctx := b.runtimeContext()
 	if ctx == nil {
-		result.Error = &UserError{Code: UserErrorRuntimeUnavailable, Title: "Dosya seçici açılamadı", Message: "Desktop runtime henüz hazır değil."}
+		result.Error = newUserError(userErrorOpenAPIRuntimeUnavailable, nil, nil)
 		return result
 	}
 	path, err := b.filePicker.Open(ctx, fileDialogOptions{
@@ -469,7 +481,7 @@ func (b *Bridge) ImportOpenAPI() ImportSpecResult {
 		Extensions: []string{"yaml", "yml", "json"},
 	})
 	if err != nil {
-		result.Error = &UserError{Code: UserErrorFileDialogFailed, Title: "Dosya seçilemedi", Message: "Sistem dosya seçicisi tamamlanamadı.", Technical: err.Error()}
+		result.Error = newUserError(userErrorOpenAPIFileDialogFailed, nil, err)
 		return result
 	}
 	if path == "" {
@@ -480,23 +492,14 @@ func (b *Bridge) ImportOpenAPI() ImportSpecResult {
 	endpoints, doc, err := core.LoadOpenAPIContext(ctx, path)
 	if err != nil {
 		result.Path = path
-		result.Error = &UserError{
-			Code: UserErrorInvalidOpenAPI, Title: "OpenAPI içe aktarılamadı",
-			Message: "Dosya geçerli bir OpenAPI dokümanı değil.",
-			Hint:    "YAML/JSON sözdizimini ve schema referanslarını kontrol edin.", Technical: err.Error(),
-		}
+		result.Error = newUserError(userErrorOpenAPIInvalidDocument, nil, err)
 		return result
 	}
 
 	specID := fmt.Sprintf("spec-%d", time.Now().UnixNano())
 	if !b.cacheOpenAPISpecForContext(ctx, specID, endpoints) {
 		result.Path = path
-		result.Error = &UserError{
-			Code:    UserErrorOperationCanceled,
-			Title:   "OpenAPI içe aktarma iptal edildi",
-			Message: "Önceki uygulama oturumunda başlayan işlem artık geçerli değil.",
-			Hint:    "Dosyayı açık oturumda yeniden seçin.",
-		}
+		result.Error = newUserError(userErrorOpenAPISessionCanceled, nil, nil)
 		return result
 	}
 	out := ImportSpecResult{SpecID: specID, Path: path, Endpoints: make([]ImportedEndpoint, 0, len(endpoints))}
@@ -533,24 +536,14 @@ func (b *Bridge) ValidateOpenAPIResponse(input ContractCheckInput) ContractCheck
 	if strings.TrimSpace(input.SpecID) == "" || len(endpoints) == 0 {
 		return ContractCheckResult{
 			Findings: []ContractFinding{},
-			Error: &UserError{
-				Code:    UserErrorSpecUnavailable,
-				Title:   "OpenAPI contract bulunamadı",
-				Message: "Bu request’in OpenAPI dokümanı artık bellekte değil.",
-				Hint:    "OpenAPI dosyasını yeniden içe aktarın.",
-			},
+			Error:    newUserError(userErrorOpenAPISpecUnavailable, nil, nil),
 		}
 	}
 	body, err := decodePresentedResponseBody(input.Body, input.BodyEncoding)
 	if err != nil {
 		return ContractCheckResult{
 			Findings: []ContractFinding{},
-			Error: &UserError{
-				Code:    UserErrorBodyEncodingInvalid,
-				Title:   "Response body çözülemedi",
-				Message: "Contract kontrolüne verilen response body encoding değeri geçerli değil.",
-				Hint:    "Request’i yeniden gönderip contract kontrolünü tekrar çalıştırın.",
-			},
+			Error:    newUserError(userErrorOpenAPIBodyEncodingInvalid, nil, err),
 		}
 	}
 	for _, endpoint := range endpoints {
@@ -565,24 +558,21 @@ func (b *Bridge) ValidateOpenAPIResponse(input ContractCheckInput) ContractCheck
 		)
 		if !drift.Compared {
 			contentType := strings.TrimSpace(input.ContentType)
+			definition := userErrorOpenAPIResponseSchemaUnavailable
+			params := UserErrorParams{
+				"statusCode":  fmt.Sprintf("%d", input.StatusCode),
+				"contentType": contentType,
+			}
 			if contentType == "" {
-				contentType = "Content-Type belirtilmedi"
+				definition = userErrorOpenAPIResponseSchemaUnavailableWithoutContentType
+				delete(params, "contentType")
 			}
 			return ContractCheckResult{
 				Available: false,
 				Method:    endpoint.Method,
 				Path:      endpoint.Path,
 				Findings:  []ContractFinding{},
-				Error: &UserError{
-					Code:  UserErrorResponseSchemaUnavailable,
-					Title: "Karşılaştırılacak JSON schema yok",
-					Message: fmt.Sprintf(
-						"%d response’u için %q ile eşleşen JSON media schema bulunamadı.",
-						input.StatusCode,
-						contentType,
-					),
-					Hint: "OpenAPI dokümanında bu status veya default response altına gerçek response media type’ıyla eşleşen JSON schema ekleyin.",
-				},
+				Error:     newUserError(definition, params, nil),
 			}
 		}
 		findings := make([]ContractFinding, 0, len(drift.Findings))
@@ -606,11 +596,14 @@ func (b *Bridge) ValidateOpenAPIResponse(input ContractCheckInput) ContractCheck
 	}
 	return ContractCheckResult{
 		Findings: []ContractFinding{},
-		Error: &UserError{
-			Code:    UserErrorOperationUnavailable,
-			Title:   "OpenAPI operation bulunamadı",
-			Message: strings.ToUpper(input.Method) + " " + input.Path + " bu dokümanda bulunamadı.",
-		},
+		Error: newUserError(
+			userErrorOpenAPIOperationUnavailable,
+			UserErrorParams{
+				"method": strings.ToUpper(input.Method),
+				"path":   input.Path,
+			},
+			nil,
+		),
 	}
 }
 
@@ -728,147 +721,105 @@ func (b *Bridge) beginToolOperation(operationID string) (context.Context, func()
 
 func responseTooLarge() SendResult {
 	return failed(
-		UserErrorResponseTooLarge,
-		"Response sınırı aştı",
-		fmt.Sprintf(
-			"Sunucunun bildirdiği veya alınan response body %d MiB güvenlik sınırını aştığı için indirme durduruldu.",
-			maxHTTPResponseBodyBytes>>20,
-		),
-		"Daha küçük bir veri kümesi isteyin veya endpoint’e sayfalama/filtre ekleyin.",
-		"",
+		userErrorRequestResponseBodyTooLarge,
+		UserErrorParams{"maxMiB": fmt.Sprintf("%d", maxHTTPResponseBodyBytes>>20)},
+		nil,
 	)
 }
 
 func requestTooLarge() SendResult {
 	return failed(
-		UserErrorInvalidRequest,
-		"Request body sınırı aştı",
-		fmt.Sprintf(
-			"Request body %d MiB güvenlik sınırını aştığı için gönderilmedi.",
-			maxHTTPRequestBodyBytes>>20,
-		),
-		"Body boyutunu küçültün veya büyük dosya aktarımı için özel bir istemci kullanın.",
-		"",
+		userErrorRequestBodyTooLarge,
+		UserErrorParams{"maxMiB": fmt.Sprintf("%d", maxHTTPRequestBodyBytes>>20)},
+		nil,
 	)
 }
 
 func responseHeadersTooLarge(err error) SendResult {
 	return failed(
-		UserErrorResponseHeadersTooLarge,
-		"Response header’ları sınırı aştı",
-		fmt.Sprintf(
-			"Sunucunun response header’ları %d MiB güvenlik sınırını aştığı için request durduruldu.",
-			maxHTTPResponseHeaderBytes>>20,
-		),
-		"Sunucunun büyük header değerlerini küçültün veya gereksiz response header’larını kaldırın.",
-		err.Error(),
+		userErrorRequestResponseHeadersTooLarge,
+		UserErrorParams{"maxMiB": fmt.Sprintf("%d", maxHTTPResponseHeaderBytes>>20)},
+		err,
 	)
 }
 
 func interactiveHeaderError(headerError *httpexec.HeaderError) SendResult {
 	if headerError == nil {
-		return invalidRequestHeader(
-			"Header",
-			"Header adı veya değeri geçerli değil.",
+		return failed(
+			userErrorRequestHeaderInvalid,
+			UserErrorParams{"headerName": "Header"},
+			nil,
 		)
 	}
 	name := headerError.Name
 	if strings.TrimSpace(name) == "" {
 		name = "Header"
 	}
-	message := headerError.Error()
+	definition := userErrorRequestHeaderInvalid
+	params := UserErrorParams{"headerName": name}
 	switch headerError.Reason {
 	case httpexec.HeaderNameInvalid:
-		message = "Header adı geçerli bir HTTP token değeri olmalıdır."
+		definition = userErrorRequestHeaderNameInvalid
 	case httpexec.HeaderValueInvalid:
-		message = "Header değeri güvenli olmayan satır sonu karakterleri içeriyor."
+		definition = userErrorRequestHeaderValueInvalid
 	case httpexec.HeaderHostDuplicate:
-		message = "Bir request birden fazla Host header içeremez."
+		definition = userErrorRequestHostHeaderDuplicate
 	case httpexec.HeaderHostInvalid:
-		message = "Host değeri geçersiz veya güvenli olmayan karakterler içeriyor."
+		definition = userErrorRequestHostHeaderInvalid
 	case httpexec.HeaderContentLengthDuplicate:
-		message = "Bir request birden fazla Content-Length header içeremez."
+		definition = userErrorRequestContentLengthDuplicate
 	case httpexec.HeaderContentLengthInvalid:
-		message = "Content-Length negatif olmayan bir tam sayı olmalıdır."
+		definition = userErrorRequestContentLengthInvalid
 	case httpexec.HeaderContentLengthMismatch:
-		message = fmt.Sprintf(
-			"Content-Length %d ancak çözümlenmiş request body %d byte.",
-			headerError.DeclaredLength,
-			headerError.BodyLength,
-		)
+		definition = userErrorRequestContentLengthMismatch
+		params["declaredLength"] = fmt.Sprintf("%d", headerError.DeclaredLength)
+		params["bodyLength"] = fmt.Sprintf("%d", headerError.BodyLength)
 	case httpexec.HeaderContentLengthUnsupported:
-		message = "Bu method için açık Content-Length: 0 net/http tarafından wire’a yazılamaz; header’ı kaldırın."
+		definition = userErrorRequestContentLengthUnsupported
 	case httpexec.HeaderFramingConflict:
-		message = "Content-Length ve Transfer-Encoding aynı request’te birlikte kullanılamaz."
+		definition = userErrorRequestFramingConflict
 	case httpexec.HeaderTransferDuplicate:
-		message = "Bir request birden fazla Transfer-Encoding header içeremez."
+		definition = userErrorRequestTransferEncodingDuplicate
 	case httpexec.HeaderTransferInvalid:
-		message = "Yalnız chunked Transfer-Encoding destekleniyor."
+		definition = userErrorRequestTransferEncodingInvalid
 	case httpexec.HeaderTransferBodyUnsupported:
-		message = "HEAD ve TRACE requestleri chunked body taşıyamaz."
+		definition = userErrorRequestTransferEncodingBodyUnsupported
 	case httpexec.HeaderTrailerUnsupported:
-		message = "Trailer alanları düz bir header listesi olarak güvenilir biçimde gönderilemez."
+		definition = userErrorRequestTrailerUnsupported
 	}
-	return invalidRequestHeader(name, message)
+	return failed(definition, params, headerError)
 }
 
 func unsupportedContentEncoding(encoding string) SendResult {
 	return failed(
-		UserErrorUnsupportedEncoding,
-		"Response sıkıştırması desteklenmiyor",
-		fmt.Sprintf(
-			"Sunucu yanıtı %q Content-Encoding ile gönderdi; Validex yalnız gzip ve deflate yanıtlarını açabilir.",
-			encoding,
-		),
-		"Accept-Encoding header’ından bu formatı kaldırın ve gzip veya deflate isteyin.",
-		"",
+		userErrorRequestUnsupportedContentEncoding,
+		UserErrorParams{"encoding": encoding},
+		nil,
 	)
 }
 
 func tooManyContentEncodings() SendResult {
 	return failed(
-		UserErrorTooManyEncodings,
-		"Response sıkıştırması çok karmaşık",
-		fmt.Sprintf(
-			"Sunucu %d katmandan fazla Content-Encoding bildirdi.",
-			maxHTTPContentEncodingLayers,
-		),
-		"Sunucuyu daha az sıkıştırma katmanı kullanacak şekilde yapılandırın.",
-		"",
+		userErrorRequestTooManyContentEncodings,
+		UserErrorParams{"maxLayers": fmt.Sprintf("%d", maxHTTPContentEncodingLayers)},
+		nil,
 	)
 }
 
 func responseDecodeFailed(encoding string, err error) SendResult {
 	return failed(
-		UserErrorResponseDecodeFailed,
-		"Response açılamadı",
-		fmt.Sprintf(
-			"Sunucu %q ile sıkıştırılmış bir yanıt verdi ancak body çözülemedi.",
-			encoding,
-		),
-		"Sunucunun Content-Encoding header’ı ile gönderdiği body formatının eşleştiğini kontrol edin.",
-		err.Error(),
-	)
-}
-
-func invalidRequestHeader(name, message string) SendResult {
-	return failed(
-		UserErrorInvalidRequest,
-		name+" header geçerli değil",
-		message,
-		"Header değerini düzeltin veya header’ı kaldırıp Validex’in güvenli varsayılanını kullanın.",
-		"",
+		userErrorRequestResponseDecodeFailed,
+		UserErrorParams{"encoding": encoding},
+		err,
 	)
 }
 
 func failed(
-	code UserErrorCode,
-	title string,
-	message string,
-	hint string,
-	technical string,
+	definition userErrorDefinition,
+	params UserErrorParams,
+	err error,
 ) SendResult {
-	return SendResult{Error: &UserError{Code: code, Title: title, Message: message, Hint: hint, Technical: technical}}
+	return SendResult{Error: newUserError(definition, params, err)}
 }
 
 func requestTimeoutDuration(timeoutMS int) (time.Duration, bool) {

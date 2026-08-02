@@ -2,8 +2,6 @@ import { defineMessages } from "./defineMessages.js";
 
 export const diagnosticsProtocolsMessages = defineMessages(
   {
-    "common.technicalDetails": "Technical details",
-
     "diagnostics.eyebrow": "SPRING BOOT · RUNTIME INSPECTION",
     "diagnostics.title": "Diagnostics",
     "diagnostics.description":
@@ -22,6 +20,9 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "diagnostics.mode.runtime": "Runtime",
     "diagnostics.mode.runtimeDescription":
       "Inspect read-only Spring Actuator health and metrics, then compare them with a baseline.",
+    "diagnostics.mode.performance": "URL Performance",
+    "diagnostics.mode.performanceDescription":
+      "Run a few bounded, cold end-to-end URL checks and compare their response times.",
     "diagnostics.mode.environments": "Environments",
     "diagnostics.mode.environmentsDescription":
       "Send the same request to two or more targets and compare status, headers, and JSON bodies.",
@@ -72,6 +73,15 @@ export const diagnosticsProtocolsMessages = defineMessages(
       "No imported OpenAPI specification is available for coverage analysis.",
     "diagnostics.error.coverageSpecMissingHint":
       "Import an OpenAPI specification, then run coverage analysis again.",
+    "diagnostics.error.networkOperationInvalidMessage":
+      "The URL performance operation could not be started.",
+    "diagnostics.error.networkInspectionFailedMessage":
+      "The target URL could not be inspected.",
+    "diagnostics.error.networkInspectionFailedHint":
+      "Check the URL, network access, redirect chain, and per-sample timeout.",
+    "diagnostics.error.toolTimeoutMessage":
+      "The URL check exceeded its timeout.",
+    "diagnostics.error.toolCanceledMessage": "The URL check was canceled.",
     "diagnostics.error.headersJSON": "Headers must be a valid JSON object.",
     "diagnostics.error.headersObject": "Headers must be a JSON object.",
     "diagnostics.error.headersText":
@@ -215,6 +225,8 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "diagnostics.jwt.threeParts": "JWT must contain three segments.",
     "diagnostics.jwt.invalidBase64":
       "The JWT segment could not be decoded as base64url.",
+    "diagnostics.jwt.invalidJSON":
+      "The JWT header and payload must contain valid JSON.",
 
     "diagnostics.runtime.unknown": "Unknown",
     "diagnostics.runtime.healthEyebrow": "HEALTH",
@@ -279,6 +291,62 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "diagnostics.runtime.snapshotFailure":
       "Runtime snapshot could not be captured.",
     "diagnostics.runtime.baselineCleared": "Runtime baseline cleared.",
+
+    "diagnostics.performance.targetTitle": "Performance target",
+    "diagnostics.performance.targetDescription":
+      "Measure DNS, connection, redirect, and response time for one HTTP(S) URL.",
+    "diagnostics.performance.url": "Target URL",
+    "diagnostics.performance.urlHelp":
+      "Validex sends HEAD and uses a bounded GET fallback only when the server rejects HEAD.",
+    "diagnostics.performance.timeout": "Per-sample timeout (ms)",
+    "diagnostics.performance.samples": "Samples",
+    "diagnostics.performance.run": "Run performance test",
+    "diagnostics.performance.stop": "Stop test",
+    "diagnostics.performance.stopping": "Stopping…",
+    "diagnostics.performance.cancelRejectedTitle":
+      "URL test could not be stopped",
+    "diagnostics.performance.cancelRejectedMessage":
+      "The backend did not accept the stop command for the active sample.",
+    "diagnostics.performance.cancelRejectedHint":
+      "Retry Stop; the bounded sample remains active until it finishes or reaches its timeout.",
+    "diagnostics.performance.cancelFailure":
+      "The URL performance stop command could not be completed.",
+    "diagnostics.performance.safetyHint":
+      "Only test targets you are authorized to access. Local and private-network URLs are reachable from this desktop app.",
+    "diagnostics.performance.resultTitle": "URL timing result",
+    "diagnostics.performance.resultDescription":
+      "Each sample uses a fresh transport, so these are cold end-to-end timings rather than a warm-load benchmark.",
+    "diagnostics.performance.fastest": "Fastest",
+    "diagnostics.performance.average": "Average",
+    "diagnostics.performance.slowest": "Slowest",
+    "diagnostics.performance.completedSamples": "Completed samples",
+    "diagnostics.performance.sample": "Sample",
+    "diagnostics.performance.status": "HTTP status",
+    "diagnostics.performance.duration": "Duration",
+    "diagnostics.performance.finalURL": "Final URL",
+    "diagnostics.performance.emptyTitle": "No URL timing result",
+    "diagnostics.performance.emptyDescription":
+      "Enter an HTTP(S) URL and run a few bounded response-time samples.",
+    "diagnostics.performance.success":
+      "Completed {count} URL performance samples.",
+    "diagnostics.performance.canceled": "URL performance test stopped.",
+    "diagnostics.performance.failure":
+      "The URL performance test could not be completed.",
+    "diagnostics.performance.urlRequired": "Enter a target URL.",
+    "diagnostics.performance.urlInvalid":
+      "Enter a valid absolute HTTP or HTTPS URL.",
+    "diagnostics.performance.urlProtocol":
+      "Only HTTP and HTTPS URLs can be tested.",
+    "diagnostics.performance.urlCredentials":
+      "Remove the username or password from the URL.",
+    "diagnostics.performance.urlFragment":
+      "Remove the URL fragment (#…) before running the test.",
+    "diagnostics.performance.sampleRange":
+      "Samples must be a whole number from {minimum} to {maximum}.",
+    "diagnostics.performance.timeoutRange":
+      "Timeout must be a whole number from 1 to {maximum} ms.",
+    "diagnostics.performance.budgetExceeded":
+      "{samples} samples × {timeout} ms exceeds the {maximum} ms total safety budget.",
 
     "diagnostics.environment.error": "Error",
     "diagnostics.environment.shortLabel": "ENV {number}",
@@ -542,8 +610,6 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "protocol.sse.loading": "Waiting for the SSE stream",
   },
   {
-    "common.technicalDetails": "Teknik ayrıntı",
-
     "diagnostics.eyebrow": "SPRING BOOT · ÇALIŞMA ZAMANI İNCELEMESİ",
     "diagnostics.title": "Tanılama",
     "diagnostics.description":
@@ -562,6 +628,9 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "diagnostics.mode.runtime": "Çalışma Zamanı",
     "diagnostics.mode.runtimeDescription":
       "Salt okunur Spring Actuator health ve metric verilerini inceleyip baseline ile karşılaştırın.",
+    "diagnostics.mode.performance": "URL Performansı",
+    "diagnostics.mode.performanceDescription":
+      "Sınırlı sayıda soğuk uçtan uca URL kontrolü çalıştırıp yanıt sürelerini karşılaştırın.",
     "diagnostics.mode.environments": "Ortamlar",
     "diagnostics.mode.environmentsDescription":
       "Aynı request’i iki veya daha fazla hedefe gönderip status, header ve JSON body’lerini karşılaştırın.",
@@ -612,6 +681,15 @@ export const diagnosticsProtocolsMessages = defineMessages(
       "Coverage analizi için içe aktarılmış bir OpenAPI tanımı yok.",
     "diagnostics.error.coverageSpecMissingHint":
       "Bir OpenAPI tanımı içe aktarıp coverage analizini yeniden çalıştırın.",
+    "diagnostics.error.networkOperationInvalidMessage":
+      "URL performans işlemi başlatılamadı.",
+    "diagnostics.error.networkInspectionFailedMessage":
+      "Hedef URL incelenemedi.",
+    "diagnostics.error.networkInspectionFailedHint":
+      "URL’yi, ağ erişimini, yönlendirme zincirini ve örnek zaman aşımını kontrol edin.",
+    "diagnostics.error.toolTimeoutMessage":
+      "URL kontrolü zaman aşımı sınırını geçti.",
+    "diagnostics.error.toolCanceledMessage": "URL kontrolü iptal edildi.",
     "diagnostics.error.headersJSON": "Headers geçerli bir JSON nesnesi değil.",
     "diagnostics.error.headersObject": "Headers bir JSON nesnesi olmalı.",
     "diagnostics.error.headersText":
@@ -755,6 +833,8 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "diagnostics.jwt.threeParts": "JWT üç bölümden oluşmalıdır.",
     "diagnostics.jwt.invalidBase64":
       "JWT bölümü base64url olarak çözülemedi.",
+    "diagnostics.jwt.invalidJSON":
+      "JWT header ve payload bölümleri geçerli JSON içermeli.",
 
     "diagnostics.runtime.unknown": "Bilinmiyor",
     "diagnostics.runtime.healthEyebrow": "SAĞLIK",
@@ -819,6 +899,62 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "diagnostics.runtime.snapshotFailure":
       "Runtime snapshot alınamadı.",
     "diagnostics.runtime.baselineCleared": "Runtime baseline temizlendi.",
+
+    "diagnostics.performance.targetTitle": "Performans hedefi",
+    "diagnostics.performance.targetDescription":
+      "Tek bir HTTP(S) URL’si için DNS, bağlantı, yönlendirme ve yanıt süresini ölçün.",
+    "diagnostics.performance.url": "Hedef URL",
+    "diagnostics.performance.urlHelp":
+      "Validex HEAD gönderir; sunucu HEAD’i reddederse yalnızca sınırlı bir GET fallback kullanır.",
+    "diagnostics.performance.timeout": "Örnek başına zaman aşımı (ms)",
+    "diagnostics.performance.samples": "Örnek sayısı",
+    "diagnostics.performance.run": "Performans testini çalıştır",
+    "diagnostics.performance.stop": "Testi durdur",
+    "diagnostics.performance.stopping": "Durduruluyor…",
+    "diagnostics.performance.cancelRejectedTitle":
+      "URL testi durdurulamadı",
+    "diagnostics.performance.cancelRejectedMessage":
+      "Backend, etkin örnek için durdurma komutunu kabul etmedi.",
+    "diagnostics.performance.cancelRejectedHint":
+      "Durdur’u yeniden deneyin; sınırlı örnek tamamlanana veya zaman aşımına ulaşana kadar etkin kalır.",
+    "diagnostics.performance.cancelFailure":
+      "URL performansı durdurma komutu tamamlanamadı.",
+    "diagnostics.performance.safetyHint":
+      "Yalnızca erişim yetkiniz olan hedefleri test edin. Bu masaüstü uygulaması yerel ve özel ağ URL’lerine erişebilir.",
+    "diagnostics.performance.resultTitle": "URL zamanlama sonucu",
+    "diagnostics.performance.resultDescription":
+      "Her örnek yeni bir bağlantı katmanı kullanır; bu nedenle değerler warm-load benchmark değil, soğuk uçtan uca sürelerdir.",
+    "diagnostics.performance.fastest": "En hızlı",
+    "diagnostics.performance.average": "Ortalama",
+    "diagnostics.performance.slowest": "En yavaş",
+    "diagnostics.performance.completedSamples": "Tamamlanan örnek",
+    "diagnostics.performance.sample": "Örnek",
+    "diagnostics.performance.status": "HTTP durumu",
+    "diagnostics.performance.duration": "Süre",
+    "diagnostics.performance.finalURL": "Son URL",
+    "diagnostics.performance.emptyTitle": "URL zamanlama sonucu yok",
+    "diagnostics.performance.emptyDescription":
+      "Bir HTTP(S) URL’si girip sınırlı sayıda yanıt süresi örneği çalıştırın.",
+    "diagnostics.performance.success":
+      "{count} URL performans örneği tamamlandı.",
+    "diagnostics.performance.canceled": "URL performans testi durduruldu.",
+    "diagnostics.performance.failure":
+      "URL performans testi tamamlanamadı.",
+    "diagnostics.performance.urlRequired": "Bir hedef URL girin.",
+    "diagnostics.performance.urlInvalid":
+      "Geçerli ve tam bir HTTP veya HTTPS URL’si girin.",
+    "diagnostics.performance.urlProtocol":
+      "Yalnızca HTTP ve HTTPS URL’leri test edilebilir.",
+    "diagnostics.performance.urlCredentials":
+      "URL içindeki kullanıcı adı veya parolayı kaldırın.",
+    "diagnostics.performance.urlFragment":
+      "Testi çalıştırmadan önce URL fragment’ını (#…) kaldırın.",
+    "diagnostics.performance.sampleRange":
+      "Örnek sayısı {minimum} ile {maximum} arasında bir tam sayı olmalı.",
+    "diagnostics.performance.timeoutRange":
+      "Zaman aşımı 1 ile {maximum} ms arasında bir tam sayı olmalı.",
+    "diagnostics.performance.budgetExceeded":
+      "{samples} örnek × {timeout} ms, {maximum} ms toplam güvenlik bütçesini aşıyor.",
 
     "diagnostics.environment.error": "Hata",
     "diagnostics.environment.shortLabel": "ORTAM {number}",

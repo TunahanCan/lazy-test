@@ -1,6 +1,11 @@
 import type { UserError } from "../../lib/types.js";
 import type { Locale, TranslationKey } from "../../i18n/messages.js";
 import type { Translate } from "../../i18n/locale.js";
+import {
+  hasLocalizedUserError,
+  localizeUserError,
+  userErrorTechnicalDetails,
+} from "../../lib/userErrors.js";
 
 export interface ProtocolIssue {
   title: string;
@@ -47,10 +52,7 @@ const translatedProtocolErrors: Readonly<
 let protocolOperationSequence = 0;
 
 function structuredErrorDetails(error: Partial<UserError>): string | undefined {
-  const details = [error.title, error.message, error.hint, error.technical]
-    .filter((part): part is string => Boolean(part))
-    .join(" · ");
-  return details || undefined;
+  return userErrorTechnicalDetails(error);
 }
 
 export function createOperationID(): string {
@@ -182,6 +184,15 @@ export function issueFrom(
   }
   if (value && typeof value === "object") {
     const error = value as Partial<UserError>;
+    if (hasLocalizedUserError(error)) {
+      const localized = localizeUserError(error as UserError, t);
+      return {
+        title: localized.title,
+        message: localized.message,
+        hint: localized.hint,
+        technical: userErrorTechnicalDetails(error),
+      };
+    }
     const translated = error.code
       ? translatedProtocolErrors[error.code]
       : undefined;
@@ -190,7 +201,7 @@ export function issueFrom(
         title: t(translated.title),
         message: t(translated.message),
         hint: translated.hint ? t(translated.hint) : undefined,
-        technical: structuredErrorDetails(error),
+        technical: error.technical,
       };
     }
     return {

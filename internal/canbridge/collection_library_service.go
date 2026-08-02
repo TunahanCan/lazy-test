@@ -210,48 +210,23 @@ func logCollectionLibraryRepositoryFailure(operation string, err error) {
 }
 
 func collectionLibraryConflictError() *UserError {
-	return &UserError{
-		Code:    CollectionLibraryErrorConflict,
-		Title:   "Koleksiyon değişikliği çakıştı",
-		Message: "Koleksiyonlar başka bir Validex penceresinde değiştirildi.",
-		Hint:    "En güncel koleksiyonları yükleyip değişikliğinizi yeniden uygulayın.",
-	}
+	return newUserError(errorCollectionLibraryConflict, nil, nil)
 }
 
 func collectionLibraryInvalidError() *UserError {
-	return &UserError{
-		Code:    CollectionLibraryErrorInvalid,
-		Title:   "Koleksiyon kaydedilemedi",
-		Message: "Koleksiyon verisi geçerli bir sürümlü JSON kaydı değil.",
-		Hint:    "Uygulamayı yenileyip kaydetmeyi yeniden deneyin.",
-	}
+	return newUserError(errorCollectionLibraryInvalid, nil, nil)
 }
 
 func collectionLibraryCorruptError() *UserError {
-	return &UserError{
-		Code:    CollectionLibraryErrorCorrupt,
-		Title:   "Koleksiyonlar yüklenemedi",
-		Message: "Yerel koleksiyon dosyası geçerli bir Validex kaydı değil.",
-		Hint:    "Dosyayı yedekleyip uygulamada yeni bir koleksiyon oluşturun.",
-	}
+	return newUserError(errorCollectionLibraryCorrupt, nil, nil)
 }
 
 func collectionLibraryBusyError() *UserError {
-	return &UserError{
-		Code:    CollectionLibraryErrorBusy,
-		Title:   "Koleksiyon işlemi bekliyor",
-		Message: "Koleksiyon depolama kuyruğu geçici olarak dolu.",
-		Hint:    "Devam eden kayıt tamamlandıktan sonra yeniden deneyin.",
-	}
+	return newUserError(errorCollectionLibraryBusy, nil, nil)
 }
 
 func collectionLibraryNotLoadedError() *UserError {
-	return &UserError{
-		Code:    CollectionLibraryErrorNotLoaded,
-		Title:   "Koleksiyonlar önce yüklenmeli",
-		Message: "Var olan koleksiyon dosyası bu oturumda henüz yüklenmedi.",
-		Hint:    "Koleksiyonları yenileyip değişikliğinizi yeniden uygulayın.",
-	}
+	return newUserError(errorCollectionLibraryNotLoaded, nil, nil)
 }
 
 func validCollectionLibraryCommit(
@@ -266,22 +241,12 @@ func validCollectionLibraryCommit(
 
 func collectionLibraryLoadFailed() CollectionLibraryLoadResult {
 	return CollectionLibraryLoadResult{
-		Error: &UserError{
-			Code:    CollectionLibraryErrorReadFailed,
-			Title:   "Koleksiyonlar yüklenemedi",
-			Message: "Yerel uygulama verisi okunamadı.",
-			Hint:    "Uygulama veri dizininin erişilebilir olduğunu kontrol edin.",
-		},
+		Error: newUserError(errorCollectionLibraryReadFailed, nil, nil),
 	}
 }
 
 func collectionLibrarySaveFailed() CollectionLibrarySaveResult {
 	return CollectionLibrarySaveResult{
-		Error: &UserError{
-			Code:    CollectionLibraryErrorWriteFailed,
-			Title:   "Koleksiyon kaydedilemedi",
-			Message: "Koleksiyonlar yerel uygulama verisine yazılamadı.",
-			Hint:    "Disk alanını ve uygulama veri dizini izinlerini kontrol edin.",
-		},
+		Error: newUserError(errorCollectionLibraryWriteFailed, nil, nil),
 	}
 }

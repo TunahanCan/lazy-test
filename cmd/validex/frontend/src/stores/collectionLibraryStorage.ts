@@ -1,6 +1,7 @@
 import type { StateStorage } from "../core/store.js";
 import { backend } from "../lib/backend.js";
 import type { UserError } from "../lib/types.js";
+import { keyedUserError } from "../lib/userErrors.js";
 
 export const COLLECTION_LIBRARY_PERSISTENCE_PHASE = {
   LOADING: "loading",
@@ -56,32 +57,25 @@ function publish(snapshot: CollectionLibraryPersistenceSnapshot) {
 }
 
 function browserStorageError(operation: "read" | "write"): UserError {
-  return {
-    code: `collection_library_browser_${operation}_failed`,
-    title:
-      operation === "read"
-        ? "Koleksiyonlar yüklenemedi"
-        : "Koleksiyon kaydedilemedi",
-    message:
-      operation === "read"
-        ? "Tarayıcı geliştirme depolaması okunamadı."
-        : "Tarayıcı geliştirme depolamasına yazılamadı.",
-  };
+  return keyedUserError(
+    `collection_library_browser_${operation}_failed`,
+    `backend.error.collectionLibrary.browser${
+      operation === "read" ? "Read" : "Write"
+    }Failed`,
+  );
 }
 
 function bridgeStorageError(
   operation: "read" | "write",
   error: unknown,
 ): UserError {
-  return {
-    code: `collection_library_bridge_${operation}_failed`,
-    title:
-      operation === "read"
-        ? "Koleksiyonlar yüklenemedi"
-        : "Koleksiyon kaydedilemedi",
-    message: "Masaüstü depolama bağlantısı yanıt vermedi.",
-    technical: error instanceof Error ? error.message : String(error),
-  };
+  return keyedUserError(
+    `collection_library_bridge_${operation}_failed`,
+    `backend.error.collectionLibrary.bridge${
+      operation === "read" ? "Read" : "Write"
+    }Failed`,
+    { technical: error instanceof Error ? error.message : String(error) },
+  );
 }
 
 function markReady(hydrated: boolean) {
@@ -130,12 +124,11 @@ export function finishCollectionLibraryHydration(error?: unknown) {
   if (error) {
     const persistenceError =
       error instanceof UnsupportedCollectionLibraryVersionError
-        ? {
-            code: error.code,
-            title: "Koleksiyonlar daha yeni bir sürümle kaydedilmiş",
-            message:
-              "Bu koleksiyon dosyasını güvenle açmak için Validex’i güncelleyin.",
-          }
+        ? keyedUserError(
+            error.code,
+            "backend.error.collectionLibrary.newerVersion",
+            { params: { version: String(error.storedVersion) } },
+          )
         : bridgeStorageError("read", error);
     markFailure(
       "read",

@@ -13,6 +13,7 @@ import {
   isSecretKey,
 } from "../../lib/secrets.js";
 import type { BootstrapData, RequestTab } from "../../lib/types.js";
+import { localizedBootstrapEnvironmentName } from "../../lib/bootstrap.js";
 import { workspaceStore } from "../../stores/workspace.js";
 
 type ContextView = "variables" | "auth";
@@ -175,7 +176,7 @@ export function mountContextPanel(
                   <strong>
                     ${!environment || environment.id === "none"
                       ? t("chrome.noEnvironment")
-                      : environment.name}
+                      : localizedBootstrapEnvironmentName(environment)}
                   </strong>
                 </div>
               </div>

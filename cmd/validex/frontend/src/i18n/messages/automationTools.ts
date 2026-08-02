@@ -233,6 +233,11 @@ export const automationToolsMessages = defineMessages(
     "automation.error.network.title": "Network analysis could not be completed",
     "automation.error.openapi.title": "OpenAPI lint could not be completed",
     "automation.error.operation.title": "Operation could not be completed",
+    "automation.error.backend.title": "Validex backend is unavailable",
+    "automation.error.backend.message":
+      "The desktop backend could not be reached.",
+    "automation.error.backend.hint":
+      "Make sure the desktop application is running, then try again.",
     "automation.error.operationInvalid":
       "Another operation may already be using this operation ID.",
     "automation.error.collectionInvalid":
@@ -739,6 +744,11 @@ export const automationToolsMessages = defineMessages(
     "automation.error.network.title": "Ağ analizi tamamlanamadı",
     "automation.error.openapi.title": "OpenAPI lint tamamlanamadı",
     "automation.error.operation.title": "İşlem tamamlanamadı",
+    "automation.error.backend.title": "Validex backend’ine ulaşılamıyor",
+    "automation.error.backend.message":
+      "Masaüstü backend’ine ulaşılamadı.",
+    "automation.error.backend.hint":
+      "Masaüstü uygulamasının çalıştığından emin olup yeniden deneyin.",
     "automation.error.operationInvalid":
       "Başka bir işlem bu operation ID’yi kullanıyor olabilir.",
     "automation.error.collectionInvalid":

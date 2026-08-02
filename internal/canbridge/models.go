@@ -74,7 +74,7 @@ type ResponseCookie struct {
 }
 
 // UserErrorCode is the stable machine-readable category used by frontend
-// branching. Human-readable Turkish text may change; these wire values must
+// branching. Human-readable fallback text may change; these wire values must
 // remain backward compatible.
 type UserErrorCode string
 
@@ -121,12 +121,19 @@ const (
 )
 
 type UserError struct {
-	Code      UserErrorCode `json:"code"`
-	Title     string        `json:"title"`
-	Message   string        `json:"message"`
-	Hint      string        `json:"hint,omitempty"`
-	Technical string        `json:"technical,omitempty"`
+	Code       UserErrorCode   `json:"code"`
+	MessageKey string          `json:"messageKey,omitempty"`
+	Params     UserErrorParams `json:"params,omitempty"`
+	Title      string          `json:"title"`
+	Message    string          `json:"message"`
+	Hint       string          `json:"hint,omitempty"`
+	Technical  string          `json:"technical,omitempty"`
 }
+
+// UserErrorParams carries non-sensitive values used by locale-specific
+// renderers. Values deliberately remain strings so the desktop wire contract
+// is predictable across Go and JavaScript runtimes.
+type UserErrorParams map[string]string
 
 type SendResult struct {
 	Response *ResponseEnvelope `json:"response,omitempty"`

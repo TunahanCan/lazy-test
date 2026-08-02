@@ -17,6 +17,7 @@ import {
 } from "../../i18n/locale.js";
 import {
   compareJSON,
+  DeveloperToolError,
   formatJSON,
   inferJSONSchema,
   javaDTOToJSONExample,
@@ -97,36 +98,29 @@ function printable(value: unknown): string {
 }
 
 function localizedJSONError(error: unknown, translate: Translate): string {
-  const message = error instanceof Error ? error.message : String(error);
-  if (message === "JSON içeriği boş.") {
-    return translate("json.error.empty");
+  if (error instanceof DeveloperToolError) {
+    switch (error.code) {
+      case "json.empty":
+        return translate("json.error.empty");
+      case "json.invalid":
+        return translate("json.error.invalid", {
+          details: error.params.details ?? "",
+        });
+      case "jsonpath.root":
+        return translate("json.error.pathRoot");
+      case "jsonpath.unsupported":
+        return translate("json.error.pathUnsupported");
+      case "jsonpath.missing":
+        return translate("json.error.pathMissing", {
+          path: error.params.path ?? "",
+        });
+      case "dto.empty":
+        return translate("json.error.dtoEmpty");
+      case "dto.unsupported":
+        return translate("json.error.dtoUnsupported");
+    }
   }
-  if (message.startsWith("Geçersiz JSON: ")) {
-    return translate("json.error.invalid", {
-      details: message.slice("Geçersiz JSON: ".length),
-    });
-  }
-  if (message === "JSONPath $ ile başlamalıdır.") {
-    return translate("json.error.pathRoot");
-  }
-  if (message === "Bu JSONPath ifadesi desteklenmiyor.") {
-    return translate("json.error.pathUnsupported");
-  }
-  if (message.endsWith(" için değer bulunamadı.")) {
-    return translate("json.error.pathMissing", {
-      path: message.slice(0, -" için değer bulunamadı.".length),
-    });
-  }
-  if (message === "Java response DTO içeriği boş.") {
-    return translate("json.error.dtoEmpty");
-  }
-  if (
-    message ===
-    "Desteklenen record veya field içeren class bulunamadı."
-  ) {
-    return translate("json.error.dtoUnsupported");
-  }
-  return message;
+  return error instanceof Error ? error.message : String(error);
 }
 
 function toolNotice(notice: JSONNotice | null): TrustedHTMLFragment {

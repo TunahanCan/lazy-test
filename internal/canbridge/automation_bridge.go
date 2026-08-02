@@ -3,7 +3,6 @@ package canbridge
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -48,11 +47,9 @@ type OpenAPILintResult struct {
 func (b *Bridge) RunCollection(input CollectionRunInput) CollectionRunResult {
 	ctx, finish, err := b.beginToolOperation(input.OperationID)
 	if err != nil {
-		return CollectionRunResult{Error: automationError(
-			UserErrorCollectionOperationInvalid,
-			"Collection çalıştırılamadı",
-			"Collection işlemi başlatılamadı.",
-			"Aynı operationId ile çalışan başka bir işlem olmadığını kontrol edin.",
+		return CollectionRunResult{Error: newUserError(
+			automationCollectionOperationInvalidError,
+			nil,
 			err,
 		)}
 	}
@@ -64,19 +61,17 @@ func (b *Bridge) RunCollection(input CollectionRunInput) CollectionRunResult {
 		limits,
 	)
 	if err != nil {
-		return CollectionRunResult{Error: automationError(
-			UserErrorCollectionInvalid,
-			"Collection çalıştırılamadı",
-			"Collection JSON tanımı geçerli değil.",
-			"JSON yapısını, request alanlarını ve assertion kurallarını kontrol edin.",
+		return CollectionRunResult{Error: newUserError(
+			automationCollectionDefinitionInvalidError,
+			nil,
 			err,
 		)}
 	}
 	if err := ctx.Err(); err != nil {
 		return CollectionRunResult{Error: automationContextError(
-			UserErrorCollectionRunFailed,
-			"Collection tamamlanamadı",
-			"Collection çalıştırılmadan önce iptal edildi.",
+			automationCollectionRunFailedError,
+			automationCollectionRunCanceledError,
+			automationCollectionRunTimeoutError,
 			err,
 		)}
 	}
@@ -92,9 +87,9 @@ func (b *Bridge) RunCollection(input CollectionRunInput) CollectionRunResult {
 	result := CollectionRunResult{Report: &report}
 	if runErr != nil {
 		result.Error = automationContextError(
-			UserErrorCollectionRunFailed,
-			"Collection tamamlanamadı",
-			"Collection çalışırken beklenmeyen bir hata oluştu.",
+			automationCollectionRunFailedError,
+			automationCollectionRunCanceledError,
+			automationCollectionRunTimeoutError,
 			runErr,
 		)
 	}
@@ -104,11 +99,9 @@ func (b *Bridge) RunCollection(input CollectionRunInput) CollectionRunResult {
 func (b *Bridge) AnalyzeNetwork(input NetworkInspectInput) NetworkInspectResult {
 	ctx, finish, err := b.beginToolOperation(input.OperationID)
 	if err != nil {
-		return NetworkInspectResult{Error: automationError(
-			UserErrorNetworkOperationInvalid,
-			"Ağ analizi başlatılamadı",
-			"DNS ve redirect işlemi başlatılamadı.",
-			"Aynı operationId ile çalışan başka bir işlem olmadığını kontrol edin.",
+		return NetworkInspectResult{Error: newUserError(
+			automationNetworkOperationInvalidError,
+			nil,
 			err,
 		)}
 	}
@@ -122,9 +115,9 @@ func (b *Bridge) AnalyzeNetwork(input NetworkInspectInput) NetworkInspectResult 
 	result := NetworkInspectResult{Report: &report}
 	if inspectErr != nil {
 		result.Error = automationContextError(
-			UserErrorNetworkInspectionFailed,
-			"Ağ analizi tamamlanamadı",
-			"DNS çözümü veya redirect zinciri tamamlanamadı.",
+			automationNetworkInspectionFailedError,
+			automationNetworkInspectionCanceledError,
+			automationNetworkInspectionTimeoutError,
 			inspectErr,
 		)
 	}
@@ -134,11 +127,9 @@ func (b *Bridge) AnalyzeNetwork(input NetworkInspectInput) NetworkInspectResult 
 func (b *Bridge) LintOpenAPI() OpenAPILintResult {
 	ctx := b.runtimeContext()
 	if ctx == nil {
-		return OpenAPILintResult{Error: automationError(
-			UserErrorRuntimeUnavailable,
-			"OpenAPI dosyası seçilemedi",
-			"Desktop runtime henüz hazır değil.",
-			"Uygulamayı native canbridge runtime içinde açın.",
+		return OpenAPILintResult{Error: newUserError(
+			automationOpenAPIRuntimeUnavailableError,
+			nil,
 			nil,
 		)}
 	}
@@ -147,11 +138,9 @@ func (b *Bridge) LintOpenAPI() OpenAPILintResult {
 		Extensions: []string{"yaml", "yml", "json"},
 	})
 	if err != nil {
-		return OpenAPILintResult{Error: automationError(
-			UserErrorFileDialogFailed,
-			"OpenAPI dosyası seçilemedi",
-			"Sistem dosya seçicisi tamamlanamadı.",
-			"Dosya izinlerini ve masaüstü ortamını kontrol edin.",
+		return OpenAPILintResult{Error: newUserError(
+			automationOpenAPIFileDialogFailedError,
+			nil,
 			err,
 		)}
 	}
@@ -167,11 +156,9 @@ func (b *Bridge) LintOpenAPI() OpenAPILintResult {
 	if err != nil {
 		return OpenAPILintResult{
 			Path: path,
-			Error: automationError(
-				UserErrorOpenAPILintFailed,
-				"OpenAPI lint tamamlanamadı",
-				"OpenAPI dosyası okunamadı.",
-				"Dosya izinlerini ve dosyanın hâlâ mevcut olduğunu kontrol edin.",
+			Error: newUserError(
+				automationOpenAPILintFailedError,
+				nil,
 				err,
 			),
 		}
@@ -187,51 +174,17 @@ func milliseconds(value int) time.Duration {
 }
 
 func automationContextError(
-	code UserErrorCode,
-	title string,
-	message string,
+	failure userErrorDefinition,
+	canceled userErrorDefinition,
+	timedOut userErrorDefinition,
 	err error,
 ) *UserError {
 	switch {
 	case errors.Is(err, context.Canceled):
-		return &UserError{
-			Code:    UserErrorToolCanceled,
-			Title:   title,
-			Message: "İşlem kullanıcı tarafından iptal edildi.",
-		}
+		return newUserError(canceled, nil, nil)
 	case errors.Is(err, context.DeadlineExceeded):
-		return &UserError{
-			Code:    UserErrorToolTimeout,
-			Title:   title,
-			Message: "İşlem belirtilen timeout süresinde tamamlanamadı.",
-			Hint:    "Timeout değerini artırın veya hedef servisi kontrol edin.",
-		}
+		return newUserError(timedOut, nil, nil)
 	default:
-		return automationError(
-			code,
-			title,
-			message,
-			"Girdi ve hedef servis ayrıntılarını kontrol edin.",
-			err,
-		)
+		return newUserError(failure, nil, err)
 	}
-}
-
-func automationError(
-	code UserErrorCode,
-	title string,
-	message string,
-	hint string,
-	err error,
-) *UserError {
-	result := &UserError{
-		Code:    code,
-		Title:   title,
-		Message: message,
-		Hint:    hint,
-	}
-	if err != nil {
-		result.Technical = fmt.Sprint(err)
-	}
-	return result
 }

@@ -22,14 +22,22 @@ import {
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import {
+  rebrandMacApplication,
+  verifyMacApplicationIdentity,
+} from "./mac-application-identity.mjs";
+
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const applicationRoot = resolve(scriptDirectory, "..");
 const repositoryRoot = resolve(applicationRoot, "..", "..");
 const buildRoot = join(applicationRoot, "build");
 const outputRoot = join(buildRoot, "bin");
+const developmentOutputRoot = join(buildRoot, "dev");
 
 const applicationName = "Validex";
 const applicationID = "com.validex.Validex";
+const developmentApplicationID = `${applicationID}.dev`;
+const developmentRuntimeMarkerSchema = 2;
 const applicationManifest = JSON.parse(
   await readFile(join(applicationRoot, "package.json"), "utf8"),
 );
@@ -40,6 +48,22 @@ if (
   throw new Error("Validex package version is missing");
 }
 const applicationVersion = applicationManifest.version;
+if (applicationManifest.productName !== applicationName) {
+  throw new Error(
+    `Validex productName must be ${JSON.stringify(applicationName)}`,
+  );
+}
+const developmentRuntimeMode = process.argv.slice(2).includes(
+  "--development-runtime",
+);
+const unknownArguments = process.argv
+  .slice(2)
+  .filter((argument) => argument !== "--development-runtime");
+if (unknownArguments.length > 0) {
+  throw new Error(
+    `Unknown Electron packaging argument: ${unknownArguments.join(" ")}`,
+  );
+}
 
 function containedPath(parent, candidate) {
   const fromParent = relative(parent, candidate);
@@ -88,6 +112,10 @@ function packagedApplicationPath() {
     return join(outputRoot, `${applicationName}.app`);
   }
   return join(outputRoot, applicationName);
+}
+
+function developmentApplicationPath() {
+  return join(developmentOutputRoot, `${applicationName}.app`);
 }
 
 function stagingApplicationPath(stagingRoot) {
@@ -240,81 +268,6 @@ async function copyApplicationFiles(applicationPath) {
   );
 }
 
-function updateMacMetadata(applicationPath) {
-  const plist = join(applicationPath, "Contents", "Info.plist");
-  const replaceString = (key, value) => {
-    execFileSync(
-      "plutil",
-      ["-replace", key, "-string", value, plist],
-      { stdio: "inherit" },
-    );
-  };
-  replaceString("CFBundleDisplayName", applicationName);
-  replaceString("CFBundleExecutable", applicationName);
-  replaceString("CFBundleIdentifier", applicationID);
-  replaceString("CFBundleName", applicationName);
-  replaceString("CFBundleShortVersionString", applicationVersion);
-  replaceString("CFBundleVersion", applicationVersion);
-  replaceString(
-    "LSApplicationCategoryType",
-    "public.app-category.developer-tools",
-  );
-
-  for (const key of [
-    "ElectronAsarIntegrity",
-    "NSAudioCaptureUsageDescription",
-    "NSBluetoothAlwaysUsageDescription",
-    "NSBluetoothPeripheralUsageDescription",
-    "NSCameraUsageDescription",
-    "NSMicrophoneUsageDescription",
-  ]) {
-    try {
-      execFileSync("plutil", ["-remove", key, plist], {
-        stdio: "ignore",
-      });
-    } catch {
-      // Electron versions may omit optional metadata.
-    }
-  }
-  execFileSync(
-    "plutil",
-    [
-      "-replace",
-      "NSAppTransportSecurity",
-      "-json",
-      '{"NSAllowsLocalNetworking":true}',
-      plist,
-    ],
-    { stdio: "inherit" },
-  );
-
-  for (const [helperName, identifier] of [
-    ["Electron Helper", `${applicationID}.helper`],
-    ["Electron Helper (Renderer)", `${applicationID}.helper.renderer`],
-    ["Electron Helper (GPU)", `${applicationID}.helper.gpu`],
-    ["Electron Helper (Plugin)", `${applicationID}.helper.plugin`],
-  ]) {
-    execFileSync(
-      "plutil",
-      [
-        "-replace",
-        "CFBundleIdentifier",
-        "-string",
-        identifier,
-        join(
-          applicationPath,
-          "Contents",
-          "Frameworks",
-          `${helperName}.app`,
-          "Contents",
-          "Info.plist",
-        ),
-      ],
-      { stdio: "inherit" },
-    );
-  }
-}
-
 async function installMacIcon(applicationPath) {
   const icon = join(buildRoot, "Validex.icns");
   await requireRegularFile(icon, "Validex ICNS icon");
@@ -331,6 +284,162 @@ async function installMacIcon(applicationPath) {
       join(applicationPath, "Contents", "Info.plist"),
     ],
     { stdio: "inherit" },
+  );
+}
+
+async function electronVersion() {
+  return (
+    await readFile(
+      join(
+        applicationRoot,
+        "node_modules",
+        "electron",
+        "dist",
+        "version",
+      ),
+      "utf8",
+    )
+  ).trim();
+}
+
+function developmentRuntimeMarker(applicationPath) {
+  return join(
+    packageResourcesPath(applicationPath),
+    ".validex-development-runtime.json",
+  );
+}
+
+async function developmentRuntimeIsCurrent(applicationPath, version) {
+  try {
+    await verifyMacApplicationIdentity({
+      applicationName,
+      applicationPath,
+      bundleIdentifier: developmentApplicationID,
+      version: applicationVersion,
+    });
+    await requireRegularFile(
+      join(packageResourcesPath(applicationPath), "default_app.asar"),
+      "Electron development application loader",
+    );
+    const marker = JSON.parse(
+      await readFile(developmentRuntimeMarker(applicationPath), "utf8"),
+    );
+    if (
+      marker.schema !== developmentRuntimeMarkerSchema ||
+      marker.applicationID !== developmentApplicationID ||
+      marker.applicationName !== applicationName ||
+      marker.applicationVersion !== applicationVersion ||
+      marker.architecture !== process.arch ||
+      marker.platform !== process.platform ||
+      marker.electronVersion !== version
+    ) {
+      return false;
+    }
+    const [sourceIcon, installedIcon] = await Promise.all([
+      readFile(join(buildRoot, "Validex.icns")),
+      readFile(
+        join(packageResourcesPath(applicationPath), "validex.icns"),
+      ),
+    ]);
+    if (!sourceIcon.equals(installedIcon)) return false;
+    execFileSync(
+      "codesign",
+      ["--verify", "--deep", "--strict", applicationPath],
+      { stdio: "ignore" },
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function signDevelopmentRuntime(applicationPath) {
+  execFileSync(
+    "codesign",
+    ["--force", "--deep", "--sign", "-", applicationPath],
+    { stdio: "inherit" },
+  );
+  execFileSync(
+    "codesign",
+    ["--verify", "--deep", "--strict", applicationPath],
+    { stdio: "inherit" },
+  );
+}
+
+async function packageDevelopmentRuntime() {
+  if (process.platform !== "darwin") {
+    throw new Error(
+      "The branded Electron development runtime is available only on macOS",
+    );
+  }
+  if (!containedPath(applicationRoot, buildRoot)) {
+    throw new Error("unsafe Validex development runtime path");
+  }
+  await requireRegularFile(
+    join(buildRoot, "Validex.icns"),
+    "Validex ICNS icon",
+  );
+  await mkdir(developmentOutputRoot, { recursive: true });
+  const outputApplication = developmentApplicationPath();
+  const version = await electronVersion();
+  if (await developmentRuntimeIsCurrent(outputApplication, version)) {
+    process.stdout.write(
+      `Using branded ${applicationName} development runtime: ${outputApplication}\n`,
+    );
+    return;
+  }
+
+  const stagingRoot = join(
+    buildRoot,
+    `.electron-development-${process.pid}-${randomUUID()}`,
+  );
+  if (!containedPath(buildRoot, stagingRoot)) {
+    throw new Error("unsafe Electron development staging path");
+  }
+  const stagingApplication = stagingApplicationPath(stagingRoot);
+  await mkdir(stagingRoot);
+  try {
+    await copyRuntime(stagingApplication);
+    await rebrandMacApplication({
+      applicationName,
+      applicationPath: stagingApplication,
+      bundleIdentifier: developmentApplicationID,
+      preserveDefaultAppIntegrity: true,
+      version: applicationVersion,
+    });
+    await installMacIcon(stagingApplication);
+    await chmod(packageExecutablePath(stagingApplication), 0o755);
+    await writeFile(
+      developmentRuntimeMarker(stagingApplication),
+      `${JSON.stringify(
+        {
+          applicationID: developmentApplicationID,
+          applicationName,
+          applicationVersion,
+          architecture: process.arch,
+          electronVersion: version,
+          platform: process.platform,
+          schema: developmentRuntimeMarkerSchema,
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+    await verifyMacApplicationIdentity({
+      applicationName,
+      applicationPath: stagingApplication,
+      bundleIdentifier: developmentApplicationID,
+      version: applicationVersion,
+    });
+    await rm(outputApplication, { force: true, recursive: true });
+    await rename(stagingApplication, outputApplication);
+  } finally {
+    await rm(stagingRoot, { force: true, recursive: true });
+  }
+  signDevelopmentRuntime(outputApplication);
+  process.stdout.write(
+    `Prepared branded ${applicationName} development runtime with Electron ${version}: ${outputApplication}\n`,
   );
 }
 
@@ -354,8 +463,20 @@ async function packageApplication() {
     await copyRuntime(stagingApplication);
     await copyApplicationFiles(stagingApplication);
     if (process.platform === "darwin") {
-      updateMacMetadata(stagingApplication);
+      await rebrandMacApplication({
+        applicationName,
+        applicationPath: stagingApplication,
+        bundleIdentifier: applicationID,
+        preserveDefaultAppIntegrity: false,
+        version: applicationVersion,
+      });
       await installMacIcon(stagingApplication);
+      await verifyMacApplicationIdentity({
+        applicationName,
+        applicationPath: stagingApplication,
+        bundleIdentifier: applicationID,
+        version: applicationVersion,
+      });
     }
     await chmod(packageExecutablePath(stagingApplication), 0o755);
     await rm(outputApplication, { force: true, recursive: true });
@@ -364,21 +485,14 @@ async function packageApplication() {
     await rm(stagingRoot, { force: true, recursive: true });
   }
 
-  const version = (
-    await readFile(
-      join(
-        applicationRoot,
-        "node_modules",
-        "electron",
-        "dist",
-        "version",
-      ),
-      "utf8",
-    )
-  ).trim();
+  const version = await electronVersion();
   process.stdout.write(
     `Packaged ${applicationName} with Electron ${version}: ${outputApplication}\n`,
   );
 }
 
-await packageApplication();
+if (developmentRuntimeMode) {
+  await packageDevelopmentRuntime();
+} else {
+  await packageApplication();
+}

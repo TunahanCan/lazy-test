@@ -18,6 +18,14 @@ import {
   t,
 } from "../../i18n/locale.js";
 import type { BootstrapData, ThemePreference } from "../../lib/types.js";
+import {
+  localizedBootstrapEnvironmentName,
+  localizedBootstrapWorkspaceName,
+} from "../../lib/bootstrap.js";
+import {
+  hasLocalizedUserError,
+  localizeUserError,
+} from "../../lib/userErrors.js";
 import { workspaceStore } from "../../stores/workspace.js";
 import type { WorkspaceLayoutCommands } from "./workspaceLayoutCommands.js";
 
@@ -69,7 +77,7 @@ export function mountTopBar(
             <span class="topbar-divider"></span>
             <div class="workspace-identity">
               <span>${t("chrome.workspace")}</span>
-              <strong>${bootstrap.workspaceName}</strong>
+              <strong>${localizedBootstrapWorkspaceName(bootstrap)}</strong>
             </div>
             <label class="environment-select">
               <span>${t("chrome.environment")}</span>
@@ -89,7 +97,7 @@ export function mountTopBar(
                             ? "selected"
                             : ""}
                         >
-                          ${environment.name}
+                          ${localizedBootstrapEnvironmentName(environment)}
                         </option>
                       `,
                     )
@@ -204,6 +212,7 @@ export function mountTopBar(
       if (disposed) return;
       if (result.canceled) return;
       if (result.error) {
+        const localized = localizeUserError(result.error, t);
         const knownErrors = {
           runtime_unavailable: "requests.openapiImport.runtimeUnavailable",
           file_dialog_failed: "requests.openapiImport.fileDialogFailed",
@@ -213,7 +222,9 @@ export function mountTopBar(
           knownErrors[result.error.code as keyof typeof knownErrors];
         notice = {
           tone: "error",
-          message: key
+          message: hasLocalizedUserError(result.error)
+            ? `${localized.title}: ${localized.message}`
+            : key
             ? t(key)
             : t("requests.openapiImport.failed", {
                 details: result.error.message,
