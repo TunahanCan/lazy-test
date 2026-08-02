@@ -211,13 +211,21 @@ export function mountAppShell(
             </div>
             <button
               type="button"
-              class="icon-button panel-restore panel-restore-left"
+              class="panel-restore panel-restore-left request-panel-restore"
               data-action="restore-left"
               aria-label="${t("shell.showRequestPanel")}"
               aria-controls="request-panel"
+              title="${t("shell.showRequestPanel")}"
               hidden
             >
-              ${icon("panel-left", 15)}
+              <span class="request-panel-restore-symbol">
+                ${icon("folder-open", 16)}
+              </span>
+              <span
+                class="request-panel-restore-label"
+                data-left-restore-label
+              >${t("sidebar.requests")}</span>
+              ${icon("chevron-right", 13, "request-panel-restore-chevron")}
             </button>
             <button
               type="button"
@@ -225,6 +233,7 @@ export function mountAppShell(
               data-action="restore-right"
               aria-label="${t("shell.showContextPanel")}"
               aria-controls="context-panel"
+              title="${t("shell.showContextPanel")}"
               hidden
             >
               ${icon("panel-right", 15)}
@@ -259,6 +268,10 @@ export function mountAppShell(
   const rightRestore = requiredElement<HTMLButtonElement>(
     root,
     '[data-action="restore-right"]',
+  );
+  const leftRestoreLabel = requiredElement<HTMLElement>(
+    leftRestore,
+    "[data-left-restore-label]",
   );
   const scrim = requiredElement<HTMLButtonElement>(
     root,
@@ -414,6 +427,10 @@ export function mountAppShell(
     const modalSide = layout.compact ? compactPanel : null;
     const modalOpen = modalSide !== null;
     requestLayout.classList.toggle("compact-layout", layout.compact);
+    requestLayout.classList.toggle(
+      "request-panel-collapsed",
+      !layout.leftVisible,
+    );
     requestLayout.style.gridTemplateColumns = [
       layout.leftVisible
         ? `${layout.fitted.left}px ${panelResizerWidth}px`
@@ -873,6 +890,9 @@ export function mountAppShell(
       for (const [element, key] of labels) {
         element.setAttribute("aria-label", t(key));
       }
+      leftRestore.title = t("shell.showRequestPanel");
+      rightRestore.title = t("shell.showContextPanel");
+      leftRestoreLabel.textContent = t("sidebar.requests");
       compactCloseButtons[0]?.setAttribute(
         "aria-label",
         t("shell.closeRequestPanel"),

@@ -477,8 +477,15 @@ func (w *browserWorld) shellRequestLibraryIsHidden() error {
 			const restore = document.querySelector('[data-action="restore-left"]');
 			if (!panel || !restore) return false;
 			const rect = restore.getBoundingClientRect();
+			const firstTab = document.querySelector(".request-tab");
+			const tabRect = firstTab?.getBoundingClientRect();
+			const label = restore.querySelector("[data-left-restore-label]");
 			return panel.getAttribute("aria-hidden") === "true" &&
-				!restore.hidden && rect.width > 0 && rect.height > 0;
+				!restore.hidden && rect.width >= 40 && rect.height >= 40 &&
+				restore.getAttribute("aria-controls") === "request-panel" &&
+				restore.getAttribute("aria-expanded") === "false" &&
+				label?.textContent?.trim() === "Collections" &&
+				(!tabRect || rect.right <= tabRect.left);
 		})()`,
 		"request library was not hidden with a visible restore control",
 	)

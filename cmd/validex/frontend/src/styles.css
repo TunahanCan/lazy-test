@@ -763,11 +763,90 @@ kbd {
 }
 
 .panel-restore-left {
-  left: 7px;
+  left: 0;
 }
 
 .panel-restore-right {
   right: 7px;
+}
+
+.request-panel-restore {
+  top: 4px;
+  display: inline-flex;
+  width: auto;
+  min-width: 138px;
+  height: 40px;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 0 10px 0 8px;
+  border-left: 0;
+  border-radius: 0 12px 12px 0;
+  background: color-mix(
+    in srgb,
+    var(--surface-raised) 92%,
+    var(--accent-soft)
+  );
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 680;
+  letter-spacing: 0.005em;
+  white-space: nowrap;
+  box-shadow: var(--shadow-xs);
+  transition:
+    background var(--motion-fast),
+    border-color var(--motion-fast),
+    color var(--motion-fast),
+    box-shadow var(--motion-fast),
+    transform var(--motion-fast);
+}
+
+.request-panel-restore:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+  transform: translateX(2px);
+}
+
+.request-panel-restore:active {
+  transform: translateX(1px);
+}
+
+.request-panel-restore-symbol {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.request-panel-restore-label {
+  min-width: 0;
+}
+
+.request-panel-restore-chevron {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--text-muted);
+}
+
+.workspace-layout.request-panel-collapsed
+  .center-workspace
+  > .request-tabs {
+  min-height: 48px;
+  flex-basis: 48px;
+  padding-left: 152px;
+}
+
+.workspace-layout.request-panel-collapsed
+  .center-workspace
+  > .tool-notice {
+  margin-left: 152px;
 }
 
 .sidebar {
@@ -8083,6 +8162,40 @@ label.diagnostics-field {
 }
 
 @media (max-width: 600px) {
+  .request-panel-restore {
+    width: 40px;
+    min-width: 40px;
+    justify-content: center;
+    gap: 0;
+    padding: 0;
+    border-radius: 0 10px 10px 0;
+  }
+
+  .request-panel-restore-symbol {
+    width: auto;
+    height: auto;
+    flex-basis: auto;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .request-panel-restore-label,
+  .request-panel-restore-chevron {
+    display: none;
+  }
+
+  .workspace-layout.request-panel-collapsed
+    .center-workspace
+    > .request-tabs {
+    padding-left: 48px;
+  }
+
+  .workspace-layout.request-panel-collapsed
+    .center-workspace
+    > .tool-notice {
+    margin-left: 48px;
+  }
+
   .button.sm,
   .button-sm {
     min-height: 40px;
