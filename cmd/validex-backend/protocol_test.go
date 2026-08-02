@@ -162,6 +162,48 @@ func TestWriteProtocolResponseReplacesJSONEncodingFailure(t *testing.T) {
 	}
 }
 
+func TestWriteProtocolResponsePreservesLargeCollectionDocument(t *testing.T) {
+	const bodyBytes = 12 << 20
+	document := `{"version":1,"state":{"collections":[],"requests":[{"body":"` +
+		strings.Repeat("<", bodyBytes) + `"}]}}`
+	result := any(canbridge.CollectionLibraryLoadResult{
+		Data:  document,
+		Found: true,
+	})
+
+	var output bytes.Buffer
+	if err := writeProtocolResponse(&output, protocolResponse{
+		ID:     "collection-load",
+		Result: &result,
+	}); err != nil {
+		t.Fatalf("writeProtocolResponse() error = %v", err)
+	}
+	payload, err := readFrame(&output, maxProtocolFrameBytes)
+	if err != nil {
+		t.Fatalf("readFrame() error = %v", err)
+	}
+	if bytes.Contains(payload, []byte(`\u003c`)) {
+		t.Fatal("protocol response HTML-escaped collection content")
+	}
+
+	var response struct {
+		Error  string                                `json:"error"`
+		Result canbridge.CollectionLibraryLoadResult `json:"result"`
+	}
+	if err := json.Unmarshal(payload, &response); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if response.Error != "" ||
+		!response.Result.Found ||
+		response.Result.Data != document {
+		t.Fatalf(
+			"response error = %q, document bytes = %d",
+			response.Error,
+			len(response.Result.Data),
+		)
+	}
+}
+
 func TestServeDispatchesBridgeCallsAndShutsDownOnEOF(t *testing.T) {
 	inputReader, inputWriter := io.Pipe()
 	outputReader, outputWriter := io.Pipe()

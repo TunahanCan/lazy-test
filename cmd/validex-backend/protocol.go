@@ -294,15 +294,15 @@ func writeProtocolResponse(
 	output io.Writer,
 	response protocolResponse,
 ) error {
-	payload, err := json.Marshal(response)
+	payload, err := encodeProtocolResponse(response)
 	if err != nil {
-		payload, _ = json.Marshal(errorResponse(
+		payload, _ = encodeProtocolResponse(errorResponse(
 			response.ID,
 			errors.New("encode canbridge response"),
 		))
 	}
 	if len(payload) > maxProtocolFrameBytes {
-		payload, _ = json.Marshal(errorResponse(
+		payload, _ = encodeProtocolResponse(errorResponse(
 			response.ID,
 			fmt.Errorf(
 				"canbridge response exceeds %d byte transport limit",
@@ -311,6 +311,19 @@ func writeProtocolResponse(
 		))
 	}
 	return writeFrame(output, payload, maxProtocolFrameBytes)
+}
+
+func encodeProtocolResponse(response protocolResponse) ([]byte, error) {
+	var output bytes.Buffer
+	encoder := json.NewEncoder(&output)
+	// Frames are parsed as JSON over private stdio; they are never embedded in
+	// HTML. Disabling HTML escaping prevents otherwise valid collection content
+	// such as '<' from expanding sixfold and exceeding the transport limit.
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(response); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(output.Bytes(), []byte{'\n'}), nil
 }
 
 func writeFrame(
