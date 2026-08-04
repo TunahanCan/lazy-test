@@ -14,6 +14,17 @@ export const requestMessages = defineMessages(
     "requests.welcome.quickTools": "Quick tools",
     "requests.welcome.quickToolsDescription":
       "Go directly to the workspace you need.",
+    "requests.welcome.guideEyebrow": "GET STARTED",
+    "requests.welcome.guideTitle": "Your first five minutes",
+    "requests.welcome.guideStepRequest":
+      "Create or import an endpoint, then send it when you are ready.",
+    "requests.welcome.guideStepContract":
+      "Import an OpenAPI file to spot response contract differences.",
+    "requests.welcome.guideStepMock":
+      "Turn examples into predictable local responses for development.",
+    "requests.welcome.trustLabel": "Validex privacy benefits",
+    "requests.welcome.localFirst": "Data stays on this device",
+    "requests.welcome.noAccount": "No account required",
     "requests.welcome.openTool": "Open {tool}",
     "requests.welcome.dismissNotice": "Dismiss import notice",
     "requests.welcome.searchCommands": "Search commands",
@@ -544,6 +555,17 @@ export const requestMessages = defineMessages(
     "requests.welcome.quickTools": "Hızlı araçlar",
     "requests.welcome.quickToolsDescription":
       "İhtiyacınız olan çalışma alanına doğrudan geçin.",
+    "requests.welcome.guideEyebrow": "HIZLI BAŞLANGIÇ",
+    "requests.welcome.guideTitle": "İlk beş dakikanız",
+    "requests.welcome.guideStepRequest":
+      "Bir endpoint oluşturun veya içe aktarın; hazır olduğunuzda isteği gönderin.",
+    "requests.welcome.guideStepContract":
+      "Yanıt contract farklarını görmek için bir OpenAPI dosyası içe aktarın.",
+    "requests.welcome.guideStepMock":
+      "Örnekleri geliştirme için öngörülebilir yerel yanıtlara dönüştürün.",
+    "requests.welcome.trustLabel": "Validex gizlilik avantajları",
+    "requests.welcome.localFirst": "Veriler bu cihazda kalır",
+    "requests.welcome.noAccount": "Hesap gerekmez",
     "requests.welcome.openTool": "{tool} aracını aç",
     "requests.welcome.dismissNotice": "İçe aktarma bildirimini kapat",
     "requests.welcome.searchCommands": "Komutlarda ara",

@@ -51,6 +51,7 @@ export const coreEnglish = {
   "common.httpMethod": "HTTP method {method}",
 
   "workspace.navigation": "Validex workspaces",
+  "workspace.toolsLabel": "Tools",
   "workspace.requests.label": "Requests",
   "workspace.requests.description":
     "Create, send, and inspect HTTP requests and responses.",
@@ -185,7 +186,7 @@ export const coreEnglish = {
   "status.collectionSaveFailed": "Collection changes are not saved",
   "status.requestFailed": "Request failed",
   "status.responseReceived": "{status} response received",
-  "status.draftSaved": "Unsaved changes",
+  "status.draftSaved": "Draft saved on this device",
   "status.savedRequest": "Saved to collection",
   "status.requestReady": "Request ready",
   "status.noActiveRequest": "No active request",
@@ -303,6 +304,7 @@ export const coreTurkish = {
   "common.httpMethod": "HTTP metodu {method}",
 
   "workspace.navigation": "Validex çalışma alanları",
+  "workspace.toolsLabel": "Araçlar",
   "workspace.requests.label": "İstekler",
   "workspace.requests.description":
     "HTTP istekleri oluşturun, gönderin ve yanıtları inceleyin.",
@@ -441,7 +443,7 @@ export const coreTurkish = {
   "status.collectionSaveFailed": "Koleksiyon değişiklikleri kaydedilmedi",
   "status.requestFailed": "İstek başarısız",
   "status.responseReceived": "{status} yanıtı alındı",
-  "status.draftSaved": "Kaydedilmemiş değişiklikler",
+  "status.draftSaved": "Taslak bu cihaza kaydedildi",
   "status.savedRequest": "Koleksiyona kaydedildi",
   "status.requestReady": "İstek hazır",
   "status.noActiveRequest": "Etkin istek yok",

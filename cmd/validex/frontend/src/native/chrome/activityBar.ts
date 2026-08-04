@@ -20,11 +20,18 @@ export function mountActivityBar(root: HTMLElement): Disposable {
       root,
       html`
         <nav class="activity-bar" aria-label="${t("workspace.navigation")}">
-          ${workspaceDefinitions.map((definition) => {
+          ${workspaceDefinitions.map((definition, index) => {
             const active = definition.id === activeView;
             const label = t(definition.labelKey);
             const description = t(definition.descriptionKey);
             return html`
+              ${index === 1
+                ? html`
+                    <span class="activity-section-label" aria-hidden="true">
+                      ${t("workspace.toolsLabel")}
+                    </span>
+                  `
+                : ""}
               <button
                 type="button"
                 class="activity-item ${active ? "active" : ""}"

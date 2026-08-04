@@ -300,6 +300,9 @@ export function mountRequestWorkspace(
   let queuedRenderTimer: number | undefined;
   let submitGuard = false;
   let submitGuardTimer: number | undefined;
+  let workspacePointerActivationPending = false;
+  let deferredFocusoutRender = false;
+  let pointerReleaseTimer: number | undefined;
   let draggedTabID: string | undefined;
   let responseResize:
     | {
@@ -648,6 +651,7 @@ export function mountRequestWorkspace(
         .map((definition) => ({
           view: definition.id,
           label: t(definition.labelKey),
+          description: t(definition.descriptionKey),
           icon: definition.icon,
         }));
       setHTML(
@@ -692,7 +696,11 @@ export function mountRequestWorkspace(
                 validationError,
                 showURLValidation: urlValidationTouched.has(tab.id),
               })
-            : welcomeMarkup(importingOpenAPI, welcomeTools)}
+            : welcomeMarkup(
+                importingOpenAPI,
+                welcomeTools,
+                bootstrap.onboardingSteps,
+              )}
         `,
       );
       const newVariableKey =
@@ -1963,6 +1971,32 @@ export function mountRequestWorkspace(
     }
   });
 
+  lifecycle.listen(root, "pointerdown", () => {
+    if (pointerReleaseTimer !== undefined) {
+      window.clearTimeout(pointerReleaseTimer);
+      pointerReleaseTimer = undefined;
+    }
+    workspacePointerActivationPending = true;
+  });
+
+  lifecycle.listen(document, "pointerup", () => {
+    if (!workspacePointerActivationPending) return;
+    pointerReleaseTimer = window.setTimeout(() => {
+      pointerReleaseTimer = undefined;
+      workspacePointerActivationPending = false;
+      if (!deferredFocusoutRender) return;
+      deferredFocusoutRender = false;
+      queueRender();
+    }, 0);
+  });
+
+  lifecycle.listen(document, "pointercancel", () => {
+    workspacePointerActivationPending = false;
+    if (!deferredFocusoutRender) return;
+    deferredFocusoutRender = false;
+    queueRender();
+  });
+
   lifecycle.listen(root, "focusout", (event) => {
     const tab = activeTab();
     if (!tab || tab.running) return;
@@ -2054,8 +2088,17 @@ export function mountRequestWorkspace(
         changed = true;
       }
     }
-    if (changed || editorRenderPending || validationStateChanged) {
-      queueRender();
+    const renderNeeded =
+      changed || editorRenderPending || validationStateChanged;
+    // Replacing a control after pointerdown but before click can swallow its
+    // first activation. Keyboard focus changes still render immediately;
+    // pointer-triggered changes wait until the click sequence has completed.
+    if (renderNeeded) {
+      if (workspacePointerActivationPending) {
+        deferredFocusoutRender = true;
+      } else {
+        queueRender();
+      }
     }
   });
 
@@ -2872,6 +2915,10 @@ export function mountRequestWorkspace(
       if (submitGuardTimer !== undefined) {
         window.clearTimeout(submitGuardTimer);
         submitGuardTimer = undefined;
+      }
+      if (pointerReleaseTimer !== undefined) {
+        window.clearTimeout(pointerReleaseTimer);
+        pointerReleaseTimer = undefined;
       }
       lifecycle.dispose();
       root.replaceChildren();

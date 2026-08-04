@@ -134,7 +134,7 @@ export function mountTopBar(
               </button>
               <button
                 type="button"
-                class="icon-button"
+                class="button secondary topbar-import-button"
                 data-action="import"
                 data-focus="import"
                 aria-label="${t("chrome.importOpenAPI")}"
@@ -145,6 +145,9 @@ export function mountTopBar(
                 ${importPending ? "disabled" : ""}
               >
                 ${icon(importPending ? "spinner" : "import", 15, importPending ? "spin" : "")}
+                <span>${importPending
+                  ? t("chrome.importOpenAPIPending")
+                  : t("chrome.importOpenAPI")}</span>
               </button>
               <button
                 type="button"

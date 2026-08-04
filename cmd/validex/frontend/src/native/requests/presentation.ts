@@ -28,6 +28,7 @@ import { responsePanelMarkup } from "./response.js";
 export interface RequestWelcomeTool {
   view: WorkspaceView;
   label: string;
+  description: string;
   icon: IconName;
 }
 
@@ -178,44 +179,83 @@ export function requestTabsMarkup(
 export function welcomeMarkup(
   importing: boolean,
   tools: readonly RequestWelcomeTool[],
+  onboardingSteps: readonly string[],
 ): TrustedHTMLFragment {
+  const guideDescriptionKeys = [
+    "requests.welcome.guideStepRequest",
+    "requests.welcome.guideStepContract",
+    "requests.welcome.guideStepMock",
+  ] as const;
   return html`
     <section class="welcome-workspace-content" aria-labelledby="welcome-title">
-      <div class="welcome-hero">
-        ${icon("request", 34)}
-        <span class="tool-eyebrow">${t("requests.welcome.eyebrow")}</span>
-        <h1 id="welcome-title">${t("requests.welcome.title")}</h1>
-        <p>${t("requests.welcome.description")}</p>
-        <div class="welcome-actions">
-          <button
-            type="button"
-            class="button primary"
-            data-action="new-request"
+      <div class="welcome-intro-grid">
+        <div class="welcome-hero">
+          <div class="welcome-hero-mark">${icon("request", 30)}</div>
+          <span class="tool-eyebrow">${t("requests.welcome.eyebrow")}</span>
+          <h1 id="welcome-title">${t("requests.welcome.title")}</h1>
+          <p>${t("requests.welcome.description")}</p>
+          <div class="welcome-actions">
+            <button
+              type="button"
+              class="button primary"
+              data-action="new-request"
+            >
+              ${icon("plus", 14)} ${t("requests.welcome.newRequest")}
+            </button>
+            <button
+              type="button"
+              class="button secondary"
+              data-action="import-curl"
+            >
+              ${icon("terminal", 14)} ${t("requests.curlImport.actionLong")}
+            </button>
+            <button
+              type="button"
+              class="button secondary"
+              data-action="import-openapi"
+              aria-busy="${importing ? "true" : "false"}"
+              ${importing ? "disabled" : ""}
+            >
+              ${importing
+                ? icon("spinner", 14, "spin")
+                : icon("import", 14)}
+              ${importing
+                ? t("requests.welcome.importing")
+                : t("requests.welcome.importOpenAPI")}
+            </button>
+          </div>
+          <div
+            class="welcome-trust"
+            aria-label="${t("requests.welcome.trustLabel")}"
           >
-            ${icon("plus", 14)} ${t("requests.welcome.newRequest")}
-          </button>
-          <button
-            type="button"
-            class="button secondary"
-            data-action="import-curl"
-          >
-            ${icon("terminal", 14)} ${t("requests.curlImport.actionLong")}
-          </button>
-          <button
-            type="button"
-            class="button secondary"
-            data-action="import-openapi"
-            aria-busy="${importing ? "true" : "false"}"
-            ${importing ? "disabled" : ""}
-          >
-            ${importing
-              ? icon("spinner", 14, "spin")
-              : icon("import", 14)}
-            ${importing
-              ? t("requests.welcome.importing")
-              : t("requests.welcome.importOpenAPI")}
-          </button>
+            <span>${icon("check", 13)} ${t("requests.welcome.localFirst")}</span>
+            <span>${icon("check", 13)} ${t("requests.welcome.noAccount")}</span>
+          </div>
         </div>
+        <aside class="welcome-guide" aria-labelledby="welcome-guide-title">
+          <header>
+            <span class="welcome-guide-icon">${icon("workspace", 19)}</span>
+            <div>
+              <span>${t("requests.welcome.guideEyebrow")}</span>
+              <h2 id="welcome-guide-title">${t("requests.welcome.guideTitle")}</h2>
+            </div>
+          </header>
+          <ol>
+            ${onboardingSteps.slice(0, 3).map(
+              (step, index) => html`
+                <li>
+                  <span class="welcome-step-number">${index + 1}</span>
+                  <div>
+                    <strong>${step}</strong>
+                    <p>${t(
+                      guideDescriptionKeys[index] ?? guideDescriptionKeys[0],
+                    )}</p>
+                  </div>
+                </li>
+              `,
+            )}
+          </ol>
+        </aside>
       </div>
       <section
         class="welcome-quick-tools"
@@ -244,8 +284,12 @@ export function welcomeMarkup(
                 tool: tool.label,
               })}"
             >
-              ${icon(tool.icon, 19)}
-              <span>${tool.label}</span>
+              <span class="welcome-tool-icon">${icon(tool.icon, 19)}</span>
+              <span class="welcome-tool-copy">
+                <strong>${tool.label}</strong>
+                <small>${tool.description}</small>
+              </span>
+              ${icon("chevron-right", 15, "welcome-tool-chevron")}
             </button>
           `,
         )}
@@ -906,10 +950,12 @@ export function workbenchMarkup({
         ${unresolvedVariables.length === 0 && !visibleValidationError
           ? html`
               <p
-                class="request-url-help"
+                class="request-url-help ${validationError
+                  ? "is-attention"
+                  : ""}"
                 id="request-url-help-${tab.id}"
               >
-                ${t("requests.workbench.urlHelp")}
+                ${validationError ?? t("requests.workbench.urlHelp")}
               </p>
             `
           : ""}

@@ -58,7 +58,7 @@ export function mountStatusBar(
           active?.error
         ? "error"
         : active?.dirty
-          ? "warning"
+          ? "draft"
           : active?.response
             ? "success"
             : "neutral";
@@ -130,7 +130,23 @@ export function mountStatusBar(
               aria-live="polite"
               aria-atomic="true"
             >
-              ${icon("protocols", 11)}
+              ${icon(
+                active?.running
+                  ? "spinner"
+                  : persistence.phase ===
+                        COLLECTION_LIBRARY_PERSISTENCE_PHASE.ERROR ||
+                      active?.error
+                    ? "error"
+                    : active?.dirty
+                      ? "save"
+                      : active?.response
+                        ? "check"
+                        : active?.savedRequestId
+                          ? "collection"
+                          : "info",
+                11,
+                active?.running ? "spin" : "",
+              )}
               ${activeStatus}
             </span>
             <span class="statusbar-version">Validex ${bootstrap.appVersion}</span>
