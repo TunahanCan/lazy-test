@@ -21,6 +21,10 @@ func registerSmokeSteps(context *godog.ScenarioContext, world *browserWorld) {
 		world.allWorkspaceEntriesAreRendered,
 	)
 	context.Step(
+		`^the getting started guide contains three actionable steps$`,
+		world.gettingStartedGuideContainsThreeSteps,
+	)
+	context.Step(
 		`^I select the "([^"]+)" workspace$`,
 		world.selectWorkspace,
 	)
@@ -68,6 +72,35 @@ func (w *browserWorld) allWorkspaceEntriesAreRendered() error {
 	}
 	if count != 6 {
 		return fmt.Errorf("workspace navigation entries = %d, want 6", count)
+	}
+	return nil
+}
+
+func (w *browserWorld) gettingStartedGuideContainsThreeSteps() error {
+	var result struct {
+		Count     int  `json:"count"`
+		AllNamed  bool `json:"allNamed"`
+		AllGuided bool `json:"allGuided"`
+	}
+	if err := w.run(
+		chromedp.WaitVisible(".welcome-guide", chromedp.ByQuery),
+		chromedp.Evaluate(`(() => {
+			const steps = [...document.querySelectorAll(".welcome-guide li")];
+			return {
+				count: steps.length,
+				allNamed: steps.every((step) =>
+					Boolean(step.querySelector("strong")?.textContent?.trim())
+				),
+				allGuided: steps.every((step) =>
+					Boolean(step.querySelector("p")?.textContent?.trim())
+				),
+			};
+		})()`, &result),
+	); err != nil {
+		return err
+	}
+	if result.Count != 3 || !result.AllNamed || !result.AllGuided {
+		return fmt.Errorf("getting started guide is incomplete: %+v", result)
 	}
 	return nil
 }

@@ -13,6 +13,7 @@ import {
   subscribeCollectionLibraryPersistence,
 } from "../../stores/collectionLibraryStorage.js";
 import { workspaceStore } from "../../stores/workspace.js";
+import { workspaceDefinition } from "../workspaces.js";
 
 export function mountStatusBar(
   root: HTMLElement,
@@ -24,6 +25,10 @@ export function mountStatusBar(
   const render = (force = false) => {
     const state = workspaceStore.getState();
     const persistence = getCollectionLibraryPersistenceSnapshot();
+    const requestViewActive = state.activeView === "requests";
+    const activeWorkspace = requestViewActive
+      ? undefined
+      : workspaceDefinition(state.activeView);
     const active = state.tabs.find((tab) => tab.id === state.activeTabID);
     const runningCount = state.tabs.filter((tab) => tab.running).length;
     const failedCount = state.tabs.filter(
@@ -62,19 +67,22 @@ export function mountStatusBar(
           : active?.response
             ? "success"
             : "neutral";
-    const signature = JSON.stringify([
-      state.tabs.length,
-      runningCount,
-      failedCount,
-      state.activeTabID,
-      active?.running,
-      active?.error,
-      active?.dirty,
-      active?.response?.statusCode,
-      Boolean(active?.savedRequestId),
-      persistence.phase,
-      persistence.operation,
-    ]);
+    const signature = requestViewActive
+      ? JSON.stringify([
+          state.activeView,
+          state.tabs.length,
+          runningCount,
+          failedCount,
+          state.activeTabID,
+          active?.running,
+          active?.error,
+          active?.dirty,
+          active?.response?.statusCode,
+          Boolean(active?.savedRequestId),
+          persistence.phase,
+          persistence.operation,
+        ])
+      : JSON.stringify([state.activeView]);
     if (!force && signature === lastSignature) return;
     lastSignature = signature;
 
@@ -86,69 +94,93 @@ export function mountStatusBar(
           aria-label="${t("status.barLabel")}"
         >
           <div class="statusbar-summary">
-            <span>
-              ${icon("collection", 12)}
-              ${t(
-                state.tabs.length === 1
-                  ? "status.openRequest.one"
-                  : "status.openRequest.many",
-                { count: state.tabs.length },
-              )}
-            </span>
-            ${runningCount > 0
+            ${activeWorkspace
               ? html`
-                  <span>
-                    ${icon("spinner", 12, "spin")}
-                    ${t(
-                      runningCount === 1
-                        ? "status.running.one"
-                        : "status.running.many",
-                      { count: runningCount },
-                    )}
+                  <span data-workspace-view="${activeWorkspace.id}">
+                    ${icon(activeWorkspace.icon, 12)}
+                    ${t(activeWorkspace.labelKey)}
                   </span>
                 `
-              : ""}
-            ${failedCount > 0
-              ? html`
+              : html`
                   <span>
-                    ${icon("error", 12)}
+                    ${icon("collection", 12)}
                     ${t(
-                      failedCount === 1
-                        ? "status.failed.one"
-                        : "status.failed.many",
-                      { count: failedCount },
+                      state.tabs.length === 1
+                        ? "status.openRequest.one"
+                        : "status.openRequest.many",
+                      { count: state.tabs.length },
                     )}
                   </span>
-                `
-              : ""}
+                  ${runningCount > 0
+                    ? html`
+                        <span>
+                          ${icon("spinner", 12, "spin")}
+                          ${t(
+                            runningCount === 1
+                              ? "status.running.one"
+                              : "status.running.many",
+                            { count: runningCount },
+                          )}
+                        </span>
+                      `
+                    : ""}
+                  ${failedCount > 0
+                    ? html`
+                        <span>
+                          ${icon("error", 12)}
+                          ${t(
+                            failedCount === 1
+                              ? "status.failed.one"
+                              : "status.failed.many",
+                            { count: failedCount },
+                          )}
+                        </span>
+                      `
+                    : ""}
+                `}
           </div>
           <div class="statusbar-current">
-            <span
-              class="statusbar-message"
-              data-tone="${tone}"
-              role="status"
-              aria-live="polite"
-              aria-atomic="true"
-            >
-              ${icon(
-                active?.running
-                  ? "spinner"
-                  : persistence.phase ===
-                        COLLECTION_LIBRARY_PERSISTENCE_PHASE.ERROR ||
-                      active?.error
-                    ? "error"
-                    : active?.dirty
-                      ? "save"
-                      : active?.response
-                        ? "check"
-                        : active?.savedRequestId
-                          ? "collection"
-                          : "info",
-                11,
-                active?.running ? "spin" : "",
-              )}
-              ${activeStatus}
-            </span>
+            ${activeWorkspace
+              ? html`
+                  <span
+                    class="statusbar-message"
+                    data-tone="neutral"
+                    role="status"
+                    aria-live="polite"
+                    aria-atomic="true"
+                  >
+                    ${icon("check", 11)}
+                    ${t("status.workspaceReady")}
+                  </span>
+                `
+              : html`
+                  <span
+                    class="statusbar-message"
+                    data-tone="${tone}"
+                    role="status"
+                    aria-live="polite"
+                    aria-atomic="true"
+                  >
+                    ${icon(
+                      active?.running
+                        ? "spinner"
+                        : persistence.phase ===
+                              COLLECTION_LIBRARY_PERSISTENCE_PHASE.ERROR ||
+                            active?.error
+                          ? "error"
+                          : active?.dirty
+                            ? "save"
+                            : active?.response
+                              ? "check"
+                              : active?.savedRequestId
+                                ? "collection"
+                                : "info",
+                      11,
+                      active?.running ? "spin" : "",
+                    )}
+                    ${activeStatus}
+                  </span>
+                `}
             <span class="statusbar-version">Validex ${bootstrap.appVersion}</span>
           </div>
         </footer>
@@ -160,7 +192,8 @@ export function mountStatusBar(
     workspaceStore.subscribe((state, previous) => {
       if (
         state.tabs !== previous.tabs ||
-        state.activeTabID !== previous.activeTabID
+        state.activeTabID !== previous.activeTabID ||
+        state.activeView !== previous.activeView
       ) {
         render();
       }

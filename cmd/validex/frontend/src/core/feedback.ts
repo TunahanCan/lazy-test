@@ -14,6 +14,7 @@ export interface FeedbackMessage {
   id: number;
   message: string;
   tone: FeedbackTone;
+  /** Zero keeps the message visible until the user dismisses it. */
   durationMs: number;
 }
 
@@ -29,7 +30,8 @@ const listeners = new Set<FeedbackListener>();
 let feedbackSequence = 0;
 
 /**
- * Publishes transient, user-visible application feedback.
+ * Publishes user-visible application feedback. Errors remain until dismissed
+ * unless the caller explicitly provides a duration.
  *
  * Domain-specific controllers decide the tone; the mounted presentation layer
  * owns timing, accessibility semantics, and dismissal.
@@ -41,11 +43,18 @@ export function notify(input: FeedbackInput | string): void {
       : input;
   const message = normalized.message.trim();
   if (!message) return;
+  const tone = normalized.tone ?? FEEDBACK_TONE.INFO;
+  const requestedDuration = normalized.durationMs;
+  const durationMs =
+    requestedDuration === 0 ||
+    (requestedDuration === undefined && tone === FEEDBACK_TONE.ERROR)
+      ? 0
+      : Math.max(1_500, requestedDuration ?? 4_500);
   const feedback: FeedbackMessage = {
     id: ++feedbackSequence,
     message,
-    tone: normalized.tone ?? FEEDBACK_TONE.INFO,
-    durationMs: Math.max(1_500, normalized.durationMs ?? 4_500),
+    tone,
+    durationMs,
   };
   for (const listener of listeners) listener(feedback);
 }

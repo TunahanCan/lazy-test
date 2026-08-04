@@ -181,6 +181,14 @@ export function welcomeMarkup(
   tools: readonly RequestWelcomeTool[],
   onboardingSteps: readonly string[],
 ): TrustedHTMLFragment {
+  const guideSteps =
+    onboardingSteps.length > 0
+      ? onboardingSteps
+      : [
+          t("backend.bootstrap.onboarding.sendRequest"),
+          t("backend.bootstrap.onboarding.reviewContract"),
+          t("backend.bootstrap.onboarding.startMockServer"),
+        ];
   const guideDescriptionKeys = [
     "requests.welcome.guideStepRequest",
     "requests.welcome.guideStepContract",
@@ -241,7 +249,7 @@ export function welcomeMarkup(
             </div>
           </header>
           <ol>
-            ${onboardingSteps.slice(0, 3).map(
+            ${guideSteps.slice(0, 3).map(
               (step, index) => html`
                 <li>
                   <span class="welcome-step-number">${index + 1}</span>

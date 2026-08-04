@@ -148,16 +148,24 @@ test("application feedback publishes normalized visible messages", () => {
     tone: FEEDBACK_TONE.ERROR,
     durationMs: 250,
   });
+  notify({
+    message: "  Needs attention  ",
+    tone: FEEDBACK_TONE.ERROR,
+  });
   notify("   ");
   unsubscribe();
 
-  assert.equal(received.length, 2);
+  assert.equal(received.length, 3);
   assert.equal(received[0].message, "Saved to collection");
   assert.equal(received[0].tone, FEEDBACK_TONE.INFO);
   assert.ok(received[0].durationMs >= 1_500);
   assert.equal(received[1].tone, FEEDBACK_TONE.ERROR);
   assert.equal(received[1].durationMs, 1_500);
   assert.ok(received[1].id > received[0].id);
+  assert.equal(received[2].message, "Needs attention");
+  assert.equal(received[2].tone, FEEDBACK_TONE.ERROR);
+  assert.equal(received[2].durationMs, 0);
+  assert.ok(received[2].id > received[1].id);
 });
 
 test("virtual API navigation renders and reveals off-window endpoints", () => {

@@ -76,9 +76,11 @@ export function mountFeedback(root: HTMLElement): Disposable {
       clearTimer();
       active = feedback;
       render();
-      dismissTimer = window.setTimeout(() => {
-        if (active?.id === feedback.id) dismiss();
-      }, feedback.durationMs);
+      if (feedback.durationMs > 0) {
+        dismissTimer = window.setTimeout(() => {
+          if (active?.id === feedback.id) dismiss();
+        }, feedback.durationMs);
+      }
     }),
   );
   lifecycle.listen(root, "click", (event) => {

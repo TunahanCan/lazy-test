@@ -69,6 +69,12 @@ export const coreEnglish = {
   "workspace.automation.label": "Automation",
   "workspace.automation.description":
     "Run collections and review assertion, network, and OpenAPI quality results.",
+  "workspace.requests.compactLabel": "Request",
+  "workspace.mock.compactLabel": "Mock",
+  "workspace.json.compactLabel": "JSON",
+  "workspace.diagnostics.compactLabel": "Inspect",
+  "workspace.protocols.compactLabel": "SSE",
+  "workspace.automation.compactLabel": "Runs",
 
   "sidebar.navigation": "Request navigation",
   "sidebar.sections": "Request sections",
@@ -186,10 +192,12 @@ export const coreEnglish = {
   "status.collectionSaveFailed": "Collection changes are not saved",
   "status.requestFailed": "Request failed",
   "status.responseReceived": "{status} response received",
-  "status.draftSaved": "Draft saved on this device",
+  "status.draftSaved":
+    "Draft saved locally — secret values stay in this session",
   "status.savedRequest": "Saved to collection",
   "status.requestReady": "Request ready",
   "status.noActiveRequest": "No active request",
+  "status.workspaceReady": "Ready",
   "status.barLabel": "Application status",
 
   "context.panel": "Request context",
@@ -323,6 +331,12 @@ export const coreTurkish = {
   "workspace.automation.label": "Otomasyon",
   "workspace.automation.description":
     "Koleksiyon çalıştırın; doğrulama, ağ ve OpenAPI kalite sonuçlarını inceleyin.",
+  "workspace.requests.compactLabel": "İstek",
+  "workspace.mock.compactLabel": "Mock",
+  "workspace.json.compactLabel": "JSON",
+  "workspace.diagnostics.compactLabel": "Tanı",
+  "workspace.protocols.compactLabel": "SSE",
+  "workspace.automation.compactLabel": "Koşular",
 
   "sidebar.navigation": "İstek navigasyonu",
   "sidebar.sections": "İstek bölümleri",
@@ -443,10 +457,12 @@ export const coreTurkish = {
   "status.collectionSaveFailed": "Koleksiyon değişiklikleri kaydedilmedi",
   "status.requestFailed": "İstek başarısız",
   "status.responseReceived": "{status} yanıtı alındı",
-  "status.draftSaved": "Taslak bu cihaza kaydedildi",
+  "status.draftSaved":
+    "Taslak yerelde kaydedildi — gizli değerler yalnızca bu oturumda",
   "status.savedRequest": "Koleksiyona kaydedildi",
   "status.requestReady": "İstek hazır",
   "status.noActiveRequest": "Etkin istek yok",
+  "status.workspaceReady": "Hazır",
   "status.barLabel": "Uygulama durumu",
 
   "context.panel": "İstek bağlamı",

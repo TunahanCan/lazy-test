@@ -35,6 +35,14 @@ func registerResponsiveSteps(
 		world.responsiveHasNoHorizontalOverflow,
 	)
 	context.Step(
+		`^every primary workspace navigation item is fully visible$`,
+		world.responsiveNavigationItemsAreFullyVisible,
+	)
+	context.Step(
+		`^the compact top bar actions remain reachable$`,
+		world.responsiveTopBarActionsAreReachable,
+	)
+	context.Step(
 		`^the response uses the expected "([^"]+)" placement$`,
 		world.responsiveResponseUsesPlacement,
 	)
@@ -464,6 +472,81 @@ func (w *browserWorld) responsiveHasNoHorizontalOverflow() error {
 			result.Document,
 			result.Body,
 		)
+	}
+	return nil
+}
+
+func (w *browserWorld) responsiveNavigationItemsAreFullyVisible() error {
+	var result struct {
+		Count       int    `json:"count"`
+		InsideBar   bool   `json:"insideBar"`
+		LabelsFit   bool   `json:"labelsFit"`
+		BarOverflow bool   `json:"barOverflow"`
+		Clipped     string `json:"clipped"`
+	}
+	if err := w.run(chromedp.Evaluate(`(() => {
+		const bar = document.querySelector(".activity-bar");
+		const items = [...document.querySelectorAll(".activity-item")];
+		const barRect = bar?.getBoundingClientRect();
+		return {
+			count: items.length,
+			insideBar: Boolean(barRect) && items.every((item) => {
+				const rect = item.getBoundingClientRect();
+				return rect.left >= barRect.left - 1 &&
+					rect.right <= barRect.right + 1 &&
+					rect.top >= barRect.top - 1 &&
+					rect.bottom <= barRect.bottom + 1;
+			}),
+			labelsFit: items.every((item) => {
+				const label = item.querySelector("span:not(.sr-only)");
+				return label && label.scrollWidth <= label.clientWidth + 1;
+			}),
+			barOverflow: Boolean(bar) && bar.scrollWidth > bar.clientWidth + 1,
+			clipped: items.map((item) => {
+				const label = item.querySelector("span:not(.sr-only)");
+				if (!label || label.scrollWidth <= label.clientWidth + 1) return "";
+				return (label.textContent?.trim() || "") + ":" +
+					label.scrollWidth + "/" + label.clientWidth;
+			}).filter(Boolean).join(", "),
+		};
+	})()`, &result)); err != nil {
+		return err
+	}
+	if result.Count != 6 || !result.InsideBar || !result.LabelsFit || result.BarOverflow {
+		return fmt.Errorf("primary navigation is clipped: %+v", result)
+	}
+	return nil
+}
+
+func (w *browserWorld) responsiveTopBarActionsAreReachable() error {
+	var result struct {
+		Visible bool `json:"visible"`
+		Inside  bool `json:"inside"`
+	}
+	if err := w.run(chromedp.Evaluate(`(() => {
+		const controls = [
+			document.querySelector("[data-environment]"),
+			document.querySelector('[data-focus="new-request"]'),
+			document.querySelector('[data-focus="import"]'),
+			document.querySelector('[data-focus="settings"]'),
+		].filter(Boolean);
+		return {
+			visible: controls.length === 4 && controls.every((control) => {
+				const rect = control.getBoundingClientRect();
+				const style = getComputedStyle(control);
+				return rect.width > 0 && rect.height > 0 &&
+					style.display !== "none" && style.visibility !== "hidden";
+			}),
+			inside: controls.length === 4 && controls.every((control) => {
+				const rect = control.getBoundingClientRect();
+				return rect.left >= -1 && rect.right <= window.innerWidth + 1;
+			}),
+		};
+	})()`, &result)); err != nil {
+		return err
+	}
+	if !result.Visible || !result.Inside {
+		return fmt.Errorf("compact top bar controls are unreachable: %+v", result)
 	}
 	return nil
 }

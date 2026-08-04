@@ -6,6 +6,7 @@ Feature: Validex browser smoke
     Given Validex is open with the deterministic bridge
     Then the application shell is ready
     And all workspace navigation entries are rendered
+    And the getting started guide contains three actionable steps
 
   @bridge-contract
   Scenario: Reject cancellation identifiers that have no active operation

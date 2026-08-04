@@ -26,6 +26,20 @@ Feature: Use Validex across viewport sizes and input methods
       | 600x420  | bottom    |
       | 1180x650 | desktop   |
 
+  @responsive @navigation
+  Scenario Outline: Keep primary navigation reachable on narrow viewports
+    Given the viewport is "<viewport>"
+    And I am in the "Requests" workspace
+    Then every primary workspace navigation item is fully visible
+    And the compact top bar actions remain reachable
+
+    Examples:
+      | viewport |
+      | 600x760  |
+      | 390x844  |
+      | 375x760  |
+      | 320x700  |
+
   @responsive @drawer @keyboard
   Scenario: Use request side panels as modal drawers on a narrow viewport
     Given the viewport is "600x760"
