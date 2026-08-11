@@ -1,4 +1,4 @@
-export const responseSizeDefault = 36;
+export const responseSizeDefault = 44;
 export const responseSizeMinimum = 24;
 export const responseSizeMaximum = 72;
 export const responseSizeStep = 2;

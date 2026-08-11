@@ -25,7 +25,10 @@ const {
   createPersistedWorkspaceState,
   createRequestTab,
   migrateLegacyWorkspaceStorage,
+  migratePersistedWorkspaceState,
+  workspaceStore,
   workspaceStorageKey,
+  workspaceStorageVersion,
 } = await import("../.typescript-build/esm/stores/workspace.js");
 
 function workspaceState(tabs, activeTabID, recentlyClosed = []) {
@@ -46,6 +49,64 @@ function workspaceState(tabs, activeTabID, recentlyClosed = []) {
     theme: "system",
   };
 }
+
+test("new and reset workspaces use the collection-first balanced layout", async () => {
+  await workspaceStore.hydrated;
+  const initial = workspaceStore.getInitialState();
+  assert.equal(initial.leftVisible, true);
+  assert.equal(initial.responseSize, 44);
+
+  const previous = workspaceStore.getState();
+  try {
+    workspaceStore.setState({ leftVisible: false, responseSize: 24 });
+    workspaceStore.getState().resetLayout();
+    assert.equal(workspaceStore.getState().leftVisible, true);
+    assert.equal(workspaceStore.getState().responseSize, 44);
+    assert.equal(
+      JSON.parse(browserStorage.get(workspaceStorageKey)).version,
+      workspaceStorageVersion,
+    );
+  } finally {
+    workspaceStore.setState(previous, true);
+  }
+});
+
+test("workspace migration adopts the new response default without replacing preferences", () => {
+  const previousDefault = workspaceState([], "");
+  previousDefault.leftVisible = false;
+  previousDefault.responseSize = 36;
+  previousDefault.responsePlacement = "horizontal";
+
+  const migratedDefault = migratePersistedWorkspaceState(previousDefault, 8);
+  assert.equal(migratedDefault.leftVisible, false);
+  assert.equal(migratedDefault.responseSize, 44);
+  assert.equal(migratedDefault.responsePlacement, "horizontal");
+
+  const currentVersion = migratePersistedWorkspaceState(
+    previousDefault,
+    workspaceStorageVersion,
+  );
+  assert.equal(currentVersion.responseSize, 36);
+
+  const customized = {
+    ...previousDefault,
+    leftVisible: false,
+    responseSize: 52,
+    responsePlacement: "vertical",
+  };
+  const migratedCustomized = migratePersistedWorkspaceState(customized, 8);
+  assert.equal(migratedCustomized.leftVisible, false);
+  assert.equal(migratedCustomized.responseSize, 52);
+  assert.equal(migratedCustomized.responsePlacement, "vertical");
+
+  const { leftVisible: _missingPreference, ...withoutPanelPreference } =
+    previousDefault;
+  const migratedMissingPreference = migratePersistedWorkspaceState(
+    withoutPanelPreference,
+    8,
+  );
+  assert.equal(migratedMissingPreference.leftVisible, true);
+});
 
 test("session-only browser requests never enter workspace persistence", () => {
   const persisted = createRequestTab({

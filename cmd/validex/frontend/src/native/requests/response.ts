@@ -685,6 +685,21 @@ export function responsePanelMarkup(tab: RequestTab): TrustedHTMLFragment {
         aria-label="${t("requests.response.label")}"
         aria-busy="${tab.running ? "true" : "false"}"
       >
+        <div class="response-placeholder-header">
+          <strong>${t("requests.response.label")}</strong>
+          ${tab.running
+            ? html`<span>${t("requests.response.sending")}</span>`
+            : ""}
+        </div>
+        <div class="response-tabs response-tabs-placeholder" aria-hidden="true">
+          ${baseSections.map(
+            (section, index) => html`
+              <span class="${index === 0 ? "active" : ""}">
+                ${icon(section.icon, 13)} ${t(section.key)}
+              </span>
+            `,
+          )}
+        </div>
         <div
           class="response-content response-content-empty"
           aria-live="polite"

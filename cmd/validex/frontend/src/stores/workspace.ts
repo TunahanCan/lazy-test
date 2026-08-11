@@ -18,6 +18,9 @@ import {
 import { responseSizeDefault } from "../features/requests/model/responseLayout.js";
 
 export const workspaceStorageKey = "validex:workspace:validex-workspace";
+export const workspaceStorageVersion = 9;
+
+const previousResponseSizeDefault = 36;
 
 const legacyWorkspaceStorageKeys = [
   "validex:workspace:sample-workspace",
@@ -396,7 +399,7 @@ export const workspaceStore = createPersistedStore<WorkspaceState>(
       tabs: [],
       activeTabID: "",
       recentlyClosed: [],
-      leftVisible: false,
+      leftVisible: true,
       rightVisible: false,
       leftWidth: 264,
       rightWidth: 292,
@@ -646,68 +649,75 @@ export const workspaceStore = createPersistedStore<WorkspaceState>(
     }),
   {
     name: workspaceStorageKey,
-    version: 8,
+    version: workspaceStorageVersion,
     storage: localStorageStateStorage(),
-    migrate: (persistedState, persistedVersion) => {
-      const state = persistedState as Partial<WorkspaceState>;
-      const resetLegacyDemo =
-        persistedVersion === 0 && isUntouchedLegacyDemoRequest(state.tabs);
-      const resetBlankStarter =
-        persistedVersion < 4 && isUntouchedStarterRequest(state.tabs);
-      const resetToWelcome = resetLegacyDemo || resetBlankStarter;
-      const adoptSpaciousResponseLayout =
-        persistedVersion < 8 &&
-        (state.responsePlacement === undefined ||
-          state.responsePlacement === "vertical") &&
-        (state.responseSize === undefined || state.responseSize === 32);
-      const adoptSpaciousPanelLayout =
-        adoptSpaciousResponseLayout &&
-        state.leftVisible === true &&
-        state.rightVisible === true;
-      const tabs = resetToWelcome ? [] : persistedTabs(state.tabs);
-      return {
-        ...state,
-        workspaceID: "validex-workspace",
-        activeEnvironmentID: resetToWelcome
-          ? "none"
-          : (state.activeEnvironmentID ?? "none"),
-        environmentVariables: withoutSecretVariables(
-          state.environmentVariables ?? {},
-        ),
-        tabs,
-        activeTabID: resetToWelcome
-          ? ""
-          : persistedActiveTabID(state.activeTabID, tabs),
-        recentlyClosed: persistedTabs(state.recentlyClosed),
-        activeView:
-          state.activeView === "mock" ||
-          state.activeView === "json" ||
-          state.activeView === "diagnostics" ||
-          state.activeView === "protocols" ||
-          state.activeView === "automation"
-            ? state.activeView
-            : "requests",
-        leftVisible: resetToWelcome
-          ? false
-          : (state.leftVisible ?? true),
-        rightVisible: resetToWelcome
-          ? false
-          : adoptSpaciousPanelLayout
-            ? false
-            : (state.rightVisible ?? false),
-        responseSize: adoptSpaciousResponseLayout
-          ? responseSizeDefault
-          : (state.responseSize ?? responseSizeDefault),
-        responsePlacement: adoptSpaciousResponseLayout
-          ? "horizontal"
-          : state.responsePlacement === "vertical" ||
-              state.responsePlacement === "horizontal"
-            ? state.responsePlacement
-            : "horizontal",
-        sidebarSection: "requests",
-        latestImportedSpec: undefined,
-      } as WorkspaceState;
-    },
+    migrate: migratePersistedWorkspaceState,
     partialize: createPersistedWorkspaceState,
   },
 );
+
+export function migratePersistedWorkspaceState(
+  persistedState: unknown,
+  persistedVersion: number,
+): Partial<WorkspaceState> {
+  const state = persistedState as Partial<WorkspaceState>;
+  const resetLegacyDemo =
+    persistedVersion === 0 && isUntouchedLegacyDemoRequest(state.tabs);
+  const resetBlankStarter =
+    persistedVersion < 4 && isUntouchedStarterRequest(state.tabs);
+  const resetToWelcome = resetLegacyDemo || resetBlankStarter;
+  const adoptSpaciousResponseLayout =
+    persistedVersion < 8 &&
+    (state.responsePlacement === undefined ||
+      state.responsePlacement === "vertical") &&
+    (state.responseSize === undefined || state.responseSize === 32);
+  const adoptBalancedResponseSize =
+    persistedVersion < workspaceStorageVersion &&
+    state.responseSize === previousResponseSizeDefault;
+  const adoptSpaciousPanelLayout =
+    adoptSpaciousResponseLayout &&
+    state.leftVisible === true &&
+    state.rightVisible === true;
+  const tabs = resetToWelcome ? [] : persistedTabs(state.tabs);
+  return {
+    ...state,
+    workspaceID: "validex-workspace",
+    activeEnvironmentID: resetToWelcome
+      ? "none"
+      : (state.activeEnvironmentID ?? "none"),
+    environmentVariables: withoutSecretVariables(
+      state.environmentVariables ?? {},
+    ),
+    tabs,
+    activeTabID: resetToWelcome
+      ? ""
+      : persistedActiveTabID(state.activeTabID, tabs),
+    recentlyClosed: persistedTabs(state.recentlyClosed),
+    activeView:
+      state.activeView === "mock" ||
+      state.activeView === "json" ||
+      state.activeView === "diagnostics" ||
+      state.activeView === "protocols" ||
+      state.activeView === "automation"
+        ? state.activeView
+        : "requests",
+    leftVisible: state.leftVisible ?? true,
+    rightVisible: resetToWelcome
+      ? false
+      : adoptSpaciousPanelLayout
+        ? false
+        : (state.rightVisible ?? false),
+    responseSize:
+      adoptSpaciousResponseLayout || adoptBalancedResponseSize
+        ? responseSizeDefault
+        : (state.responseSize ?? responseSizeDefault),
+    responsePlacement: adoptSpaciousResponseLayout
+      ? "horizontal"
+      : state.responsePlacement === "vertical" ||
+          state.responsePlacement === "horizontal"
+        ? state.responsePlacement
+        : "horizontal",
+    sidebarSection: "requests",
+    latestImportedSpec: undefined,
+  };
+}
