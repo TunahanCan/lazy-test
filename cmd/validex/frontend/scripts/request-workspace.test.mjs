@@ -21,6 +21,7 @@ import {
   parseCurlBash,
 } from "../.typescript-build/esm/features/requests/model/curlImport.js";
 import {
+  RESPONSE_BODY_PREVIEW_MAX_CHARACTERS,
   RESPONSE_SYNTAX_MAX_BYTES,
   responseBodyViewModel,
   tokenizeResponseBody,
@@ -28,6 +29,8 @@ import {
 import { methodAllowsBody } from "../.typescript-build/esm/lib/http.js";
 import { isSecretKey } from "../.typescript-build/esm/lib/secrets.js";
 import { responsePanelMarkup } from "../.typescript-build/esm/native/requests/response.js";
+import { requestRenderScope } from "../.typescript-build/esm/native/requests/presentation.js";
+import { normalizeSendResult } from "../.typescript-build/esm/lib/bridge-contract.js";
 
 const request = {
   method: "POST",
@@ -258,6 +261,73 @@ test("response view model separates formatted, raw, base64, and plain views", ()
   assert.equal(sniffedXML.formatted, true);
   assert.equal(sniffedXML.highlighted, true);
   assert.equal(tokenText(sniffedXML), sniffedXML.text);
+});
+
+test("large response previews stay bounded without splitting Unicode", () => {
+  const body = `${"x".repeat(RESPONSE_BODY_PREVIEW_MAX_CHARACTERS - 1)}😀tail`;
+  const view = responseBodyViewModel({
+    body,
+    rawBody: body,
+    contentType: "text/plain",
+  });
+
+  assert.equal(view.truncated, true);
+  assert.equal(view.totalCharacters, body.length);
+  assert.equal(view.text, "x".repeat(RESPONSE_BODY_PREVIEW_MAX_CHARACTERS - 1));
+  assert.ok(view.text.length <= RESPONSE_BODY_PREVIEW_MAX_CHARACTERS);
+  assert.equal(tokenText(view), view.text);
+});
+
+test("compact native responses restore the raw body and stable collections", () => {
+  const normalized = normalizeSendResult({
+    response: {
+      body: "complete response",
+      headers: null,
+      cookies: null,
+      timeline: null,
+    },
+  });
+
+  assert.equal(normalized.response.body, "complete response");
+  assert.equal(normalized.response.rawBody, "complete response");
+  assert.deepEqual(normalized.response.headers, {});
+  assert.deepEqual(normalized.response.cookies, []);
+  assert.deepEqual(normalized.response.timeline, []);
+});
+
+test("background request updates only refresh the tab strip", () => {
+  const active = { id: "active" };
+  const background = { id: "background", running: true };
+  const variables = {};
+  const previous = {
+    tabs: [active, background],
+    activeTabID: active.id,
+    activeEnvironmentID: "none",
+    environmentVariables: variables,
+    responseSize: 44,
+    responsePlacement: "horizontal",
+  };
+  const backgroundCompleted = {
+    ...previous,
+    tabs: [active, { ...background, running: false }],
+  };
+
+  assert.equal(requestRenderScope(previous, previous), "none");
+  assert.equal(requestRenderScope(backgroundCompleted, previous), "tabs");
+  assert.equal(
+    requestRenderScope(
+      { ...backgroundCompleted, tabs: [{ ...active }, background] },
+      previous,
+    ),
+    "full",
+  );
+  assert.equal(
+    requestRenderScope(
+      { ...backgroundCompleted, tabs: [backgroundCompleted.tabs[1], active] },
+      previous,
+    ),
+    "full",
+  );
 });
 
 test("response viewer escapes highlighted content and uses the code surface", () => {

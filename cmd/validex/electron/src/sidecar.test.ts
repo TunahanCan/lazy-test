@@ -28,12 +28,12 @@ test("sidecar client bounds concurrent, cancellation, and serial requests", asyn
   const client = new SidecarClient();
   await client.start(process.execPath, [fixturePath()]);
 
-  const concurrent = Array.from({ length: 64 }, () =>
+  const concurrent = Array.from({ length: 16 }, () =>
     client.invoke("Hold", []).catch((error: unknown) => error),
   );
   await rejects(
     client.invoke("Hold", []),
-    /concurrent request limit of 64 is full/,
+    /concurrent request limit of 16 is full/,
   );
 
   const cancellations = Array.from({ length: 8 }, () =>

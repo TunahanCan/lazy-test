@@ -363,7 +363,7 @@ Go’da export edilmiş bir metot kendiliğinden renderer’a açılmaz.
 
 | Sınıf | Kullanım | Bütçe |
 | --- | --- | --- |
-| Normal | Çoğu bridge çağrısı | 64 eşzamanlı çağrı, toplam 64 MiB argument |
+| Normal | Çoğu bridge çağrısı | 16 eşzamanlı çağrı, toplam 64 MiB argument |
 | İptal | `CancelRequest`, `CancelToolOperation` | 8 çağrı, toplam 1 MiB argument |
 | Sıralı | Collection load/save | 128 çağrı, toplam 64 MiB argument |
 
@@ -488,6 +488,12 @@ fragment’i reddedilir; `{{variable}}` değerleri Go tarafında çözülür.
 Redirect otomatik izlenmez, ilk 3xx yanıt kullanıcıya gösterilir. Request ID
 üzerinden iptal desteklenir.
 
+Normal IPC hattı en fazla 16 kabul edilmiş çağrı taşırken HTTP motoru aynı anda
+en fazla 4 request’i ağa çıkarır. Kalan kabul edilmiş request’ler kendi timeout
+ve iptal context’leriyle bekler; kuyrukta iptal edilen bir request hedef
+sunucuya ulaşmaz. Bu iki kademeli sınır büyük response’ların Go, framed JSON,
+Electron ve renderer kopyalarının aynı anda belleği şişirmesini önler.
+
 Ortak `internal/httpexec.Executor` request/response body ve response header
 limitlerini uygular, duplicate header değerlerini korur, gzip/deflate content
 decoding yapar ve transport kaynaklarını oturum boyunca yeniden kullanır.
@@ -503,6 +509,13 @@ Binary veya güvenli UTF-8/JSON bütçesine sığmayan cevap Base64 taşınır.
 Frontend body’yi yeniden üretmez; yalnız sınırlı syntax token’larıyla
 renklendirir. Formatlama başarısızsa istek başarısız sayılmaz, düz metne
 düşülür.
+
+JSON ve XML body’ler en fazla 1 MiB’ye kadar otomatik biçimlendirilir. Renderer
+tek seferde ilk 524.288 karakteri DOM’a çizer; tam body kopyalama ve OpenAPI
+contract kontrolü için bellekte korunur. `body` ile `rawBody` aynı olduğunda
+sidecar frame’i değeri yalnız bir kez taşır ve frontend sözleşme adaptörü iki
+alanı aynı string ile yeniden kurar. Arka plan sekmesi tamamlandığında yalnız
+sekme şeridi yenilenir; aktif response DOM’u baştan oluşturulmaz.
 
 OpenAPI contract kontrolü HTTP transport’tan ayrı ikinci aşamadır. Böylece
 başarılı HTTP cevabı, sözleşme karşılaştırması hata verdi diye kaybolmaz.
@@ -696,11 +709,13 @@ Bu tablo kullanıcı davranışını ve process sınırını etkileyen ana değe
 | Electron–Go protocol frame | 64 MiB |
 | Request ID / method adı | 1–256 byte / 1–128 byte |
 | Tek IPC çağrısı encoded arguments | 32 MiB |
-| Normal IPC admission | 64 çağrı, toplam 64 MiB argument |
+| Normal IPC admission | 16 çağrı, toplam 64 MiB argument |
 | İptal IPC admission | 8 çağrı, toplam 1 MiB argument |
 | Collection IPC sırası | 128 çağrı, toplam 64 MiB argument |
 | File picker helper stdout | 64 KiB |
 | Desktop HTTP request / response body | 16 MiB / 16 MiB decoded |
+| Aktif desktop HTTP request | 4; kalan kabul edilmiş çağrılar iptal edilebilir biçimde bekler |
+| Response auto-format / DOM önizleme | 1 MiB / 524.288 karakter |
 | Desktop HTTP timeout | 1 ms–5 dakika |
 | OpenAPI desktop import | 16 MiB, 10.000 endpoint, 8 cached spec |
 | Collection library | 15 MiB |

@@ -1,6 +1,7 @@
 import { html, type TrustedHTMLFragment } from "../../core/dom.js";
 import { icon, type IconName } from "../../core/icons.js";
 import {
+  RESPONSE_BODY_PREVIEW_MAX_CHARACTERS,
   responseBodyViewModel,
   type ResponseBodySection,
   type ResponseBodyViewKind,
@@ -558,6 +559,11 @@ function responseBodyViewer(
   const copyLabel = view.raw
     ? t("requests.response.copyRaw")
     : t("requests.response.copyBody");
+  const viewDescription = view.truncated
+    ? t("requests.response.previewTruncated", {
+        count: RESPONSE_BODY_PREVIEW_MAX_CHARACTERS.toLocaleString(),
+      })
+    : viewLabel;
 
   return html`
     <div
@@ -571,7 +577,9 @@ function responseBodyViewer(
             <span class="response-format-indicator" aria-hidden="true"></span>
             ${formatLabel}
           </span>
-          <span class="response-view-description">${viewLabel}</span>
+          <span class="response-view-description" title="${viewDescription}">
+            ${viewDescription}
+          </span>
         </div>
         <div class="response-toolbar-actions">
           <button

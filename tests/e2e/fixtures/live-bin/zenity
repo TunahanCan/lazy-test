@@ -1,0 +1,20 @@
+#!/bin/sh
+
+openapi_file="${VALIDEX_LIVE_OPENAPI_FILE:-/tmp/validex-live-openapi.yaml}"
+collection_file="${VALIDEX_LIVE_COLLECTION_FILE:-/tmp/validex-live-collection.json}"
+export_file="${VALIDEX_LIVE_EXPORT_FILE:-/tmp/validex-live-export.json}"
+
+for argument in "$@"; do
+  case "$argument" in
+    --save)
+      printf '%s\n' "$export_file"
+      exit 0
+      ;;
+    --title=*Koleksiyon*)
+      printf '%s\n' "$collection_file"
+      exit 0
+      ;;
+  esac
+done
+
+printf '%s\n' "$openapi_file"

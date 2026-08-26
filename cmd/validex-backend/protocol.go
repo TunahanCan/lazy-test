@@ -213,8 +213,33 @@ func invocationProtocolResponse(
 	if response.Error != "" {
 		return protocolResponse{ID: response.ID, Error: response.Error}
 	}
-	result := response.Result
+	result := compactProtocolResult(response.Result)
 	return protocolResponse{ID: response.ID, Result: &result}
+}
+
+func compactProtocolResult(result any) any {
+	switch value := result.(type) {
+	case canbridge.SendResult:
+		return compactSendResult(value)
+	case *canbridge.SendResult:
+		if value == nil {
+			return value
+		}
+		compacted := compactSendResult(*value)
+		return &compacted
+	default:
+		return result
+	}
+}
+
+func compactSendResult(result canbridge.SendResult) canbridge.SendResult {
+	if result.Response == nil || result.Response.Body != result.Response.RawBody {
+		return result
+	}
+	response := *result.Response
+	response.RawBody = ""
+	result.Response = &response
+	return result
 }
 
 func errorResponse(id string, err error) protocolResponse {

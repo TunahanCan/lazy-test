@@ -4,18 +4,18 @@ export const requestMessages = defineMessages(
   {
     "requests.untitled": "Untitled request",
 
-    "requests.welcome.eyebrow": "WELCOME TO VALIDEX",
-    "requests.welcome.title": "Bring all your API work into one place.",
+    "requests.welcome.eyebrow": "REQUEST WORKSPACE",
+    "requests.welcome.title": "Start with an API request",
     "requests.welcome.description":
-      "Create your first request manually or import endpoints from an OpenAPI file.",
+      "Create a request, paste a browser cURL command, or import an OpenAPI document.",
     "requests.welcome.newRequest": "New request",
     "requests.welcome.importing": "Importing…",
     "requests.welcome.importOpenAPI": "Import OpenAPI",
-    "requests.welcome.quickTools": "Quick tools",
+    "requests.welcome.quickTools": "Developer tools",
     "requests.welcome.quickToolsDescription":
-      "Go directly to the workspace you need.",
-    "requests.welcome.guideEyebrow": "GET STARTED",
-    "requests.welcome.guideTitle": "Your first five minutes",
+      "Open a focused workspace without leaving your current request context.",
+    "requests.welcome.guideEyebrow": "WORKFLOW",
+    "requests.welcome.guideTitle": "A dependable first run",
     "requests.welcome.guideStepRequest":
       "Create or import an endpoint, then send it when you are ready.",
     "requests.welcome.guideStepContract":
@@ -430,6 +430,8 @@ export const requestMessages = defineMessages(
     "requests.response.traceCopied": "Trace ID copied",
     "requests.response.copyBody": "Copy body",
     "requests.response.copyRaw": "Copy raw response",
+    "requests.response.previewTruncated":
+      "Showing the first {count} characters; Copy keeps the full response",
     "requests.response.noHeaders.title": "This response has no headers",
     "requests.response.noHeaders.description":
       "Headers returned by the server will appear here.",
@@ -545,18 +547,18 @@ export const requestMessages = defineMessages(
   {
     "requests.untitled": "Adsız istek",
 
-    "requests.welcome.eyebrow": "VALIDEX’E HOŞ GELDİNİZ",
-    "requests.welcome.title": "Tüm API çalışmalarınızı tek bir yerde toplayın.",
+    "requests.welcome.eyebrow": "İSTEK ÇALIŞMA ALANI",
+    "requests.welcome.title": "Bir API isteğiyle başlayın",
     "requests.welcome.description":
-      "İlk isteğinizi elle oluşturun veya endpoint’leri bir OpenAPI dosyasından içe aktarın.",
+      "Bir istek oluşturun, tarayıcıdan cURL komutu yapıştırın veya OpenAPI belgesi içe aktarın.",
     "requests.welcome.newRequest": "Yeni istek",
     "requests.welcome.importing": "İçe aktarılıyor…",
     "requests.welcome.importOpenAPI": "OpenAPI içe aktar",
-    "requests.welcome.quickTools": "Hızlı araçlar",
+    "requests.welcome.quickTools": "Geliştirici araçları",
     "requests.welcome.quickToolsDescription":
-      "İhtiyacınız olan çalışma alanına doğrudan geçin.",
-    "requests.welcome.guideEyebrow": "HIZLI BAŞLANGIÇ",
-    "requests.welcome.guideTitle": "İlk beş dakikanız",
+      "Geçerli istek bağlamını kaybetmeden odaklı bir çalışma alanı açın.",
+    "requests.welcome.guideEyebrow": "İŞ AKIŞI",
+    "requests.welcome.guideTitle": "Güvenilir bir ilk çalışma",
     "requests.welcome.guideStepRequest":
       "Bir endpoint oluşturun veya içe aktarın; hazır olduğunuzda isteği gönderin.",
     "requests.welcome.guideStepContract":
@@ -975,6 +977,8 @@ export const requestMessages = defineMessages(
     "requests.response.traceCopied": "Trace ID kopyalandı",
     "requests.response.copyBody": "Body’yi kopyala",
     "requests.response.copyRaw": "Ham yanıtı kopyala",
+    "requests.response.previewTruncated":
+      "İlk {count} karakter gösteriliyor; Kopyala tam yanıtı korur",
     "requests.response.noHeaders.title": "Bu yanıt header içermiyor",
     "requests.response.noHeaders.description":
       "Sunucudan header döndüğünde burada listelenir.",

@@ -32,6 +32,7 @@ const (
 	maxHTTPContentEncodingLayers = 4
 	minHTTPRequestTimeoutMS      = 1
 	maxHTTPRequestTimeoutMS      = 300_000
+	maxConcurrentHTTPRequests    = 4
 	maxCachedOpenAPISpecs        = 8
 	maxObservedCoverageEntries   = 10_000
 )
@@ -62,6 +63,7 @@ type Bridge struct {
 	lifecycleCancel   context.CancelFunc
 	collectionLibrary *collectionLibraryService
 	httpExecutor      *httpexec.Executor
+	requestSlots      chan struct{}
 	cancels           map[string]*requestOperation
 	toolCancels       map[string]*toolOperation
 	specs             map[string][]core.Endpoint
@@ -93,6 +95,7 @@ func newBridge(collectionRepository collectionLibraryRepository) *Bridge {
 		httpExecutor: httpexec.NewExecutor(httpexec.ExecutorConfig{
 			MaxResponseHeaderBytes: maxHTTPResponseHeaderBytes,
 		}),
+		requestSlots:  make(chan struct{}, maxConcurrentHTTPRequests),
 		cancels:       map[string]*requestOperation{},
 		toolCancels:   map[string]*toolOperation{},
 		specs:         map[string][]core.Endpoint{},
@@ -267,6 +270,17 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 		}
 		b.mu.Unlock()
 	}()
+	if err := b.acquireRequestSlot(ctx); err != nil {
+		if errors.Is(err, context.Canceled) {
+			return failed(userErrorRequestCanceled, nil, nil)
+		}
+		return failed(
+			userErrorRequestTimeout,
+			UserErrorParams{"timeoutMs": fmt.Sprintf("%d", input.TimeoutMS)},
+			err,
+		)
+	}
+	defer b.releaseRequestSlot()
 
 	trace := &requestTrace{started: started}
 	ctx = httptrace.WithClientTrace(ctx, trace.clientTrace())
@@ -441,6 +455,24 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 		BodyEncoding: presentedBody.Encoding,
 		Timeline:     timeline, ResolvedURL: resolvedURL,
 	}}
+}
+
+func (b *Bridge) acquireRequestSlot(ctx context.Context) error {
+	if b.requestSlots == nil {
+		return nil
+	}
+	select {
+	case b.requestSlots <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (b *Bridge) releaseRequestSlot() {
+	if b.requestSlots != nil {
+		<-b.requestSlots
+	}
 }
 
 func (b *Bridge) CancelRequest(requestID string) bool {

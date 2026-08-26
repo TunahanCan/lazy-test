@@ -731,14 +731,20 @@ func (s *requestContractCancellationSteps) openAndSendManualRequestNamed(
 	if err := s.clickSendAndWaitForCall(); err != nil {
 		return err
 	}
-	return requestWaitFor(
+	if err := requestWaitFor(
 		s.world,
 		fmt.Sprintf(
 			`document.querySelector(".response-code")?.textContent.includes(%s)`,
 			requestJSON(marker),
 		),
 		"manual response "+marker,
-	)
+	); err != nil {
+		return err
+	}
+	return s.world.run(chromedp.Evaluate(
+		`globalThis.__VALIDEX_ACTIVE_RESPONSE_NODE__ = document.querySelector(".response-code")`,
+		nil,
+	))
 }
 
 func (s *requestContractCancellationSteps) currentImportedValidationCompletes() error {
@@ -762,6 +768,7 @@ func (s *requestContractCancellationSteps) manualTabStillShowsResponse(
 		fmt.Sprintf(
 			`document.querySelector('[data-request-tab-button][data-tab-id=%s]')?.getAttribute("aria-selected") === "true" &&
 			 document.querySelector(".response-code")?.textContent.includes(%s) &&
+			 document.querySelector(".response-code") === globalThis.__VALIDEX_ACTIVE_RESPONSE_NODE__ &&
 			 !document.querySelector(".response-code")?.textContent.includes("old") &&
 			 !document.querySelector(".response-code")?.textContent.includes("current")`,
 			requestJSON(s.manualTabID),

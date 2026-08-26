@@ -1,5 +1,6 @@
 export const RESPONSE_SYNTAX_MAX_BYTES = 256 << 10;
 export const RESPONSE_SYNTAX_MAX_TOKENS = 20_000;
+export const RESPONSE_BODY_PREVIEW_MAX_CHARACTERS = 512 << 10;
 
 export type ResponseBodyViewKind = "json" | "xml" | "text" | "base64";
 export type ResponseBodySection = "body" | "raw";
@@ -45,6 +46,8 @@ export interface ResponseBodyViewModel {
   formatted: boolean;
   tokens: ResponseSyntaxToken[];
   highlighted: boolean;
+  truncated: boolean;
+  totalCharacters: number;
 }
 
 class BoundedTokenBuilder {
@@ -68,6 +71,19 @@ function plainTokenization(text: string): ResponseTokenization {
     tokens: [{ kind: "plain", text }],
     highlighted: false,
   };
+}
+
+function responseBodyPreview(text: string): {
+  text: string;
+  truncated: boolean;
+} {
+  if (text.length <= RESPONSE_BODY_PREVIEW_MAX_CHARACTERS) {
+    return { text, truncated: false };
+  }
+  let end = RESPONSE_BODY_PREVIEW_MAX_CHARACTERS;
+  const last = text.charCodeAt(end - 1);
+  if (last >= 0xd800 && last <= 0xdbff) end -= 1;
+  return { text: text.slice(0, end), truncated: true };
 }
 
 function fitsHighlightByteBudget(text: string): boolean {
@@ -503,21 +519,24 @@ export function responseBodyViewModel(
 ): ResponseBodyViewModel {
   const encoding = input.bodyEncoding ?? "utf8";
   const raw = section === "raw";
-  const text = raw ? input.rawBody : input.body;
-  const kind = inferredBodyKind(input, text, encoding);
-  const tokenization = tokenizeResponseBody(text, kind);
+  const sourceText = raw ? input.rawBody : input.body;
+  const preview = responseBodyPreview(sourceText);
+  const kind = inferredBodyKind(input, sourceText, encoding);
+  const tokenization = tokenizeResponseBody(preview.text, kind);
   const formatted =
     !raw &&
     kind !== "base64" &&
     kind !== "text" &&
     (input.bodyFormatted ?? backendBodyWasFormatted(input));
   return {
-    text,
+    text: preview.text,
     kind,
     encoding,
     raw,
     formatted,
     tokens: tokenization.tokens,
     highlighted: tokenization.highlighted,
+    truncated: preview.truncated,
+    totalCharacters: sourceText.length,
   };
 }

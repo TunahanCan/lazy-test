@@ -56,7 +56,7 @@ type ResponseEnvelope struct {
 	Headers      map[string][]string  `json:"headers"`
 	Cookies      []ResponseCookie     `json:"cookies"`
 	Body         string               `json:"body"`
-	RawBody      string               `json:"rawBody"`
+	RawBody      string               `json:"rawBody,omitempty"`
 	BodyEncoding ResponseBodyEncoding `json:"bodyEncoding"`
 	Timeline     []TimelinePhase      `json:"timeline"`
 	ResolvedURL  string               `json:"resolvedUrl"`

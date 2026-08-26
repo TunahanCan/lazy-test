@@ -13,7 +13,7 @@ const (
 	defaultInvocationConcurrentDrainPeriod = 3 * time.Second
 	defaultInvocationSerialDrainPeriod     = 3 * time.Second
 
-	defaultInvocationConcurrentCalls   = 64
+	defaultInvocationConcurrentCalls   = 16
 	defaultInvocationConcurrentBytes   = 64 << 20
 	defaultInvocationCancellationCalls = 8
 	defaultInvocationCancellationBytes = 1 << 20

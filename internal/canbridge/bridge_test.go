@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -902,17 +903,16 @@ func TestPresentResponseBodyUsesMediaTypeAndWireBudget(t *testing.T) {
 		t.Fatalf("XML body/raw presentation = %#v", xmlPresentation)
 	}
 
-	// encoding/json expands '<' to six bytes. Presenting a large body twice as
-	// Body and RawBody would exceed the native response budget even though the
-	// source is valid UTF-8, so the presenter must select bounded Base64.
+	// Equal Body and RawBody values cross the sidecar only once, so an otherwise
+	// safe text response remains UTF-8 within the compact wire budget.
 	escapeHeavyBytes := int(maxResponseBodyJSONBytes/12) + 1
 	escapeHeavy := bytes.Repeat([]byte("<"), escapeHeavyBytes)
 	budgetedPresentation := presentResponseBody(escapeHeavy, "text/plain")
-	if budgetedPresentation.Encoding != ResponseBodyBase64 {
+	if budgetedPresentation.Encoding != ResponseBodyUTF8 {
 		t.Fatalf(
-			"escape-heavy encoding = %q, want %q",
+			"compact escape-heavy encoding = %q, want %q",
 			budgetedPresentation.Encoding,
-			ResponseBodyBase64,
+			ResponseBodyUTF8,
 		)
 	}
 }
@@ -1298,6 +1298,20 @@ func TestPrettyBodySkipsUnsafeJSONIndentExpansion(t *testing.T) {
 	}
 }
 
+func TestPresentResponseBodySkipsFormattingBeyondPreviewBudget(t *testing.T) {
+	raw := []byte(`{"value":"` + strings.Repeat("x", int(maxPrettyJSONBytes)) + `"}`)
+	presented := presentResponseBody(raw, "application/json")
+	if presented.Encoding != ResponseBodyUTF8 {
+		t.Fatalf("large JSON encoding = %q, want utf8", presented.Encoding)
+	}
+	if presented.Body != string(raw) || presented.Raw != string(raw) {
+		t.Fatal("large JSON response was changed while skipping formatting")
+	}
+	if strings.Contains(presented.Body, "\n") {
+		t.Fatal("large JSON response was formatted beyond its presentation budget")
+	}
+}
+
 func TestRequestTraceTimelineUsesMeasuredNonOverlappingPhases(t *testing.T) {
 	t.Parallel()
 
@@ -1636,6 +1650,149 @@ func TestBridgeLifecycleStateSupportsSerializedRestart(t *testing.T) {
 		t.Fatalf("restarted collection context error = %v", err)
 	}
 	Shutdown(bridge)(context.Background())
+}
+
+func TestSendRequestBoundsConcurrentNetworkWork(t *testing.T) {
+	const extraRequests = 3
+	requestCount := maxConcurrentHTTPRequests + extraRequests
+	started := make(chan struct{}, requestCount)
+	release := make(chan struct{})
+	var active atomic.Int32
+	var maximum atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		current := active.Add(1)
+		defer active.Add(-1)
+		for {
+			observed := maximum.Load()
+			if current <= observed || maximum.CompareAndSwap(observed, current) {
+				break
+			}
+		}
+		started <- struct{}{}
+		<-release
+		response.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	bridge := NewBridge()
+	defer Shutdown(bridge)(context.Background())
+	results := make(chan SendResult, requestCount)
+	for index := range requestCount {
+		go func() {
+			results <- bridge.SendRequest(RequestInput{
+				ID:        fmt.Sprintf("bounded-request-%d", index),
+				Method:    http.MethodGet,
+				URL:       server.URL,
+				TimeoutMS: 5_000,
+			})
+		}()
+	}
+
+	for range maxConcurrentHTTPRequests {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			t.Fatal("concurrent HTTP capacity was not filled")
+		}
+	}
+	select {
+	case <-started:
+		t.Fatalf("more than %d HTTP requests reached the network", maxConcurrentHTTPRequests)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+
+	for range requestCount {
+		select {
+		case result := <-results:
+			if result.Error != nil || result.Response == nil ||
+				result.Response.StatusCode != http.StatusNoContent {
+				t.Fatalf("bounded request result = %#v", result)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("bounded requests did not drain")
+		}
+	}
+	if got := maximum.Load(); got != maxConcurrentHTTPRequests {
+		t.Fatalf("maximum concurrent HTTP requests = %d, want %d", got, maxConcurrentHTTPRequests)
+	}
+}
+
+func TestSendRequestCanCancelWhileWaitingForNetworkCapacity(t *testing.T) {
+	started := make(chan string, maxConcurrentHTTPRequests+1)
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		started <- request.URL.Path
+		<-release
+		response.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	bridge := NewBridge()
+	defer Shutdown(bridge)(context.Background())
+	activeResults := make(chan SendResult, maxConcurrentHTTPRequests)
+	for index := range maxConcurrentHTTPRequests {
+		go func() {
+			activeResults <- bridge.SendRequest(RequestInput{
+				ID:        fmt.Sprintf("active-request-%d", index),
+				Method:    http.MethodGet,
+				URL:       server.URL + "/active",
+				TimeoutMS: 5_000,
+			})
+		}()
+	}
+	for range maxConcurrentHTTPRequests {
+		select {
+		case path := <-started:
+			if path != "/active" {
+				t.Fatalf("unexpected request reached server: %q", path)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("concurrent HTTP capacity was not filled")
+		}
+	}
+
+	queuedResult := make(chan SendResult, 1)
+	go func() {
+		queuedResult <- bridge.SendRequest(RequestInput{
+			ID:        "queued-request",
+			Method:    http.MethodGet,
+			URL:       server.URL + "/queued",
+			TimeoutMS: 5_000,
+		})
+	}()
+	deadline := time.Now().Add(time.Second)
+	for !bridge.CancelRequest("queued-request") {
+		if time.Now().After(deadline) {
+			t.Fatal("queued request was not registered for cancellation")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	select {
+	case result := <-queuedResult:
+		if result.Error == nil || result.Error.Code != UserErrorRequestCanceled {
+			t.Fatalf("queued request result = %#v, want request_canceled", result)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("queued request did not stop after cancellation")
+	}
+	select {
+	case path := <-started:
+		t.Fatalf("canceled queued request reached server: %q", path)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(release)
+	for range maxConcurrentHTTPRequests {
+		select {
+		case result := <-activeResults:
+			if result.Error != nil {
+				t.Fatalf("active request result = %#v", result)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("active requests did not drain")
+		}
+	}
 }
 
 func TestConcurrentDuplicateRequestIDCannotReplaceOriginalCancel(t *testing.T) {

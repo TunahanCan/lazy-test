@@ -15,14 +15,13 @@ import (
 )
 
 const (
-	maxPrettyJSONBytes        = int64(32 << 20)
+	maxPrettyJSONBytes        = int64(1 << 20)
 	maxPrettyJSONNestingDepth = 128
-	maxPrettyXMLBytes         = int64(32 << 20)
+	maxPrettyXMLBytes         = int64(1 << 20)
 	maxPrettyXMLNestingDepth  = 128
-	maxPrettyXMLTokens        = 250_000
+	maxPrettyXMLTokens        = 50_000
 	// Leave room in the 64 MiB IPC envelope for headers and response metadata.
-	// Base64 of the maximum 16 MiB body remains below this budget even though
-	// Body and RawBody intentionally carry the same presentation.
+	// Equal Body and RawBody values are compacted to one field by the sidecar.
 	maxResponseBodyJSONBytes = int64(48 << 20)
 )
 
@@ -40,12 +39,15 @@ func presentResponseBody(
 		return base64ResponseBody(raw)
 	}
 	rawBody := string(raw)
-	body := prettyBody(raw, contentType)
-	if !jsonStringsFitBudget(
-		maxResponseBodyJSONBytes,
-		body,
-		rawBody,
-	) {
+	body := rawBody
+	if formatted, ok := formattedResponseBody(raw, contentType); ok {
+		body = formatted
+	}
+	values := []string{body}
+	if body != rawBody {
+		values = append(values, rawBody)
+	}
+	if !jsonStringsFitBudget(maxResponseBodyJSONBytes, values...) {
 		return base64ResponseBody(raw)
 	}
 	return responseBodyPresentation{
@@ -203,15 +205,22 @@ var responseBodyFormatters = [...]responseBodyFormatter{
 }
 
 func prettyBody(raw []byte, contentType string) string {
+	if formatted, ok := formattedResponseBody(raw, contentType); ok {
+		return formatted
+	}
+	return string(raw)
+}
+
+func formattedResponseBody(raw []byte, contentType string) (string, bool) {
 	for _, formatter := range responseBodyFormatters {
 		if !formatter.matches(raw, contentType) {
 			continue
 		}
 		if formatted, ok := formatter.format(raw); ok {
-			return formatted
+			return formatted, true
 		}
 	}
-	return string(raw)
+	return "", false
 }
 
 type xmlPresentationTokenKind uint8

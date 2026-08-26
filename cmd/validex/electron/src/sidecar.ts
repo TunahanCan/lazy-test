@@ -10,7 +10,7 @@ type AdmissionLane = "concurrent" | "cancellation" | "serial";
 
 const admissionLimits = {
   concurrent: {
-    calls: 64,
+    calls: 16,
     argumentBytes: 64 * 1024 * 1024,
   },
   cancellation: {

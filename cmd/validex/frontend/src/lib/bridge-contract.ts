@@ -6,6 +6,8 @@ import type {
   ImportSpecResult,
   LogSearchResult,
   MockServerSnapshot,
+  ResponseEnvelope,
+  SendResult,
   SSEResult,
   ThreadDumpResult,
 } from "./types.js";
@@ -20,6 +22,24 @@ function recordOrEmpty<T>(
   return value && typeof value === "object" && !Array.isArray(value)
     ? value
     : {};
+}
+
+export function normalizeSendResult(result: SendResult): SendResult {
+  if (!result.response) return result;
+  const response = result.response;
+  const body = typeof response.body === "string" ? response.body : "";
+  const rawBody = (response as Partial<ResponseEnvelope>).rawBody;
+  return {
+    ...result,
+    response: {
+      ...response,
+      body,
+      rawBody: typeof rawBody === "string" ? rawBody : body,
+      headers: recordOrEmpty(response.headers),
+      cookies: listOrEmpty(response.cookies),
+      timeline: listOrEmpty(response.timeline),
+    },
+  };
 }
 
 // Native bridge bindings are not runtime type checks. These adapters keep

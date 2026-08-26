@@ -51,6 +51,157 @@ export interface RequestWorkbenchPresentation {
   showURLValidation: boolean;
 }
 
+export interface RequestRenderState {
+  tabs: readonly RequestTab[];
+  activeTabID: string;
+  activeEnvironmentID: string;
+  environmentVariables: Readonly<Record<string, Readonly<Record<string, string>>>>;
+  responseSize: number;
+  responsePlacement: string;
+}
+
+export type RequestRenderScope = "none" | "tabs" | "full";
+
+export function requestRenderScope(
+  state: RequestRenderState,
+  previous: RequestRenderState,
+): RequestRenderScope {
+  const presentationChanged =
+    state.tabs !== previous.tabs ||
+    state.activeTabID !== previous.activeTabID ||
+    state.activeEnvironmentID !== previous.activeEnvironmentID ||
+    state.environmentVariables !== previous.environmentVariables ||
+    state.responseSize !== previous.responseSize ||
+    state.responsePlacement !== previous.responsePlacement;
+  if (!presentationChanged) return "none";
+
+  const sameTabOrder =
+    state.tabs.length === previous.tabs.length &&
+    state.tabs.every((tab, index) => tab.id === previous.tabs[index]?.id);
+  const active = state.tabs.find((tab) => tab.id === state.activeTabID);
+  const previousActive = previous.tabs.find(
+    (tab) => tab.id === previous.activeTabID,
+  );
+  if (
+    state.tabs !== previous.tabs &&
+    sameTabOrder &&
+    state.activeTabID === previous.activeTabID &&
+    active !== undefined &&
+    active === previousActive &&
+    state.activeEnvironmentID === previous.activeEnvironmentID &&
+    state.environmentVariables === previous.environmentVariables &&
+    state.responseSize === previous.responseSize &&
+    state.responsePlacement === previous.responsePlacement
+  ) {
+    return "tabs";
+  }
+  return "full";
+}
+
+export function requestTabItemsMarkup(
+  tabs: readonly RequestTab[],
+  activeTabID: string,
+): TrustedHTMLFragment {
+  return html`
+    ${tabs.map((tab, index) => {
+      const reorderable = !tab.pinned && !tab.running;
+      const accessibleName = [
+        tab.method,
+        tab.name,
+        tab.pinned ? t("requests.tabs.pinned") : "",
+        tab.dirty ? t("requests.tabs.localDraft") : "",
+        tab.running ? t("requests.tabs.running") : "",
+        tab.error && !tab.running ? t("requests.tabs.error") : "",
+      ]
+        .filter(Boolean)
+        .join(", ");
+      const shortcuts = [
+        "ArrowLeft",
+        "ArrowRight",
+        "Home",
+        "End",
+        !tab.pinned && !tab.running ? "Delete" : "",
+        reorderable && index > 0 ? "Alt+Shift+ArrowLeft" : "",
+        reorderable && index < tabs.length - 1
+          ? "Alt+Shift+ArrowRight"
+          : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      return html`
+        <div
+          class="request-tab${tab.id === activeTabID ? " active" : ""}${
+            tab.pinned ? " pinned" : ""
+          }"
+          role="presentation"
+          data-request-tab="${tab.id}"
+        >
+          <button
+            type="button"
+            class="request-tab-main"
+            id="request-tab-${tab.id}"
+            role="tab"
+            data-action="activate-tab"
+            data-tab-id="${tab.id}"
+            data-request-tab-button
+            aria-label="${accessibleName}"
+            aria-selected="${tab.id === activeTabID ? "true" : "false"}"
+            aria-controls="request-panel-${tab.id}"
+            aria-keyshortcuts="${shortcuts}"
+            title="${t("requests.tabs.renameNamed", {
+              name: tab.name,
+            })} · ${t("requests.tabs.renameHint")}"
+            tabindex="${tab.id === activeTabID ? "0" : "-1"}"
+            draggable="${reorderable}"
+          >
+            ${tab.pinned ? icon("pin", 11, "tab-pin") : ""}
+            <code class="method method-${tab.method.toLowerCase()}">
+              ${tab.method}
+            </code>
+            <span>${tab.name}</span>
+            ${tab.running
+              ? icon("spinner", 12, "spin")
+              : tab.error
+                ? icon("error", 12)
+                : tab.dirty
+                  ? html`<span class="dirty-dot" aria-hidden="true"></span>`
+                  : ""}
+          </button>
+          ${tab.pinned
+            ? ""
+            : html`
+                <button
+                  type="button"
+                  class="icon-button request-tab-close"
+                  data-action="close-tab"
+                  data-tab-id="${tab.id}"
+                  aria-label="${t("requests.tabs.closeNamed", {
+                    name: tab.name,
+                  })}"
+                  title="${tab.running
+                    ? t("requests.tabs.cancelBeforeClose")
+                    : t("requests.tabs.closeNamed", { name: tab.name })}"
+                  tabindex="-1"
+                  ${tab.running ? "disabled" : ""}
+                >
+                  ${icon("close", 12)}
+                </button>
+              `}
+        </div>
+      `;
+    })}
+    <button
+      type="button"
+      class="icon-button request-tab-new"
+      data-action="new-request"
+      aria-label="${t("requests.tabs.new")}"
+      title="${t("requests.tabs.new")}"
+    >
+      ${icon("plus", 14)}
+    </button>
+  `;
+}
+
 export function requestTabsMarkup(
   tabs: readonly RequestTab[],
   activeTabID: string,
@@ -62,104 +213,7 @@ export function requestTabsMarkup(
       aria-orientation="horizontal"
       aria-label="${t("requests.tabs.openRequests")}"
     >
-      ${tabs.map((tab, index) => {
-        const reorderable = !tab.pinned && !tab.running;
-        const accessibleName = [
-          tab.method,
-          tab.name,
-          tab.pinned ? t("requests.tabs.pinned") : "",
-          tab.dirty ? t("requests.tabs.localDraft") : "",
-          tab.running ? t("requests.tabs.running") : "",
-          tab.error && !tab.running ? t("requests.tabs.error") : "",
-        ]
-          .filter(Boolean)
-          .join(", ");
-        const shortcuts = [
-          "ArrowLeft",
-          "ArrowRight",
-          "Home",
-          "End",
-          !tab.pinned && !tab.running ? "Delete" : "",
-          reorderable && index > 0 ? "Alt+Shift+ArrowLeft" : "",
-          reorderable && index < tabs.length - 1
-            ? "Alt+Shift+ArrowRight"
-            : "",
-        ]
-          .filter(Boolean)
-          .join(" ");
-        return html`
-          <div
-            class="request-tab${tab.id === activeTabID ? " active" : ""}${
-              tab.pinned ? " pinned" : ""
-            }"
-            role="presentation"
-            data-request-tab="${tab.id}"
-          >
-            <button
-              type="button"
-              class="request-tab-main"
-              id="request-tab-${tab.id}"
-              role="tab"
-              data-action="activate-tab"
-              data-tab-id="${tab.id}"
-              data-request-tab-button
-              aria-label="${accessibleName}"
-              aria-selected="${tab.id === activeTabID
-                ? "true"
-                : "false"}"
-              aria-controls="request-panel-${tab.id}"
-              aria-keyshortcuts="${shortcuts}"
-              title="${t("requests.tabs.renameNamed", {
-                name: tab.name,
-              })} · ${t("requests.tabs.renameHint")}"
-              tabindex="${tab.id === activeTabID ? "0" : "-1"}"
-              draggable="${reorderable}"
-            >
-              ${tab.pinned ? icon("pin", 11, "tab-pin") : ""}
-              <code class="method method-${tab.method.toLowerCase()}">
-                ${tab.method}
-              </code>
-              <span>${tab.name}</span>
-              ${tab.running
-                ? icon("spinner", 12, "spin")
-                : tab.error
-                  ? icon("error", 12)
-                  : tab.dirty
-                    ? html`<span class="dirty-dot" aria-hidden="true"></span>`
-                    : ""}
-            </button>
-            ${tab.pinned
-              ? ""
-              : html`
-                  <button
-                    type="button"
-                    class="icon-button request-tab-close"
-                    data-action="close-tab"
-                    data-tab-id="${tab.id}"
-                    aria-label="${t("requests.tabs.closeNamed", {
-                      name: tab.name,
-                    })}"
-                    title="${tab.running
-                      ? t("requests.tabs.cancelBeforeClose")
-                      : t("requests.tabs.closeNamed", { name: tab.name })}"
-                    tabindex="-1"
-                    ${tab.running ? "disabled" : ""}
-                  >
-                    ${icon("close", 12)}
-                  </button>
-                `}
-          </div>
-        `;
-      })}
-      <button
-        type="button"
-        class="icon-button request-tab-new"
-        data-action="new-request"
-        aria-label="${t("requests.tabs.new")}"
-        title="${t("requests.tabs.new")}"
-      >
-        ${icon("plus", 14)}
-      </button>
+      ${requestTabItemsMarkup(tabs, activeTabID)}
     </div>
     ${tabs
       .filter((tab) => tab.id !== activeTabID)

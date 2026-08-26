@@ -36,6 +36,7 @@ import {
   normalizeImportSpecResult,
   normalizeLogSearchResult,
   normalizeMockServerSnapshot,
+  normalizeSendResult,
   normalizeSSEResult,
   normalizeThreadDumpResult,
 } from "./bridge-contract.js";
@@ -195,7 +196,7 @@ export const backend = {
 
   async sendRequest(input: RequestInput): Promise<SendResult> {
     const native = nativeBridge();
-    if (native) return native.SendRequest(input);
+    if (native) return normalizeSendResult(await native.SendRequest(input));
     return {
       error: {
         code: "backend_unavailable",

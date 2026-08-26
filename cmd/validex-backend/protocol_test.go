@@ -204,6 +204,46 @@ func TestWriteProtocolResponsePreservesLargeCollectionDocument(t *testing.T) {
 	}
 }
 
+func TestInvocationProtocolResponseCompactsDuplicateRequestBody(t *testing.T) {
+	body := strings.Repeat("response-body-", 32_768)
+	original := canbridge.SendResult{Response: &canbridge.ResponseEnvelope{
+		RequestID: "request-1",
+		Body:      body,
+		RawBody:   body,
+	}}
+	response := invocationProtocolResponse(canbridge.InvocationResponse{
+		ID:     "send-request",
+		Result: original,
+	})
+	payload, err := encodeProtocolResponse(response)
+	if err != nil {
+		t.Fatalf("encodeProtocolResponse() error = %v", err)
+	}
+	if bytes.Contains(payload, []byte(`"rawBody"`)) {
+		t.Fatal("duplicate raw response body remained in the protocol frame")
+	}
+	if original.Response == nil || original.Response.RawBody != body {
+		t.Fatal("protocol compaction mutated the bridge result")
+	}
+
+	formatted := canbridge.SendResult{Response: &canbridge.ResponseEnvelope{
+		RequestID: "request-2",
+		Body:      "{\n  \"ok\": true\n}",
+		RawBody:   `{"ok":true}`,
+	}}
+	formattedResponse := invocationProtocolResponse(canbridge.InvocationResponse{
+		ID:     "formatted-request",
+		Result: formatted,
+	})
+	formattedPayload, err := encodeProtocolResponse(formattedResponse)
+	if err != nil {
+		t.Fatalf("encode formatted protocol response: %v", err)
+	}
+	if !bytes.Contains(formattedPayload, []byte(`"rawBody":"{\"ok\":true}"`)) {
+		t.Fatalf("formatted response lost its distinct raw body: %s", formattedPayload)
+	}
+}
+
 func TestServeDispatchesBridgeCallsAndShutsDownOnEOF(t *testing.T) {
 	inputReader, inputWriter := io.Pipe()
 	outputReader, outputWriter := io.Pipe()

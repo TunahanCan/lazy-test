@@ -72,7 +72,6 @@ import {
 } from "../../stores/collectionLibraryStorage.js";
 import {
   workspaceStore,
-  type WorkspaceState,
 } from "../../stores/workspace.js";
 import {
   cloneRequestDraft,
@@ -93,6 +92,8 @@ import {
   type ResponseSplitPlacement,
 } from "./interaction.js";
 import {
+  requestRenderScope,
+  requestTabItemsMarkup,
   requestTabsMarkup,
   welcomeMarkup,
   workbenchMarkup,
@@ -239,20 +240,6 @@ function requestVariableResolution(
     resolvedURL: resolveVariableReferences(draft.url, values),
     resolve: (value) => resolveVariableReferences(value, values),
   };
-}
-
-function requestPresentationChanged(
-  state: WorkspaceState,
-  previous: WorkspaceState,
-): boolean {
-  return (
-    state.tabs !== previous.tabs ||
-    state.activeTabID !== previous.activeTabID ||
-    state.activeEnvironmentID !== previous.activeEnvironmentID ||
-    state.environmentVariables !== previous.environmentVariables ||
-    state.responseSize !== previous.responseSize ||
-    state.responsePlacement !== previous.responsePlacement
-  );
 }
 
 function readHeaders(root: HTMLElement, current: readonly KeyValue[]): KeyValue[] {
@@ -747,6 +734,25 @@ export function mountRequestWorkspace(
     } finally {
       rendering = false;
     }
+  };
+
+  const renderTabsOnly = (): boolean => {
+    const tabList = root.querySelector<HTMLElement>(".request-tabs");
+    if (!tabList) return false;
+    const active =
+      document.activeElement instanceof HTMLElement &&
+      tabList.contains(document.activeElement)
+        ? document.activeElement
+        : undefined;
+    const focusSelector = active ? focusSelectorFor(active) : undefined;
+    const state = workspaceStore.getState();
+    setHTML(tabList, requestTabItemsMarkup(state.tabs, state.activeTabID));
+    if (focusSelector) {
+      tabList.querySelector<HTMLElement>(focusSelector)?.focus({
+        preventScroll: true,
+      });
+    }
+    return true;
   };
 
   const queueRender = () => {
@@ -2875,7 +2881,9 @@ export function mountRequestWorkspace(
         if (!remainingTabIDs.has(tab.id)) retireRequestRuntime(tab.id);
       }
       if (rendering || suppressStoreRender > 0) return;
-      if (!requestPresentationChanged(state, previous)) return;
+      const scope = requestRenderScope(state, previous);
+      if (scope === "none") return;
+      if (scope === "tabs" && renderTabsOnly()) return;
       render();
     }),
   );
