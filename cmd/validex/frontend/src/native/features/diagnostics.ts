@@ -774,42 +774,69 @@ function performanceResult(
   result: URLPerformanceSummary,
 ): TrustedHTMLFragment {
   const locale = getLocale();
+  const metricCards = [
+    {
+      label: t("diagnostics.performance.fastest"),
+      value: formatURLPerformanceDuration(result.fastestMs, locale),
+      primary: false,
+    },
+    {
+      label: t("diagnostics.performance.average"),
+      value: formatURLPerformanceDuration(result.averageMs, locale),
+      primary: true,
+    },
+    {
+      label: t("diagnostics.performance.slowest"),
+      value: formatURLPerformanceDuration(result.slowestMs, locale),
+      primary: false,
+    },
+    {
+      label: t("diagnostics.performance.completedSamples"),
+      value: result.samples.length.toLocaleString(locale),
+      primary: false,
+    },
+  ];
+
   return html`
-    <div class="diagnostics-result-stack">
-      <article class="tool-panel">
-        ${cardHeader(
-          t("diagnostics.performance.resultTitle"),
-          t("diagnostics.performance.resultDescription"),
-        )}
-        <div class="diagnostics-runtime-cards diagnostics-performance-cards">
-          ${[
-            {
-              label: t("diagnostics.performance.fastest"),
-              value: formatURLPerformanceDuration(result.fastestMs, locale),
-            },
-            {
-              label: t("diagnostics.performance.average"),
-              value: formatURLPerformanceDuration(result.averageMs, locale),
-            },
-            {
-              label: t("diagnostics.performance.slowest"),
-              value: formatURLPerformanceDuration(result.slowestMs, locale),
-            },
-            {
-              label: t("diagnostics.performance.completedSamples"),
-              value: result.samples.length.toLocaleString(locale),
-            },
-          ].map(
-            (summary) => html`
-              <article>
-                <span class="tool-eyebrow">${summary.label}</span>
-                <strong class="diagnostics-big-value">
-                  ${summary.value}
-                </strong>
-              </article>
-            `,
-          )}
+    <section
+      class="diagnostics-performance-result"
+      aria-labelledby="diagnostics-performance-result-title"
+    >
+      <header class="diagnostics-performance-result-header">
+        <div>
+          <h2 id="diagnostics-performance-result-title">
+            ${t("diagnostics.performance.resultTitle")}
+          </h2>
+          <p>${t("diagnostics.performance.resultDescription")}</p>
         </div>
+      </header>
+
+      <div
+        class="diagnostics-runtime-cards diagnostics-performance-cards"
+        aria-label="${t("diagnostics.performance.metricsLabel")}"
+      >
+        ${metricCards.map(
+          (summary) => html`
+            <article class="${summary.primary ? "is-primary" : ""}">
+              <span class="tool-eyebrow">${summary.label}</span>
+              <strong class="diagnostics-big-value">
+                ${summary.value}
+              </strong>
+            </article>
+          `,
+        )}
+      </div>
+
+      <section
+        class="diagnostics-performance-samples"
+        aria-labelledby="diagnostics-performance-samples-title"
+      >
+        <header>
+          <h3 id="diagnostics-performance-samples-title">
+            ${t("diagnostics.performance.sampleBreakdown")}
+          </h3>
+          <span>${t("diagnostics.performance.durationScale")}</span>
+        </header>
         <div class="diagnostics-table-wrap">
           <table class="diagnostics-table">
             <thead>
@@ -821,30 +848,57 @@ function performanceResult(
               </tr>
             </thead>
             <tbody>
-              ${result.samples.map(
-                (sample) => html`
+              ${result.samples.map((sample) => {
+                const ratio =
+                  result.slowestMs > 0
+                    ? Math.max(
+                        4,
+                        Math.min(
+                          100,
+                          (sample.durationMs / result.slowestMs) * 100,
+                        ),
+                      )
+                    : 100;
+                const statusClass =
+                  sample.statusCode >= 200 && sample.statusCode < 400
+                    ? "is-success"
+                    : sample.statusCode >= 400 && sample.statusCode < 500
+                      ? "is-warning"
+                      : "is-error";
+                return html`
                   <tr>
                     <td>${sample.number.toLocaleString(locale)}</td>
                     <td>
-                      <span class="diagnostics-status">
+                      <span class="diagnostics-status ${statusClass}">
                         HTTP ${sample.statusCode}
                       </span>
                     </td>
                     <td>
-                      ${formatURLPerformanceDuration(
-                        sample.durationMs,
-                        locale,
-                      )}
+                      <div class="diagnostics-performance-duration">
+                        <strong>
+                          ${formatURLPerformanceDuration(
+                            sample.durationMs,
+                            locale,
+                          )}
+                        </strong>
+                        <span aria-hidden="true">
+                          <i style="width: ${ratio.toFixed(1)}%"></i>
+                        </span>
+                      </div>
                     </td>
-                    <td><code>${sample.finalURL}</code></td>
+                    <td>
+                      <code title="${sample.finalURL}">
+                        ${sample.finalURL}
+                      </code>
+                    </td>
                   </tr>
-                `,
-              )}
+                `;
+              })}
             </tbody>
           </table>
         </div>
-      </article>
-    </div>
+      </section>
+    </section>
   `;
 }
 
@@ -1560,15 +1614,32 @@ function performancePanel(state: DiagnosticsState): TrustedHTMLFragment {
   const running = state.busy === "performance";
   const stopping = running && state.performanceCanceling;
   return html`
-    <div class="diagnostics-result-stack">
-      <article class="tool-panel diagnostics-panel-padded">
-        ${cardHeader(
-          t("diagnostics.performance.targetTitle"),
-          t("diagnostics.performance.targetDescription"),
-        )}
-        <div class="diagnostics-runtime-form">
-          <label class="diagnostics-field diagnostics-field-wide">
-            ${t("diagnostics.performance.url")}
+    <div class="diagnostics-result-stack diagnostics-performance-workspace">
+      <section
+        class="diagnostics-performance-console"
+        aria-labelledby="diagnostics-performance-target-title"
+        aria-busy="${running ? "true" : "false"}"
+      >
+        <header class="diagnostics-performance-console-header">
+          <div>
+            <h2 id="diagnostics-performance-target-title">
+              ${t("diagnostics.performance.targetTitle")}
+            </h2>
+            <p>${t("diagnostics.performance.targetDescription")}</p>
+          </div>
+          <div
+            class="diagnostics-performance-method"
+            title="${t("diagnostics.performance.urlHelp")}"
+          >
+            ${icon("request", 15)}
+            <span>${t("diagnostics.performance.methodLabel")}</span>
+            <strong>${t("diagnostics.performance.methodValue")}</strong>
+          </div>
+        </header>
+
+        <div class="diagnostics-performance-url-row">
+          <label class="diagnostics-field diagnostics-performance-url-field">
+            <span>${t("diagnostics.performance.url")}</span>
             <input
               type="url"
               value="${state.performanceURL}"
@@ -1577,66 +1648,89 @@ function performancePanel(state: DiagnosticsState): TrustedHTMLFragment {
               aria-describedby="diagnostics-performance-url-help"
               autocomplete="url"
               required
+              ${state.busy ? "disabled" : ""}
             />
-            <small id="diagnostics-performance-url-help">
+            <small id="diagnostics-performance-url-help" class="sr-only">
               ${t("diagnostics.performance.urlHelp")}
             </small>
           </label>
-          <label class="diagnostics-field">
-            ${t("diagnostics.performance.timeout")}
-            <input
-              type="number"
-              min="1"
-              max="${urlPerformanceLimits.maximumTimeoutMs}"
-              step="1"
-              value="${state.performanceTimeout}"
-              data-diagnostics-control="performance-timeout"
-            />
-          </label>
-          <label class="diagnostics-field">
-            ${t("diagnostics.performance.samples")}
-            <input
-              type="number"
-              min="${urlPerformanceLimits.minimumSamples}"
-              max="${urlPerformanceLimits.maximumSamples}"
-              step="1"
-              value="${state.performanceSampleCount}"
-              data-diagnostics-control="performance-samples"
-            />
-          </label>
+          <div class="diagnostics-performance-primary-action">
+            ${running
+              ? button(
+                  stopping
+                    ? t("diagnostics.performance.stopping")
+                    : t("diagnostics.performance.stop"),
+                  "performance-stop",
+                  {
+                    variant: "secondary",
+                    icon: "stop",
+                    disabled: stopping,
+                  },
+                )
+              : button(
+                  t("diagnostics.performance.run"),
+                  "performance-run",
+                  {
+                    variant: "primary",
+                    icon: "play",
+                    disabled: Boolean(state.busy),
+                  },
+                )}
+          </div>
         </div>
-        <div class="diagnostics-action-row">
-          ${running
-            ? button(
-                stopping
-                  ? t("diagnostics.performance.stopping")
-                  : t("diagnostics.performance.stop"),
-                "performance-stop",
-                {
-                  variant: "secondary",
-                  icon: "stop",
-                  disabled: stopping,
-                },
-              )
-            : button(
-                t("diagnostics.performance.run"),
-                "performance-run",
-                {
-                  variant: "primary",
-                  icon: "play",
-                  disabled: Boolean(state.busy),
-                },
-              )}
-          <span>${t("diagnostics.performance.safetyHint")}</span>
+
+        <div class="diagnostics-performance-settings">
+          <div class="diagnostics-performance-settings-fields">
+            <label class="diagnostics-field">
+              <span>${t("diagnostics.performance.samples")}</span>
+              <span class="diagnostics-performance-unit-input">
+                <input
+                  type="number"
+                  min="${urlPerformanceLimits.minimumSamples}"
+                  max="${urlPerformanceLimits.maximumSamples}"
+                  step="1"
+                  value="${state.performanceSampleCount}"
+                  data-diagnostics-control="performance-samples"
+                  ${state.busy ? "disabled" : ""}
+                />
+                <span aria-hidden="true">
+                  ${t("diagnostics.performance.samplesUnit")}
+                </span>
+              </span>
+            </label>
+            <label class="diagnostics-field">
+              <span>${t("diagnostics.performance.timeout")}</span>
+              <span class="diagnostics-performance-unit-input">
+                <input
+                  type="number"
+                  min="1"
+                  max="${urlPerformanceLimits.maximumTimeoutMs}"
+                  step="1"
+                  value="${state.performanceTimeout}"
+                  data-diagnostics-control="performance-timeout"
+                  ${state.busy ? "disabled" : ""}
+                />
+                <span aria-hidden="true">ms</span>
+              </span>
+            </label>
+          </div>
+          <p class="diagnostics-performance-safety">
+            ${icon("info", 14)}
+            <span>${t("diagnostics.performance.safetyHint")}</span>
+          </p>
         </div>
-      </article>
+      </section>
       ${state.performanceResult
         ? performanceResult(state.performanceResult)
-        : emptyPanel(
-            "automation",
-            t("diagnostics.performance.emptyTitle"),
-            t("diagnostics.performance.emptyDescription"),
-          )}
+        : html`
+            <section class="diagnostics-performance-empty">
+              ${emptyToolResult(
+                "activity",
+                t("diagnostics.performance.emptyTitle"),
+                t("diagnostics.performance.emptyDescription"),
+              )}
+            </section>
+          `}
     </div>
   `;
 }

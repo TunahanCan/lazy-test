@@ -284,6 +284,60 @@ func TestLiveLocalAPIAudit(t *testing.T) {
 	)
 }
 
+func TestLiveURLPerformanceAudit(t *testing.T) {
+	if os.Getenv("VALIDEX_LIVE_E2E") != "1" {
+		t.Skip("set VALIDEX_LIVE_E2E=1 and launch Electron with remote debugging")
+	}
+
+	api := newLiveAPITracker(t, "performance")
+	pageContext, cancel := connectLiveElectron(t)
+	defer cancel()
+	root, err := repositoryRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	audit := &liveAudit{
+		t:         t,
+		world:     &browserWorld{context: pageContext, pageContext: pageContext},
+		artifacts: filepath.Join(root, "tests", "e2e", "artifacts"),
+	}
+	audit.listenForErrors(pageContext)
+	audit.initialize()
+	audit.setViewport(1440, 900)
+	audit.setTheme("light")
+	audit.openWorkspace("diagnostics")
+	audit.diagnosticsMode("Performance")
+	audit.diagnosticsControl("performance-url", api.URL()+"/actuator/health")
+	audit.diagnosticsControl("performance-timeout", "3000")
+	audit.diagnosticsControl("performance-samples", "3")
+	audit.diagnosticsRun("performance-run")
+	audit.capture("live-diagnostics-04-performance")
+
+	audit.setViewport(390, 844)
+	audit.capture("live-diagnostics-04-performance-mobile")
+	audit.run(chromedp.Evaluate(
+		`(() => {
+			const result = document.querySelector('.diagnostics-performance-result');
+			result?.scrollIntoView({block: 'start'});
+			for (let parent = result?.parentElement; parent; parent = parent.parentElement) {
+				if (parent.scrollTop > 0) {
+					parent.scrollTop = Math.max(0, parent.scrollTop - 80);
+				}
+			}
+			window.scrollBy(0, -80);
+		})()`,
+		nil,
+	))
+	audit.capture("live-diagnostics-04-performance-mobile-result")
+
+	if errorsFound := audit.frontendErrors(); len(errorsFound) > 0 {
+		t.Fatalf("URL performance frontend errors:\n%s", strings.Join(errorsFound, "\n"))
+	}
+	if hits := api.hitCount("/actuator/health"); hits != 3 {
+		t.Fatalf("URL performance request count = %d, want 3", hits)
+	}
+}
+
 func connectLiveElectron(t *testing.T) (context.Context, context.CancelFunc) {
 	t.Helper()
 	remote := strings.TrimRight(os.Getenv("VALIDEX_LIVE_E2E_REMOTE"), "/")

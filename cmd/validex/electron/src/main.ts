@@ -3,6 +3,7 @@ import {
   BrowserWindow,
   dialog,
   ipcMain,
+  Menu,
   nativeImage,
   protocol,
   session,
@@ -340,6 +341,7 @@ async function createWindow(
     height: 900,
     minWidth: 1080,
     minHeight: 700,
+    autoHideMenuBar: true,
     show: false,
     webPreferences: {
       preload: join(__dirname, "preload.js"),
@@ -354,6 +356,9 @@ async function createWindow(
   });
   mainWindow = window;
 
+  window.setMenu(null);
+  window.setMenuBarVisibility(false);
+
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => {
     event.preventDefault();
@@ -365,6 +370,7 @@ async function createWindow(
     event.preventDefault();
   });
   window.once("ready-to-show", () => {
+    window.maximize();
     window.show();
   });
   window.once("closed", () => {
@@ -384,6 +390,7 @@ function loadApplicationIcon(path: string): NativeImage {
 
 async function startApplication(): Promise<void> {
   const devURL = developmentURL();
+  Menu.setApplicationMenu(null);
   if (process.platform === "darwin") {
     app.setAboutPanelOptions({
       applicationName,

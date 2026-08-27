@@ -292,15 +292,18 @@ export const diagnosticsProtocolsMessages = defineMessages(
       "Runtime snapshot could not be captured.",
     "diagnostics.runtime.baselineCleared": "Runtime baseline cleared.",
 
-    "diagnostics.performance.targetTitle": "Performance target",
+    "diagnostics.performance.targetTitle": "Test a URL",
     "diagnostics.performance.targetDescription":
-      "Measure DNS, connection, redirect, and response time for one HTTP(S) URL.",
-    "diagnostics.performance.url": "Target URL",
+      "Measure cold end-to-end latency with isolated requests.",
+    "diagnostics.performance.url": "Test URL",
     "diagnostics.performance.urlHelp":
       "Validex sends HEAD and uses a bounded GET fallback only when the server rejects HEAD.",
-    "diagnostics.performance.timeout": "Per-sample timeout (ms)",
-    "diagnostics.performance.samples": "Samples",
-    "diagnostics.performance.run": "Run performance test",
+    "diagnostics.performance.methodLabel": "Request strategy",
+    "diagnostics.performance.methodValue": "HEAD / GET fallback",
+    "diagnostics.performance.timeout": "Timeout",
+    "diagnostics.performance.samples": "Runs",
+    "diagnostics.performance.samplesUnit": "runs",
+    "diagnostics.performance.run": "Start test",
     "diagnostics.performance.stop": "Stop test",
     "diagnostics.performance.stopping": "Stopping…",
     "diagnostics.performance.cancelRejectedTitle":
@@ -312,10 +315,11 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "diagnostics.performance.cancelFailure":
       "The URL performance stop command could not be completed.",
     "diagnostics.performance.safetyHint":
-      "Only test targets you are authorized to access. Local and private-network URLs are reachable from this desktop app.",
-    "diagnostics.performance.resultTitle": "URL timing result",
+      "Runs from this device. Test only systems you are authorized to access.",
+    "diagnostics.performance.resultTitle": "Cold request latency",
     "diagnostics.performance.resultDescription":
-      "Each sample uses a fresh transport, so these are cold end-to-end timings rather than a warm-load benchmark.",
+      "Each run opens a fresh transport and includes DNS, connection, redirects, and response time.",
+    "diagnostics.performance.metricsLabel": "Timing summary",
     "diagnostics.performance.fastest": "Fastest",
     "diagnostics.performance.average": "Average",
     "diagnostics.performance.slowest": "Slowest",
@@ -324,9 +328,12 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "diagnostics.performance.status": "HTTP status",
     "diagnostics.performance.duration": "Duration",
     "diagnostics.performance.finalURL": "Final URL",
-    "diagnostics.performance.emptyTitle": "No URL timing result",
+    "diagnostics.performance.sampleBreakdown": "Run details",
+    "diagnostics.performance.durationScale":
+      "Bars are relative to the slowest run",
+    "diagnostics.performance.emptyTitle": "Ready to measure",
     "diagnostics.performance.emptyDescription":
-      "Enter an HTTP(S) URL and run a few bounded response-time samples.",
+      "Results will appear here after the first bounded run.",
     "diagnostics.performance.success":
       "Completed {count} URL performance samples.",
     "diagnostics.performance.canceled": "URL performance test stopped.",
@@ -900,15 +907,18 @@ export const diagnosticsProtocolsMessages = defineMessages(
       "Runtime snapshot alınamadı.",
     "diagnostics.runtime.baselineCleared": "Runtime baseline temizlendi.",
 
-    "diagnostics.performance.targetTitle": "Performans hedefi",
+    "diagnostics.performance.targetTitle": "URL’yi ölç",
     "diagnostics.performance.targetDescription":
-      "Tek bir HTTP(S) URL’si için DNS, bağlantı, yönlendirme ve yanıt süresini ölçün.",
-    "diagnostics.performance.url": "Hedef URL",
+      "Bağımsız isteklerle soğuk uçtan uca gecikmeyi ölçün.",
+    "diagnostics.performance.url": "Test URL’si",
     "diagnostics.performance.urlHelp":
       "Validex HEAD gönderir; sunucu HEAD’i reddederse yalnızca sınırlı bir GET fallback kullanır.",
-    "diagnostics.performance.timeout": "Örnek başına zaman aşımı (ms)",
-    "diagnostics.performance.samples": "Örnek sayısı",
-    "diagnostics.performance.run": "Performans testini çalıştır",
+    "diagnostics.performance.methodLabel": "İstek yöntemi",
+    "diagnostics.performance.methodValue": "HEAD / GET fallback",
+    "diagnostics.performance.timeout": "Zaman aşımı",
+    "diagnostics.performance.samples": "Tekrar",
+    "diagnostics.performance.samplesUnit": "tekrar",
+    "diagnostics.performance.run": "Testi başlat",
     "diagnostics.performance.stop": "Testi durdur",
     "diagnostics.performance.stopping": "Durduruluyor…",
     "diagnostics.performance.cancelRejectedTitle":
@@ -920,23 +930,27 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "diagnostics.performance.cancelFailure":
       "URL performansı durdurma komutu tamamlanamadı.",
     "diagnostics.performance.safetyHint":
-      "Yalnızca erişim yetkiniz olan hedefleri test edin. Bu masaüstü uygulaması yerel ve özel ağ URL’lerine erişebilir.",
-    "diagnostics.performance.resultTitle": "URL zamanlama sonucu",
+      "Ölçüm bu cihazdan çalışır. Yalnızca erişim yetkiniz olan sistemleri test edin.",
+    "diagnostics.performance.resultTitle": "Soğuk istek gecikmesi",
     "diagnostics.performance.resultDescription":
-      "Her örnek yeni bir bağlantı katmanı kullanır; bu nedenle değerler warm-load benchmark değil, soğuk uçtan uca sürelerdir.",
+      "Her ölçüm yeni bağlantı açar; DNS, bağlantı, yönlendirme ve yanıt süresi birlikte ölçülür.",
+    "diagnostics.performance.metricsLabel": "Süre özeti",
     "diagnostics.performance.fastest": "En hızlı",
     "diagnostics.performance.average": "Ortalama",
     "diagnostics.performance.slowest": "En yavaş",
-    "diagnostics.performance.completedSamples": "Tamamlanan örnek",
+    "diagnostics.performance.completedSamples": "Tamamlanan tekrar",
     "diagnostics.performance.sample": "Örnek",
     "diagnostics.performance.status": "HTTP durumu",
     "diagnostics.performance.duration": "Süre",
     "diagnostics.performance.finalURL": "Son URL",
-    "diagnostics.performance.emptyTitle": "URL zamanlama sonucu yok",
+    "diagnostics.performance.sampleBreakdown": "Ölçüm detayları",
+    "diagnostics.performance.durationScale":
+      "Çubuklar en yavaş ölçüme göre ölçeklenir",
+    "diagnostics.performance.emptyTitle": "Ölçüme hazır",
     "diagnostics.performance.emptyDescription":
-      "Bir HTTP(S) URL’si girip sınırlı sayıda yanıt süresi örneği çalıştırın.",
+      "İlk sınırlı ölçümden sonra sonuçlar burada görünecek.",
     "diagnostics.performance.success":
-      "{count} URL performans örneği tamamlandı.",
+      "{count} URL performans ölçümü tamamlandı.",
     "diagnostics.performance.canceled": "URL performans testi durduruldu.",
     "diagnostics.performance.failure":
       "URL performans testi tamamlanamadı.",
@@ -950,11 +964,11 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "diagnostics.performance.urlFragment":
       "Testi çalıştırmadan önce URL fragment’ını (#…) kaldırın.",
     "diagnostics.performance.sampleRange":
-      "Örnek sayısı {minimum} ile {maximum} arasında bir tam sayı olmalı.",
+      "Tekrar sayısı {minimum} ile {maximum} arasında bir tam sayı olmalı.",
     "diagnostics.performance.timeoutRange":
       "Zaman aşımı 1 ile {maximum} ms arasında bir tam sayı olmalı.",
     "diagnostics.performance.budgetExceeded":
-      "{samples} örnek × {timeout} ms, {maximum} ms toplam güvenlik bütçesini aşıyor.",
+      "{samples} tekrar × {timeout} ms, {maximum} ms toplam güvenlik bütçesini aşıyor.",
 
     "diagnostics.environment.error": "Hata",
     "diagnostics.environment.shortLabel": "ORTAM {number}",
