@@ -44,6 +44,15 @@ func TestNativeBridgeFixtureImplementsFrontendContract(t *testing.T) {
 		"\n}",
 		regexp.MustCompile(`(?m)^\s{2}([A-Z][A-Za-z0-9_]*)\(`),
 	)
+	desktopMethods := contractMethods(
+		t,
+		string(frontendSource),
+		"interface DesktopAPI extends CanbridgeAPI {",
+		"\n}",
+		regexp.MustCompile(`(?m)^\s{2}([A-Z][A-Za-z0-9_]*)\(`),
+	)
+	frontendMethods = append(frontendMethods, desktopMethods...)
+	slices.Sort(frontendMethods)
 	fixtureMethods := contractMethods(
 		t,
 		string(fixtureSource),
@@ -53,7 +62,7 @@ func TestNativeBridgeFixtureImplementsFrontendContract(t *testing.T) {
 	)
 	if !slices.Equal(frontendMethods, fixtureMethods) {
 		t.Fatalf(
-			"frontend CanbridgeAPI methods = %q; browser fixture methods = %q",
+			"frontend desktop API methods = %q; browser fixture methods = %q",
 			frontendMethods,
 			fixtureMethods,
 		)
@@ -68,6 +77,20 @@ func TestNativeBridgeFixtureImplementsFrontendContract(t *testing.T) {
 			`(?ms)^\s{2}([A-Z][A-Za-z0-9_]*)\((.*?)\):\s*Promise<`,
 		),
 	)
+	for method, arity := range contractArities(
+		t,
+		string(frontendSource),
+		"interface DesktopAPI extends CanbridgeAPI {",
+		"\n}",
+		regexp.MustCompile(
+			`(?ms)^\s{2}([A-Z][A-Za-z0-9_]*)\((.*?)\):\s*Promise<`,
+		),
+	) {
+		if _, duplicate := frontendArities[method]; duplicate {
+			t.Fatalf("frontend bridge contract repeats method %q", method)
+		}
+		frontendArities[method] = arity
+	}
 	fixtureArities := contractArities(
 		t,
 		string(fixtureSource),
@@ -80,7 +103,7 @@ func TestNativeBridgeFixtureImplementsFrontendContract(t *testing.T) {
 	for _, method := range frontendMethods {
 		if frontendArities[method] != fixtureArities[method] {
 			t.Fatalf(
-				"frontend CanbridgeAPI.%s arity = %d; browser fixture arity = %d",
+				"frontend desktop API.%s arity = %d; browser fixture arity = %d",
 				method,
 				frontendArities[method],
 				fixtureArities[method],

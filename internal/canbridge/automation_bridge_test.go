@@ -7,7 +7,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
+	"time"
 )
 
 func TestRunCollectionExecutesAssertionsThroughSharedRunner(t *testing.T) {
@@ -128,6 +130,22 @@ func TestAnalyzeNetworkReturnsDNSAndRedirectChain(t *testing.T) {
 	}
 	if len(result.Report.DNSLookups) != 1 || len(result.Report.Hops) != 2 {
 		t.Fatalf("unexpected DNS/hop counts: %#v", result.Report)
+	}
+}
+
+func TestMillisecondsSupportsLongTimeoutsAndRejectsInvalidValues(t *testing.T) {
+	const longTimeout = 24 * time.Hour
+	if got := milliseconds(int(longTimeout / time.Millisecond)); got != longTimeout {
+		t.Fatalf("milliseconds() = %s, want %s", got, longTimeout)
+	}
+	if got := milliseconds(-1); got >= 0 {
+		t.Fatalf("milliseconds(-1) = %s, want an invalid duration", got)
+	}
+	if strconv.IntSize == 64 {
+		overflow := int(maximumDurationMilliseconds + 1)
+		if got := milliseconds(overflow); got >= 0 {
+			t.Fatalf("milliseconds(overflow) = %s, want an invalid duration", got)
+		}
 	}
 }
 

@@ -1599,12 +1599,12 @@ func diagnosticsPerformanceStopMessages(
 	case "en":
 		return "URL test could not be stopped",
 			"The backend did not accept the stop command for the active sample.",
-			"Retry Stop; the bounded sample remains active until it finishes or reaches its timeout.",
+			"Retry Stop; the active request continues until it finishes or reaches its timeout.",
 			nil
 	case "tr":
 		return "URL testi durdurulamadı",
 			"Backend, etkin örnek için durdurma komutunu kabul etmedi.",
-			"Durdur’u yeniden deneyin; sınırlı örnek tamamlanana veya zaman aşımına ulaşana kadar etkin kalır.",
+			"Durdur’u yeniden deneyin; etkin istek tamamlanana veya zaman aşımına ulaşana kadar sürer.",
 			nil
 	default:
 		return "", "", "", fmt.Errorf(
@@ -1660,7 +1660,9 @@ func (w *browserWorld) diagnosticsPerformanceStopErrorIsActionable() error {
 			role: notice?.getAttribute("role") || "",
 			live: notice?.getAttribute("aria-live") || "",
 			stopEnabled: stop instanceof HTMLButtonElement && !stop.disabled,
-			hasProgress: Boolean(document.querySelector(".diagnostics-progress"))
+			hasProgress: Boolean(document.querySelector(
+				'.diagnostics-performance-progress progress[value="0"][max="3"]'
+			))
 		};
 	})()`, &state)); err != nil {
 		return err

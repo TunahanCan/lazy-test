@@ -1070,7 +1070,6 @@ func TestNewRejectsUnsafeOptions(t *testing.T) {
 
 	tests := []Options{
 		{Timeout: -time.Second},
-		{Timeout: maxAllowedTimeout + time.Nanosecond},
 		{MaxRedirects: -1},
 		{MaxRedirects: maxAllowedRedirects + 1},
 		{MaxBodyBytes: -1},
@@ -1085,6 +1084,19 @@ func TestNewRejectsUnsafeOptions(t *testing.T) {
 		if !errors.Is(err, ErrInvalidOptions) {
 			t.Fatalf("case %d error = %v, want invalid options", index, err)
 		}
+	}
+}
+
+func TestNewAcceptsLongInspectionTimeout(t *testing.T) {
+	t.Parallel()
+
+	const timeout = 24 * time.Hour
+	inspector, err := New(Options{Timeout: timeout})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if inspector.timeout != timeout {
+		t.Fatalf("timeout = %s, want %s", inspector.timeout, timeout)
 	}
 }
 

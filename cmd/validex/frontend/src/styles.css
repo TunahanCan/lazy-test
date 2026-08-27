@@ -6428,6 +6428,52 @@ label.diagnostics-field {
   color: var(--text-secondary);
 }
 
+.diagnostics-performance-progress {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 32%);
+  align-items: center;
+  gap: 14px;
+  padding: 8px 16px 10px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-muted);
+}
+
+.diagnostics-performance-progress > div {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.diagnostics-performance-progress strong {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.diagnostics-performance-progress progress {
+  width: 100%;
+  height: 6px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 3px;
+  background: var(--surface-container-high);
+  accent-color: var(--accent);
+}
+
+.diagnostics-performance-progress progress::-webkit-progress-bar {
+  border-radius: 3px;
+  background: var(--surface-container-high);
+}
+
+.diagnostics-performance-progress progress::-webkit-progress-value {
+  border-radius: 3px;
+  background: var(--accent);
+}
+
 .diagnostics-performance-result {
   display: grid;
   min-width: 0;
@@ -6657,6 +6703,12 @@ label.diagnostics-field {
   .diagnostics-performance-safety {
     max-width: none;
     margin-left: 0;
+  }
+
+  .diagnostics-performance-progress {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+    padding-inline: 12px;
   }
 
   .diagnostics-performance-cards {
@@ -9609,6 +9661,10 @@ select:focus {
 
   .tool-tabs {
     margin-bottom: 7px;
+  }
+
+  .diagnostics-main-tabs {
+    position: static;
   }
 
   .tool-tabs button {

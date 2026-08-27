@@ -175,8 +175,32 @@ func TestLiveURLPerformanceAudit(t *testing.T) {
 	audit.openWorkspace("diagnostics")
 	audit.diagnosticsMode("Performance")
 	audit.diagnosticsControl("performance-url", api.URL()+"/actuator/health")
-	audit.diagnosticsControl("performance-timeout", "3000")
-	audit.diagnosticsControl("performance-samples", "3")
+	audit.diagnosticsControl("performance-timeout", "60000")
+	audit.diagnosticsControl("performance-samples", "12")
+	var configured struct {
+		Timeout    string `json:"timeout"`
+		Samples    string `json:"samples"`
+		TimeoutMax string `json:"timeoutMax"`
+		SamplesMax string `json:"samplesMax"`
+	}
+	audit.run(chromedp.Evaluate(`(() => {
+		const timeout = document.querySelector(
+			'[data-diagnostics-control="performance-timeout"]'
+		);
+		const samples = document.querySelector(
+			'[data-diagnostics-control="performance-samples"]'
+		);
+		return {
+			timeout: timeout?.value || "",
+			samples: samples?.value || "",
+			timeoutMax: timeout?.getAttribute("max") || "",
+			samplesMax: samples?.getAttribute("max") || ""
+		};
+	})()`, &configured))
+	if configured.Timeout != "60000" || configured.Samples != "12" ||
+		configured.TimeoutMax != "" || configured.SamplesMax != "" {
+		t.Fatalf("URL performance limits were not removed: %+v", configured)
+	}
 	audit.diagnosticsRun("performance-run")
 	audit.capture("live-diagnostics-04-performance")
 
@@ -200,8 +224,8 @@ func TestLiveURLPerformanceAudit(t *testing.T) {
 	if errorsFound := audit.frontendErrors(); len(errorsFound) > 0 {
 		t.Fatalf("URL performance frontend errors:\n%s", strings.Join(errorsFound, "\n"))
 	}
-	if hits := api.hitCount("/actuator/health"); hits != 3 {
-		t.Fatalf("URL performance request count = %d, want 3", hits)
+	if hits := api.hitCount("/actuator/health"); hits != 12 {
+		t.Fatalf("URL performance request count = %d, want 12", hits)
 	}
 }
 

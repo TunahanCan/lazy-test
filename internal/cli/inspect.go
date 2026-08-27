@@ -11,6 +11,8 @@ import (
 	"validex/internal/netinspector"
 )
 
+const maximumInspectTimeout = 5 * time.Minute
+
 const inspectUsage = `Usage:
   validex-cli inspect --url URL [--timeout 15s] [--max-redirects 10] [--insecure] [--json]
 
@@ -58,12 +60,12 @@ func executeInspect(
 		writeIgnoringError(stderr, inspectUsage)
 		return exitUsage
 	}
-	if timeout > netinspector.MaxTimeout {
+	if timeout > maximumInspectTimeout {
 		writeIgnoringError(
 			stderr,
 			fmt.Sprintf(
 				"validex-cli inspect: --timeout must not exceed %s\n\n",
-				netinspector.MaxTimeout,
+				maximumInspectTimeout,
 			),
 		)
 		writeIgnoringError(stderr, inspectUsage)

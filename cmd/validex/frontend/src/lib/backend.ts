@@ -83,6 +83,9 @@ interface CanbridgeAPI {
   RunCollection(input: CollectionRunInput): Promise<CollectionRunResult>;
   AnalyzeNetwork(input: NetworkInspectInput): Promise<NetworkInspectResult>;
   LintOpenAPI(): Promise<OpenAPILintResult>;
+}
+
+interface DesktopAPI extends CanbridgeAPI {
   WriteClipboardText(value: string): Promise<boolean>;
 }
 
@@ -90,7 +93,7 @@ declare global {
   interface Window {
     __VALIDEX_DEV__?: boolean;
     canbridge?: {
-      Bridge?: CanbridgeAPI;
+      Bridge?: DesktopAPI;
     };
   }
 }

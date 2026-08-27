@@ -17,9 +17,11 @@ import {
 } from "../.typescript-build/esm/features/collections/model.js";
 import { issueFrom } from "../.typescript-build/esm/features/protocols/model.js";
 import {
+  appendURLPerformanceReport,
   formatURLPerformanceDuration,
   jwtErrorText,
   summarizeURLPerformance,
+  urlPerformanceLimits,
   validateURLPerformanceOptions,
   validateURLPerformanceTarget,
 } from "../.typescript-build/esm/features/diagnostics/model.js";
@@ -531,7 +533,7 @@ test("Spring and JWT analyzers expose structured diagnostics", () => {
   );
 });
 
-test("URL performance diagnostics validate and summarize bounded samples", () => {
+test("URL performance diagnostics accept professional run sizes safely", () => {
   const translator = (key, values) => translate("en", key, values);
   assert.equal(
     validateURLPerformanceTarget(
@@ -548,12 +550,20 @@ test("URL performance diagnostics validate and summarize bounded samples", () =>
     assert.throws(() => validateURLPerformanceTarget(invalid, translator));
   }
   assert.doesNotThrow(() =>
-    validateURLPerformanceOptions(3, 5_000, translator),
+    validateURLPerformanceOptions(25_000, 3_600_000, translator),
   );
-  assert.throws(
-    () => validateURLPerformanceOptions(10, 5_000, translator),
-    /safety budget/,
-  );
+  for (const [samples, timeout] of [
+    [0, 5_000],
+    [1.5, 5_000],
+    [Number.MAX_SAFE_INTEGER + 1, 5_000],
+    [3, 0],
+    [3, 1.5],
+    [3, urlPerformanceLimits.maximumRepresentableTimeoutMs + 1],
+  ]) {
+    assert.throws(() =>
+      validateURLPerformanceOptions(samples, timeout, translator),
+    );
+  }
 
   const report = (duration, status, finalUrl) => ({
     inputUrl: "https://api.example.test/start",
@@ -570,6 +580,7 @@ test("URL performance diagnostics validate and summarize bounded samples", () =>
     report(8, 200, "https://api.example.test/health"),
   ]);
   assert.ok(summary);
+  assert.equal(summary.completedSamples, 3);
   assert.equal(summary.fastestMs, 4);
   assert.equal(summary.averageMs, 8);
   assert.equal(summary.slowestMs, 12);
@@ -577,6 +588,34 @@ test("URL performance diagnostics validate and summarize bounded samples", () =>
     summary.samples.map((sample) => sample.statusCode),
     [200, 204, 200],
   );
+
+  const longSummary = summarizeURLPerformance(
+    Array.from({ length: 1_000 }, (_, index) =>
+      report(
+        (index % 20) + 1,
+        200,
+        `https://api.example.test/health/${index + 1}`,
+      ),
+    ),
+  );
+  assert.ok(longSummary);
+  assert.equal(longSummary.completedSamples, 1_000);
+  assert.equal(
+    longSummary.samples.length,
+    urlPerformanceLimits.retainedSampleDetails,
+  );
+  assert.equal(longSummary.samples[0].number, 751);
+  assert.equal(longSummary.samples.at(-1).number, 1_000);
+  assert.equal(longSummary.fastestMs, 1);
+  assert.ok(Math.abs(longSummary.averageMs - 10.5) < Number.EPSILON * 20);
+  assert.equal(longSummary.slowestMs, 20);
+
+  const appended = appendURLPerformanceReport(
+    undefined,
+    report(7, 202, "https://api.example.test/accepted"),
+  );
+  assert.equal(appended.completedSamples, 1);
+  assert.equal(appended.samples[0].number, 1);
   assert.equal(formatURLPerformanceDuration(0, "en"), "< 1 ms");
   assert.equal(formatURLPerformanceDuration(8.25, "en"), "8.3 ms");
   assert.equal(summarizeURLPerformance([]), undefined);

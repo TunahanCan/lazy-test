@@ -30,11 +30,11 @@ import type {
   EnvironmentCompareResult,
   LogSearchResult,
   NetworkInspectResult,
-  NetworkReport,
   ThreadDumpResult,
 } from "../../lib/types.js";
 import { workspaceStore } from "../../stores/workspace.js";
 import {
+  appendURLPerformanceReport,
   bridgeIssue,
   componentStatus,
   defaultMetricNames,
@@ -55,7 +55,6 @@ import {
   responseHeadersText,
   resultIssue,
   springAdvice,
-  summarizeURLPerformance,
   urlPerformanceLimits,
   validateURLPerformanceOptions,
   validateURLPerformanceTarget,
@@ -97,6 +96,7 @@ interface DiagnosticsState {
   performanceTimeout: number;
   performanceSampleCount: number;
   performanceResult: URLPerformanceSummary | null;
+  performanceCompletedSamples: number;
   performanceCanceling: boolean;
   environmentMethod: string;
   environmentPath: string;
@@ -774,6 +774,13 @@ function performanceResult(
   result: URLPerformanceSummary,
 ): TrustedHTMLFragment {
   const locale = getLocale();
+  const sampleDetailLabel =
+    result.samples.length < result.completedSamples
+      ? t("diagnostics.performance.retainedSamples", {
+          shown: result.samples.length,
+          total: result.completedSamples,
+        })
+      : t("diagnostics.performance.durationScale");
   const metricCards = [
     {
       label: t("diagnostics.performance.fastest"),
@@ -792,7 +799,7 @@ function performanceResult(
     },
     {
       label: t("diagnostics.performance.completedSamples"),
-      value: result.samples.length.toLocaleString(locale),
+      value: result.completedSamples.toLocaleString(locale),
       primary: false,
     },
   ];
@@ -835,7 +842,7 @@ function performanceResult(
           <h3 id="diagnostics-performance-samples-title">
             ${t("diagnostics.performance.sampleBreakdown")}
           </h3>
-          <span>${t("diagnostics.performance.durationScale")}</span>
+          <span>${sampleDetailLabel}</span>
         </header>
         <div class="diagnostics-table-wrap">
           <table class="diagnostics-table">
@@ -1687,7 +1694,6 @@ function performancePanel(state: DiagnosticsState): TrustedHTMLFragment {
                 <input
                   type="number"
                   min="${urlPerformanceLimits.minimumSamples}"
-                  max="${urlPerformanceLimits.maximumSamples}"
                   step="1"
                   value="${state.performanceSampleCount}"
                   data-diagnostics-control="performance-samples"
@@ -1703,8 +1709,7 @@ function performancePanel(state: DiagnosticsState): TrustedHTMLFragment {
               <span class="diagnostics-performance-unit-input">
                 <input
                   type="number"
-                  min="1"
-                  max="${urlPerformanceLimits.maximumTimeoutMs}"
+                  min="${urlPerformanceLimits.minimumTimeoutMs}"
                   step="1"
                   value="${state.performanceTimeout}"
                   data-diagnostics-control="performance-timeout"
@@ -1719,6 +1724,30 @@ function performancePanel(state: DiagnosticsState): TrustedHTMLFragment {
             <span>${t("diagnostics.performance.safetyHint")}</span>
           </p>
         </div>
+        ${running
+          ? html`
+              <div
+                class="diagnostics-performance-progress"
+                aria-live="polite"
+              >
+                <div>
+                  <span>${t("diagnostics.performance.progress")}</span>
+                  <strong data-performance-progress-label>
+                    ${t("diagnostics.performance.progressValue", {
+                      completed: state.performanceCompletedSamples,
+                      total: state.performanceSampleCount,
+                    })}
+                  </strong>
+                </div>
+                <progress
+                  data-performance-progress
+                  value="${state.performanceCompletedSamples}"
+                  max="${state.performanceSampleCount}"
+                  aria-label="${t("diagnostics.performance.progress")}">
+                </progress>
+              </div>
+            `
+          : ""}
       </section>
       ${state.performanceResult
         ? performanceResult(state.performanceResult)
@@ -2254,6 +2283,7 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
     performanceTimeout: 5_000,
     performanceSampleCount: 3,
     performanceResult: null,
+    performanceCompletedSamples: 0,
     performanceCanceling: false,
     environmentMethod: "GET",
     environmentPath: "/actuator/health",
@@ -2462,6 +2492,26 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
     render();
   };
 
+  const updatePerformanceProgress = () => {
+    const progress = optionalElement<HTMLProgressElement>(
+      root,
+      "[data-performance-progress]",
+    );
+    if (progress) {
+      progress.value = state.performanceCompletedSamples;
+    }
+    const label = optionalElement<HTMLElement>(
+      root,
+      "[data-performance-progress-label]",
+    );
+    if (label) {
+      label.textContent = t("diagnostics.performance.progressValue", {
+        completed: state.performanceCompletedSamples,
+        total: state.performanceSampleCount,
+      });
+    }
+  };
+
   const loadActiveResponse = () => {
     const tab = activeRequest();
     const response = tab?.response;
@@ -2617,9 +2667,18 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
     }
 
     state.performanceResult = null;
+    state.performanceCompletedSamples = 0;
     state.performanceCanceling = false;
     const operation = startOperation("performance");
-    const reports: NetworkReport[] = [];
+    let summary: URLPerformanceSummary | undefined;
+    const recordReport = (
+      report: NonNullable<NetworkInspectResult["report"]>,
+    ) => {
+      summary = appendURLPerformanceReport(summary, report);
+      state.performanceResult = summary;
+      state.performanceCompletedSamples = summary.completedSamples;
+      updatePerformanceProgress();
+    };
     try {
       for (let index = 0; index < sampleCount; index += 1) {
         if (!isCurrentOperation(operation)) return;
@@ -2642,9 +2701,7 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
         if (!isCurrentOperation(operation)) return;
         if (pendingPerformanceCancellationID === operationID) {
           if (!result.error && result.report?.finalStatusCode) {
-            reports.push(result.report);
-            state.performanceResult =
-              summarizeURLPerformance(reports) ?? null;
+            recordReport(result.report);
           }
           pendingPerformanceCancellationID = undefined;
           state.performanceCanceling = false;
@@ -2658,7 +2715,7 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
         }
         const failure = resultIssue(result, t);
         if (failure || !result.report?.finalStatusCode) {
-          state.performanceResult = summarizeURLPerformance(reports) ?? null;
+          state.performanceResult = summary ?? null;
           state.notice =
             failure ?? {
               tone: "error",
@@ -2668,21 +2725,20 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
             };
           return;
         }
-        reports.push(result.report);
-        state.performanceResult = summarizeURLPerformance(reports) ?? null;
+        recordReport(result.report);
       }
 
       if (!isCurrentOperation(operation)) return;
-      state.performanceResult = summarizeURLPerformance(reports) ?? null;
+      state.performanceResult = summary ?? null;
       state.notice = {
         tone: "success",
         text: t("diagnostics.performance.success", {
-          count: reports.length,
+          count: summary?.completedSamples ?? 0,
         }),
       };
     } catch (error) {
       if (isCurrentOperation(operation)) {
-        state.performanceResult = summarizeURLPerformance(reports) ?? null;
+        state.performanceResult = summary ?? null;
         state.notice = bridgeIssue(
           error,
           t("diagnostics.performance.failure"),
@@ -3006,9 +3062,13 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
 
   const clearPerformanceInputResult = (): boolean => {
     const changed = Boolean(
-      state.performanceResult || state.notice || state.busy,
+      state.performanceResult ||
+        state.performanceCompletedSamples ||
+        state.notice ||
+        state.busy,
     );
     state.performanceResult = null;
+    state.performanceCompletedSamples = 0;
     state.notice = null;
     return invalidatePendingOperation() || changed;
   };
@@ -3116,28 +3176,14 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
         shouldRender = clearPerformanceInputResult();
         break;
       case "performance-timeout": {
-        const timeout = Math.max(
-          1,
-          Math.min(
-            urlPerformanceLimits.maximumTimeoutMs,
-            Number(element.value) || 1,
-          ),
-        );
-        state.performanceTimeout = timeout;
-        element.value = String(timeout);
+        const timeout = Number(element.value);
+        state.performanceTimeout = Number.isFinite(timeout) ? timeout : 0;
         shouldRender = clearPerformanceInputResult();
         break;
       }
       case "performance-samples": {
-        const samples = Math.max(
-          urlPerformanceLimits.minimumSamples,
-          Math.min(
-            urlPerformanceLimits.maximumSamples,
-            Number(element.value) || urlPerformanceLimits.minimumSamples,
-          ),
-        );
-        state.performanceSampleCount = samples;
-        element.value = String(samples);
+        const samples = Number(element.value);
+        state.performanceSampleCount = Number.isFinite(samples) ? samples : 0;
         shouldRender = clearPerformanceInputResult();
         break;
       }

@@ -18,16 +18,12 @@ import (
 )
 
 const (
-	// MaxTimeout is the longest supported end-to-end inspection timeout.
-	MaxTimeout = 5 * time.Minute
-
 	defaultTimeout                = 10 * time.Second
 	defaultMaxRedirects           = 10
 	defaultMaxBodyBytes           = int64(64 << 10)
 	defaultMaxResponseHeaderBytes = int64(1 << 20)
 	defaultMaxIPAddresses         = 64
 
-	maxAllowedTimeout             = MaxTimeout
 	maxAllowedRedirects           = 50
 	maxAllowedBodyBytes           = int64(16 << 20)
 	maxAllowedResponseHeaderBytes = int64(8 << 20)
@@ -132,11 +128,10 @@ func New(options Options) (*Inspector, error) {
 	if timeout == 0 {
 		timeout = defaultTimeout
 	}
-	if timeout < 0 || timeout > maxAllowedTimeout {
+	if timeout < 0 {
 		return nil, fmt.Errorf(
-			"%w: timeout must be positive and at most %s",
+			"%w: timeout must not be negative",
 			ErrInvalidOptions,
-			maxAllowedTimeout,
 		)
 	}
 

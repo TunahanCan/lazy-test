@@ -3,6 +3,7 @@ package canbridge
 import (
 	"context"
 	"errors"
+	"math"
 	"strings"
 	"time"
 
@@ -10,6 +11,8 @@ import (
 	"validex/internal/openapilint"
 	"validex/internal/runner"
 )
+
+const maximumDurationMilliseconds = int64(math.MaxInt64) / int64(time.Millisecond)
 
 // CollectionRunInput is the desktop boundary for the same JSON collection
 // consumed by validex-cli.
@@ -167,8 +170,11 @@ func (b *Bridge) LintOpenAPI() OpenAPILintResult {
 }
 
 func milliseconds(value int) time.Duration {
-	if value <= 0 {
+	if value == 0 {
 		return 0
+	}
+	if value < 0 || int64(value) > maximumDurationMilliseconds {
+		return -1
 	}
 	return time.Duration(value) * time.Millisecond
 }

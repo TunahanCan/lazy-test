@@ -22,7 +22,7 @@ export const diagnosticsProtocolsMessages = defineMessages(
       "Inspect read-only Spring Actuator health and metrics, then compare them with a baseline.",
     "diagnostics.mode.performance": "URL Performance",
     "diagnostics.mode.performanceDescription":
-      "Run a few bounded, cold end-to-end URL checks and compare their response times.",
+      "Run configurable cold end-to-end URL checks and compare their response times.",
     "diagnostics.mode.environments": "Environments",
     "diagnostics.mode.environmentsDescription":
       "Send the same request to two or more targets and compare status, headers, and JSON bodies.",
@@ -311,7 +311,7 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "diagnostics.performance.cancelRejectedMessage":
       "The backend did not accept the stop command for the active sample.",
     "diagnostics.performance.cancelRejectedHint":
-      "Retry Stop; the bounded sample remains active until it finishes or reaches its timeout.",
+      "Retry Stop; the active request continues until it finishes or reaches its timeout.",
     "diagnostics.performance.cancelFailure":
       "The URL performance stop command could not be completed.",
     "diagnostics.performance.safetyHint":
@@ -331,9 +331,13 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "diagnostics.performance.sampleBreakdown": "Run details",
     "diagnostics.performance.durationScale":
       "Bars are relative to the slowest run",
+    "diagnostics.performance.retainedSamples":
+      "Latest {shown} of {total} runs · bars use the overall slowest run",
+    "diagnostics.performance.progress": "Test progress",
+    "diagnostics.performance.progressValue": "{completed} / {total}",
     "diagnostics.performance.emptyTitle": "Ready to measure",
     "diagnostics.performance.emptyDescription":
-      "Results will appear here after the first bounded run.",
+      "Results will appear here after the first run.",
     "diagnostics.performance.success":
       "Completed {count} URL performance samples.",
     "diagnostics.performance.canceled": "URL performance test stopped.",
@@ -349,11 +353,9 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "diagnostics.performance.urlFragment":
       "Remove the URL fragment (#…) before running the test.",
     "diagnostics.performance.sampleRange":
-      "Samples must be a whole number from {minimum} to {maximum}.",
+      "Runs must be a positive whole number.",
     "diagnostics.performance.timeoutRange":
-      "Timeout must be a whole number from 1 to {maximum} ms.",
-    "diagnostics.performance.budgetExceeded":
-      "{samples} samples × {timeout} ms exceeds the {maximum} ms total safety budget.",
+      "Timeout must be a positive whole number of milliseconds.",
 
     "diagnostics.environment.error": "Error",
     "diagnostics.environment.shortLabel": "ENV {number}",
@@ -637,7 +639,7 @@ export const diagnosticsProtocolsMessages = defineMessages(
       "Salt okunur Spring Actuator health ve metric verilerini inceleyip baseline ile karşılaştırın.",
     "diagnostics.mode.performance": "URL Performansı",
     "diagnostics.mode.performanceDescription":
-      "Sınırlı sayıda soğuk uçtan uca URL kontrolü çalıştırıp yanıt sürelerini karşılaştırın.",
+      "Ayarlanabilir sayıda soğuk uçtan uca URL kontrolü çalıştırıp yanıt sürelerini karşılaştırın.",
     "diagnostics.mode.environments": "Ortamlar",
     "diagnostics.mode.environmentsDescription":
       "Aynı request’i iki veya daha fazla hedefe gönderip status, header ve JSON body’lerini karşılaştırın.",
@@ -926,7 +928,7 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "diagnostics.performance.cancelRejectedMessage":
       "Backend, etkin örnek için durdurma komutunu kabul etmedi.",
     "diagnostics.performance.cancelRejectedHint":
-      "Durdur’u yeniden deneyin; sınırlı örnek tamamlanana veya zaman aşımına ulaşana kadar etkin kalır.",
+      "Durdur’u yeniden deneyin; etkin istek tamamlanana veya zaman aşımına ulaşana kadar sürer.",
     "diagnostics.performance.cancelFailure":
       "URL performansı durdurma komutu tamamlanamadı.",
     "diagnostics.performance.safetyHint":
@@ -946,9 +948,13 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "diagnostics.performance.sampleBreakdown": "Ölçüm detayları",
     "diagnostics.performance.durationScale":
       "Çubuklar en yavaş ölçüme göre ölçeklenir",
+    "diagnostics.performance.retainedSamples":
+      "Son {shown} / {total} ölçüm · çubuklar genel en yavaş ölçüme göre ölçeklenir",
+    "diagnostics.performance.progress": "Test ilerlemesi",
+    "diagnostics.performance.progressValue": "{completed} / {total}",
     "diagnostics.performance.emptyTitle": "Ölçüme hazır",
     "diagnostics.performance.emptyDescription":
-      "İlk sınırlı ölçümden sonra sonuçlar burada görünecek.",
+      "İlk ölçümden sonra sonuçlar burada görünecek.",
     "diagnostics.performance.success":
       "{count} URL performans ölçümü tamamlandı.",
     "diagnostics.performance.canceled": "URL performans testi durduruldu.",
@@ -964,11 +970,9 @@ export const diagnosticsProtocolsMessages = defineMessages(
     "diagnostics.performance.urlFragment":
       "Testi çalıştırmadan önce URL fragment’ını (#…) kaldırın.",
     "diagnostics.performance.sampleRange":
-      "Tekrar sayısı {minimum} ile {maximum} arasında bir tam sayı olmalı.",
+      "Tekrar sayısı pozitif bir tam sayı olmalı.",
     "diagnostics.performance.timeoutRange":
-      "Zaman aşımı 1 ile {maximum} ms arasında bir tam sayı olmalı.",
-    "diagnostics.performance.budgetExceeded":
-      "{samples} tekrar × {timeout} ms, {maximum} ms toplam güvenlik bütçesini aşıyor.",
+      "Zaman aşımı milisaniye cinsinden pozitif bir tam sayı olmalı.",
 
     "diagnostics.environment.error": "Hata",
     "diagnostics.environment.shortLabel": "ORTAM {number}",

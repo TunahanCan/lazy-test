@@ -35,6 +35,7 @@ export interface URLPerformanceSample {
 
 export interface URLPerformanceSummary {
   samples: URLPerformanceSample[];
+  completedSamples: number;
   fastestMs: number;
   averageMs: number;
   slowestMs: number;
@@ -65,9 +66,9 @@ export const diagnosticsModes: readonly DiagnosticsMode[] = [
 
 export const urlPerformanceLimits = {
   minimumSamples: 1,
-  maximumSamples: 10,
-  maximumTimeoutMs: 30_000,
-  maximumTotalBudgetMs: 30_000,
+  minimumTimeoutMs: 1,
+  retainedSampleDetails: 250,
+  maximumRepresentableTimeoutMs: 9_223_372_036_854,
 } as const;
 
 export const defaultMetricNames = [
@@ -322,60 +323,64 @@ export function validateURLPerformanceOptions(
   t: Translate,
 ): void {
   if (
-    !Number.isInteger(sampleCount) ||
-    sampleCount < urlPerformanceLimits.minimumSamples ||
-    sampleCount > urlPerformanceLimits.maximumSamples
+    !Number.isSafeInteger(sampleCount) ||
+    sampleCount < urlPerformanceLimits.minimumSamples
   ) {
-    throw new Error(
-      t("diagnostics.performance.sampleRange", {
-        minimum: urlPerformanceLimits.minimumSamples,
-        maximum: urlPerformanceLimits.maximumSamples,
-      }),
-    );
+    throw new Error(t("diagnostics.performance.sampleRange"));
   }
   if (
-    !Number.isInteger(timeoutMs) ||
-    timeoutMs < 1 ||
-    timeoutMs > urlPerformanceLimits.maximumTimeoutMs
+    !Number.isSafeInteger(timeoutMs) ||
+    timeoutMs < urlPerformanceLimits.minimumTimeoutMs ||
+    timeoutMs > urlPerformanceLimits.maximumRepresentableTimeoutMs
   ) {
-    throw new Error(
-      t("diagnostics.performance.timeoutRange", {
-        maximum: urlPerformanceLimits.maximumTimeoutMs,
-      }),
-    );
+    throw new Error(t("diagnostics.performance.timeoutRange"));
   }
-  if (
-    sampleCount * timeoutMs > urlPerformanceLimits.maximumTotalBudgetMs
-  ) {
-    throw new Error(
-      t("diagnostics.performance.budgetExceeded", {
-        samples: sampleCount,
-        timeout: timeoutMs,
-        maximum: urlPerformanceLimits.maximumTotalBudgetMs,
-      }),
-    );
+}
+
+export function appendURLPerformanceReport(
+  summary: URLPerformanceSummary | undefined,
+  report: NetworkReport,
+): URLPerformanceSummary {
+  const durationMs = Math.max(0, report.totalDurationMs);
+  const completedSamples = (summary?.completedSamples ?? 0) + 1;
+  const sample: URLPerformanceSample = {
+    number: completedSamples,
+    statusCode: report.finalStatusCode ?? 0,
+    durationMs,
+    finalURL: report.finalUrl ?? report.inputUrl,
+  };
+  const samples = [...(summary?.samples ?? []), sample].slice(
+    -urlPerformanceLimits.retainedSampleDetails,
+  );
+
+  if (!summary) {
+    return {
+      samples,
+      completedSamples,
+      fastestMs: durationMs,
+      averageMs: durationMs,
+      slowestMs: durationMs,
+    };
   }
+
+  return {
+    samples,
+    completedSamples,
+    fastestMs: Math.min(summary.fastestMs, durationMs),
+    averageMs:
+      summary.averageMs +
+      (durationMs - summary.averageMs) / completedSamples,
+    slowestMs: Math.max(summary.slowestMs, durationMs),
+  };
 }
 
 export function summarizeURLPerformance(
   reports: readonly NetworkReport[],
 ): URLPerformanceSummary | undefined {
-  if (reports.length === 0) return undefined;
-  const samples = reports.map((report, index) => ({
-    number: index + 1,
-    statusCode: report.finalStatusCode ?? 0,
-    durationMs: Math.max(0, report.totalDurationMs),
-    finalURL: report.finalUrl ?? report.inputUrl,
-  }));
-  const durations = samples.map((sample) => sample.durationMs);
-  return {
-    samples,
-    fastestMs: Math.min(...durations),
-    averageMs:
-      durations.reduce((total, duration) => total + duration, 0) /
-      durations.length,
-    slowestMs: Math.max(...durations),
-  };
+  return reports.reduce<URLPerformanceSummary | undefined>(
+    (summary, report) => appendURLPerformanceReport(summary, report),
+    undefined,
+  );
 }
 
 export function formatURLPerformanceDuration(
