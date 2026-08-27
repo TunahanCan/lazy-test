@@ -1240,6 +1240,14 @@ kbd {
   background: var(--surface-muted);
 }
 
+.workspace-layout.context-panel-collapsed
+  .center-workspace
+  > .request-tabs {
+  width: calc(100% - 46px);
+  justify-self: start;
+  scroll-padding-right: 46px;
+}
+
 .request-tabs {
   display: flex;
   min-width: 0;
@@ -5545,6 +5553,38 @@ label.diagnostics-field {
 
 .workspace-layout.compact-layout .request-tabs {
   padding-inline: 42px;
+}
+
+.workspace-layout.compact-layout.request-panel-collapsed.context-panel-collapsed
+  .center-workspace
+  > .request-tabs {
+  width: calc(100% - 88px);
+  margin-left: 42px;
+  padding-inline: 0;
+  scroll-padding-inline: 0;
+}
+
+.workspace-layout.compact-layout .request-panel-restore {
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
+  justify-content: center;
+  gap: 0;
+  padding: 0;
+  border-radius: 0 6px 6px 0;
+}
+
+.workspace-layout.compact-layout .request-panel-restore-symbol {
+  width: 36px;
+  height: 36px;
+  flex-basis: 36px;
+  border-radius: 0 5px 5px 0;
+  background: transparent;
+}
+
+.workspace-layout.compact-layout .request-panel-restore-label,
+.workspace-layout.compact-layout .request-panel-restore-chevron {
+  display: none;
 }
 
 .workspace-layout.compact-layout .request-panel-slot,

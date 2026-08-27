@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,6 +17,8 @@ import (
 	cdpruntime "github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/cdproto/target"
 	"github.com/chromedp/chromedp"
+
+	"validex-e2e/internal/mockapi"
 )
 
 const liveAuditTimeout = 8 * time.Minute
@@ -35,22 +36,17 @@ type liveRemoteVersion struct {
 }
 
 type liveAPITracker struct {
-	server      *httptest.Server
-	environment string
-
-	mu            sync.Mutex
-	hits          map[string]int
-	activeSlow    int
-	maximumActive int
+	server *httptest.Server
+	mock   *mockapi.Server
 }
 
 func newLiveAPITracker(t *testing.T, environment string) *liveAPITracker {
 	t.Helper()
+	mock := mockapi.New(environment)
 	tracker := &liveAPITracker{
-		environment: environment,
-		hits:        make(map[string]int),
+		mock: mock,
 	}
-	tracker.server = httptest.NewServer(http.HandlerFunc(tracker.serveHTTP))
+	tracker.server = httptest.NewServer(mock)
 	t.Cleanup(tracker.server.Close)
 	return tracker
 }
@@ -59,141 +55,12 @@ func (tracker *liveAPITracker) URL() string {
 	return tracker.server.URL
 }
 
-func (tracker *liveAPITracker) record(path string) {
-	tracker.mu.Lock()
-	defer tracker.mu.Unlock()
-	tracker.hits[path]++
-}
-
-func (tracker *liveAPITracker) beginSlow() {
-	tracker.mu.Lock()
-	defer tracker.mu.Unlock()
-	tracker.activeSlow++
-	if tracker.activeSlow > tracker.maximumActive {
-		tracker.maximumActive = tracker.activeSlow
-	}
-}
-
-func (tracker *liveAPITracker) endSlow() {
-	tracker.mu.Lock()
-	defer tracker.mu.Unlock()
-	tracker.activeSlow--
-}
-
 func (tracker *liveAPITracker) hitCount(path string) int {
-	tracker.mu.Lock()
-	defer tracker.mu.Unlock()
-	return tracker.hits[path]
+	return tracker.mock.HitCount(path)
 }
 
 func (tracker *liveAPITracker) maxActive() int {
-	tracker.mu.Lock()
-	defer tracker.mu.Unlock()
-	return tracker.maximumActive
-}
-
-func (tracker *liveAPITracker) serveHTTP(
-	response http.ResponseWriter,
-	request *http.Request,
-) {
-	tracker.record(request.URL.Path)
-	response.Header().Set("Cache-Control", "no-store")
-	response.Header().Set("X-Validex-Live", tracker.environment)
-
-	switch request.URL.Path {
-	case "/api/orders/42":
-		response.Header().Set("Content-Type", "application/json; charset=utf-8")
-		response.Header().Set("X-Trace-ID", "live-trace-42")
-		http.SetCookie(response, &http.Cookie{
-			Name:     "validex_session",
-			Value:    "live-42",
-			Path:     "/",
-			HttpOnly: true,
-		})
-		_ = json.NewEncoder(response).Encode(map[string]any{
-			"environment": tracker.environment,
-			"order": map[string]any{
-				"id":     "order-42",
-				"status": "READY",
-			},
-			"items": []map[string]any{{"sku": "SKU-1", "quantity": 2}},
-		})
-	case "/api/echo":
-		body, _ := io.ReadAll(io.LimitReader(request.Body, 64*1024))
-		response.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(response).Encode(map[string]any{
-			"method":      request.Method,
-			"query":       request.URL.Query(),
-			"body":        string(body),
-			"contentType": request.Header.Get("Content-Type"),
-		})
-	case "/api/xml":
-		response.Header().Set("Content-Type", "application/xml; charset=utf-8")
-		_, _ = io.WriteString(response, `<?xml version="1.0"?><order id="42"><status>READY</status></order>`)
-	case "/api/text":
-		response.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = io.WriteString(response, "Validex live API text response\nsecond line")
-	case "/api/binary":
-		response.Header().Set("Content-Type", "application/octet-stream")
-		_, _ = response.Write([]byte{0x00, 0x01, 0x02, 0x7f, 0x80, 0xff})
-	case "/api/problem":
-		response.Header().Set("Content-Type", "application/problem+json")
-		response.Header().Set("X-Trace-ID", "live-problem-422")
-		response.WriteHeader(http.StatusUnprocessableEntity)
-		_, _ = io.WriteString(response, `{"type":"https://validex.test/problems/validation","title":"Validation failed","status":422,"detail":"quantity must be positive","traceId":"live-problem-422"}`)
-	case "/api/slow":
-		tracker.beginSlow()
-		defer tracker.endSlow()
-		select {
-		case <-time.After(350 * time.Millisecond):
-		case <-request.Context().Done():
-			return
-		}
-		response.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(response, `{"status":"complete"}`)
-	case "/api/redirect":
-		http.Redirect(response, request, "/api/orders/42", http.StatusFound)
-	case "/api/drop":
-		hijacker, ok := response.(http.Hijacker)
-		if !ok {
-			http.Error(response, "connection hijacking unavailable", http.StatusInternalServerError)
-			return
-		}
-		connection, _, err := hijacker.Hijack()
-		if err != nil {
-			return
-		}
-		_ = connection.Close()
-	case "/events":
-		response.Header().Set("Content-Type", "text/event-stream")
-		response.Header().Set("X-Stream", "live-orders")
-		response.WriteHeader(http.StatusOK)
-		_, _ = io.WriteString(response, "id: event-1\nevent: order.updated\nretry: 1250\ndata: {\"id\":\"order-42\"}\n\n")
-		_, _ = io.WriteString(response, "id: event-2\nevent: heartbeat\ndata: alive\n\n")
-		if flusher, ok := response.(http.Flusher); ok {
-			flusher.Flush()
-		}
-	case "/actuator/health":
-		response.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(response, `{"status":"UP","groups":["readiness"],"components":{"db":{"status":"UP"},"cache":{"status":"UP"}}}`)
-	case "/actuator/mappings":
-		response.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(response, `{"contexts":{"application":{"mappings":{"dispatcherServlets":{}}}}}`)
-	case "/actuator/metrics/jvm.memory.used":
-		response.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(response, `{"name":"jvm.memory.used","description":"Memory used","baseUnit":"bytes","measurements":[{"statistic":"VALUE","value":1048576}],"availableTags":[{"tag":"area","values":["heap"]}]}`)
-	case "/environment":
-		response.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(response).Encode(map[string]any{
-			"environment": tracker.environment,
-			"ready":       tracker.environment != "candidate",
-			"traceId":     "volatile-" + tracker.environment,
-		})
-	default:
-		response.Header().Set("Content-Type", "application/problem+json")
-		response.WriteHeader(http.StatusNotFound)
-		_, _ = io.WriteString(response, `{"title":"Not found","status":404}`)
-	}
+	return tracker.mock.MaxConcurrent()
 }
 
 type liveLayoutReport struct {
@@ -770,10 +637,19 @@ func (audit *liveAudit) testRequests(api *liveAPITracker) {
 			fmt.Sprintf(`document.querySelector('[data-response-section="%s"]')?.getAttribute('aria-selected') === 'true'`, section),
 			section+" response view",
 		)
+		audit.capture("live-request-response-" + section)
 	}
 
 	audit.sendRequest("POST", api.URL()+"/api/echo?source=validex", `{"sku":"SKU-42","quantity":2}`, 200)
 	audit.wait(`document.querySelector('.response-code')?.textContent.includes('SKU-42')`, "echoed request body")
+	for _, section := range []string{"params", "headers", "variables", "body"} {
+		audit.click(fmt.Sprintf(`[data-request-section="%s"]`, section))
+		audit.wait(
+			fmt.Sprintf(`document.querySelector('[data-request-section="%s"]')?.getAttribute('aria-selected') === 'true'`, section),
+			section+" request editor",
+		)
+		audit.capture("live-request-editor-" + section)
+	}
 	audit.sendRequest("GET", api.URL()+"/api/xml", "", 200)
 	audit.wait(`document.querySelector('.response-body')?.dataset.responseKind === 'xml'`, "XML response view")
 	audit.sendRequest("GET", api.URL()+"/api/text", "", 200)

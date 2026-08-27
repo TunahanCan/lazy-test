@@ -431,6 +431,10 @@ export function mountAppShell(
       "request-panel-collapsed",
       !layout.leftVisible,
     );
+    requestLayout.classList.toggle(
+      "context-panel-collapsed",
+      !layout.rightVisible,
+    );
     requestLayout.style.gridTemplateColumns = [
       layout.leftVisible
         ? `${layout.fitted.left}px ${panelResizerWidth}px`

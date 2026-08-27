@@ -291,6 +291,7 @@ export function mountRequestWorkspace(
   let deferredFocusoutRender = false;
   let pointerReleaseTimer: number | undefined;
   let draggedTabID: string | undefined;
+  let renderedActiveTabID = "";
   let responseResize:
     | {
         placement: ResponseSplitPlacement;
@@ -604,6 +605,8 @@ export function mountRequestWorkspace(
     }
     rendering = true;
     const focusedControl = captureFocusedControl();
+    const previousTabScrollLeft =
+      root.querySelector<HTMLElement>(".request-tabs")?.scrollLeft ?? 0;
     try {
       flushPendingDrafts();
       const state = workspaceStore.getState();
@@ -690,6 +693,20 @@ export function mountRequestWorkspace(
               )}
         `,
       );
+      const renderedTabList = root.querySelector<HTMLElement>(
+        ".request-tabs",
+      );
+      if (renderedTabList) {
+        renderedTabList.scrollLeft = previousTabScrollLeft;
+        if (state.activeTabID !== renderedActiveTabID) {
+          renderedActiveTabID = state.activeTabID;
+          renderedTabList
+            .querySelector<HTMLElement>(".request-tab.active")
+            ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+        }
+      } else {
+        renderedActiveTabID = "";
+      }
       const newVariableKey =
         root.querySelector<HTMLInputElement>("[data-new-variable-key]");
       const newVariableValue =
@@ -747,6 +764,12 @@ export function mountRequestWorkspace(
     const focusSelector = active ? focusSelectorFor(active) : undefined;
     const state = workspaceStore.getState();
     setHTML(tabList, requestTabItemsMarkup(state.tabs, state.activeTabID));
+    if (state.activeTabID !== renderedActiveTabID) {
+      renderedActiveTabID = state.activeTabID;
+      tabList
+        .querySelector<HTMLElement>(".request-tab.active")
+        ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
     if (focusSelector) {
       tabList.querySelector<HTMLElement>(focusSelector)?.focus({
         preventScroll: true,

@@ -199,6 +199,19 @@ bulunamazsa executable yolunu açıkça verebilirsiniz:
 VALIDEX_E2E_CHROME=/path/to/chrome make test-e2e
 ```
 
+Gerçek localhost istekleriyle manuel ekran denetimi için bağımsız mock API'yi
+çalıştırabilirsiniz:
+
+```bash
+cd tests/e2e
+go run ./cmd/mock-api -addr 127.0.0.1:18080 -environment primary
+```
+
+Sunucu JSON, XML, metin, binary, Problem Details, yönlendirme, bağlantı hatası,
+yavaş/eşzamanlı istek, SSE, Actuator ve ortam karşılaştırma uçları sağlar.
+`GET /__validex/stats` istek sayılarını ve en yüksek eşzamanlılığı gösterir;
+`POST /__validex/reset` sayaçları sıfırlar.
+
 ## WebView sürümünden geçiş notu
 
 Eski sistem WebView motoruna ait `localStorage` tercihleri — tema, açık
