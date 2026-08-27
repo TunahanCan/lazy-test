@@ -88,7 +88,6 @@ import {
   responseSizeFromPointer,
   responseSizeMaximum,
   responseSizeMinimum,
-  writeClipboardText,
   type ResponseSplitPlacement,
 } from "./interaction.js";
 import {
@@ -99,6 +98,7 @@ import {
   workbenchMarkup,
 } from "./presentation.js";
 import { workspaceDefinitions } from "../workspaces.js";
+import { copyText } from "../clipboard.js";
 
 const untitledNames = new Set(
   supportedLocales.map((locale) => messages[locale]["requests.untitled"]),
@@ -1150,11 +1150,7 @@ export function mountRequestWorkspace(
     value: string,
     successMessage: string,
   ): Promise<void> => {
-    const writer =
-      typeof navigator !== "undefined" && navigator.clipboard?.writeText
-        ? (text: string) => navigator.clipboard.writeText(text)
-        : undefined;
-    const copied = await writeClipboardText(writer, value);
+    const copied = await copyText(value);
     if (disposed) return;
     notify({
       message: copied ? successMessage : t("common.copyFailed"),

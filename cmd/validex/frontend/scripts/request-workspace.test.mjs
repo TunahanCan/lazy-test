@@ -12,7 +12,6 @@ import {
   horizontalTabIndexFromKey,
   responseSizeFromKey,
   responseSizeFromPointer,
-  writeClipboardText,
 } from "../.typescript-build/esm/native/requests/interaction.js";
 import { requestNameFromURL } from "../.typescript-build/esm/features/requests/model/requestName.js";
 import {
@@ -122,24 +121,6 @@ test("response resizing stays bounded for pointer and keyboard input", () => {
   assert.equal(responseSizeFromKey(42, "horizontal", "ArrowRight"), 40);
   assert.equal(responseSizeFromKey(42, "vertical", "Home"), 24);
   assert.equal(responseSizeFromKey(42, "vertical", "End"), 72);
-});
-
-test("clipboard success follows the writer promise result", async () => {
-  const writes = [];
-  assert.equal(
-    await writeClipboardText(async (value) => {
-      writes.push(value);
-    }, "response"),
-    true,
-  );
-  assert.deepEqual(writes, ["response"]);
-  assert.equal(
-    await writeClipboardText(async () => {
-      throw new Error("denied");
-    }, "response"),
-    false,
-  );
-  assert.equal(await writeClipboardText(undefined, "response"), false);
 });
 
 function tokenText(tokenization) {

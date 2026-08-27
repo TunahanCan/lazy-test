@@ -15,6 +15,7 @@ import {
 import type { BootstrapData, RequestTab } from "../../lib/types.js";
 import { localizedBootstrapEnvironmentName } from "../../lib/bootstrap.js";
 import { workspaceStore } from "../../stores/workspace.js";
+import { copyText } from "../clipboard.js";
 
 type ContextView = "variables" | "auth";
 
@@ -31,31 +32,6 @@ function hasMissingVariables(
     if (!candidate || isMaskedSecretValue(candidate)) return true;
   }
   return false;
-}
-
-async function copyText(value: string): Promise<boolean> {
-  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(value);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-  const input = document.createElement("textarea");
-  input.value = value;
-  input.setAttribute("readonly", "");
-  input.style.position = "fixed";
-  input.style.opacity = "0";
-  document.body.append(input);
-  input.select();
-  try {
-    return document.execCommand("copy");
-  } catch {
-    return false;
-  } finally {
-    input.remove();
-  }
 }
 
 function activeRequestTab(): RequestTab | undefined {

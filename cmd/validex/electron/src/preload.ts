@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from "electron";
 // Sandboxed preload scripts can only require Electron and a small set of Node
 // built-ins, so this file intentionally has no local runtime imports.
 const bridgeChannel = "validex:bridge:invoke";
+const clipboardWriteChannel = "validex:clipboard:write";
 
 function invoke(method: string, ...args: unknown[]): Promise<unknown> {
   return ipcRenderer.invoke(bridgeChannel, { method, args });
@@ -43,6 +44,8 @@ const Bridge = Object.freeze({
   RunCollection: (input: unknown) => invoke("RunCollection", input),
   AnalyzeNetwork: (input: unknown) => invoke("AnalyzeNetwork", input),
   LintOpenAPI: () => invoke("LintOpenAPI"),
+  WriteClipboardText: (value: unknown) =>
+    ipcRenderer.invoke(clipboardWriteChannel, value),
 });
 
 contextBridge.exposeInMainWorld("canbridge", Object.freeze({ Bridge }));

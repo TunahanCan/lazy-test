@@ -23,16 +23,3 @@ export function horizontalTabIndexFromKey(
   const offset = key === "ArrowLeft" ? -1 : 1;
   return (currentIndex + offset + itemCount) % itemCount;
 }
-
-export async function writeClipboardText(
-  writer: ((value: string) => Promise<void>) | undefined,
-  value: string,
-): Promise<boolean> {
-  if (!writer) return false;
-  try {
-    await writer(value);
-    return true;
-  } catch {
-    return false;
-  }
-}

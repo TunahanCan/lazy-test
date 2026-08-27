@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  clipboard,
   dialog,
   ipcMain,
   Menu,
@@ -21,6 +22,10 @@ import {
   type RendererInvocation,
 } from "./bridge";
 import { startupBanner } from "./banner";
+import {
+  clipboardText,
+  clipboardWriteChannel,
+} from "./clipboard";
 import {
   applicationIconPath,
   applicationID,
@@ -321,6 +326,14 @@ function installBridge(devURL: string | undefined): void {
   });
 }
 
+function installClipboardWriter(devURL: string | undefined): void {
+  ipcMain.handle(clipboardWriteChannel, (event, value: unknown) => {
+    validateSender(event, devURL);
+    clipboard.writeText(clipboardText(value));
+    return true;
+  });
+}
+
 function hardenSession(): void {
   session.defaultSession.setPermissionCheckHandler(() => false);
   session.defaultSession.setPermissionRequestHandler(
@@ -420,6 +433,7 @@ async function startApplication(): Promise<void> {
 
   hardenSession();
   installBridge(devURL);
+  installClipboardWriter(devURL);
   app.on("browser-window-focus", reinforceDockIcon);
   app.on("did-become-active", reinforceDockIcon);
 

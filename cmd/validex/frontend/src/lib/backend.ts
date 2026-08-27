@@ -83,6 +83,7 @@ interface CanbridgeAPI {
   RunCollection(input: CollectionRunInput): Promise<CollectionRunResult>;
   AnalyzeNetwork(input: NetworkInspectInput): Promise<NetworkInspectResult>;
   LintOpenAPI(): Promise<OpenAPILintResult>;
+  WriteClipboardText(value: string): Promise<boolean>;
 }
 
 declare global {

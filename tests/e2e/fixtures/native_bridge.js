@@ -716,6 +716,10 @@
           truncated: false,
         },
       }),
+    WriteClipboardText: async (value) => {
+      state.clipboard = String(value);
+      return true;
+    },
   };
 
   const control = {

@@ -631,6 +631,13 @@ func (audit *liveAudit) testRequests(api *liveAPITracker) {
 	audit.wait(`document.querySelector('.response-body')?.dataset.responseKind === 'json' &&
 		document.querySelector('.response-code')?.textContent.includes('order-42')`, "JSON response body")
 	audit.capture("live-02-request-json")
+	audit.click(`[data-action="copy-response"]`)
+	audit.wait(
+		`document.querySelector('.app-feedback.success')?.textContent.includes('Kopyalandı')`,
+		"response body copied through the Electron clipboard IPC",
+	)
+	audit.click(`.app-feedback [data-action="dismiss-feedback"]`)
+	audit.wait(`!document.querySelector('.app-feedback')`, "dismissed clipboard feedback")
 	for _, section := range []string{"headers", "cookies", "timeline", "raw", "body"} {
 		audit.click(fmt.Sprintf(`[data-response-section="%s"]`, section))
 		audit.wait(

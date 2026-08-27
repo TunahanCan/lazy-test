@@ -31,6 +31,7 @@ import {
   type JSONInputGroup,
   type JSONMode,
 } from "../../features/json-lab/model.js";
+import { copyText } from "../clipboard.js";
 
 interface JSONNotice {
   tone: "error" | "success";
@@ -640,8 +641,9 @@ export function mountJSONLab(root: HTMLElement): Disposable {
   const copyResult = async () => {
     if (!state.result) return;
     try {
-      if (!navigator.clipboard) throw new Error("Clipboard unavailable");
-      await navigator.clipboard.writeText(state.result);
+      if (!(await copyText(state.result))) {
+        throw new Error("Clipboard unavailable");
+      }
       state.copied = true;
       updateDerivedRegions(root, state);
       if (copiedTimer !== undefined) window.clearTimeout(copiedTimer);

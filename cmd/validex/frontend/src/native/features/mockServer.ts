@@ -35,6 +35,7 @@ import {
   type MockOperationResult,
   type ToolNotice,
 } from "../../features/mock-server/model.js";
+import { copyText } from "../clipboard.js";
 
 const mockPollIntervalMs = 1_500;
 const mockPollTimeoutMs = 5_000;
@@ -1157,7 +1158,9 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
   const copyURL = async (): Promise<void> => {
     if (!server?.baseUrl) return;
     try {
-      await navigator.clipboard.writeText(server.baseUrl);
+      if (!(await copyText(server.baseUrl))) {
+        throw new Error("Clipboard unavailable");
+      }
       if (!disposed) {
         notice = { tone: "success", text: t("mock.copy.success") };
       }
