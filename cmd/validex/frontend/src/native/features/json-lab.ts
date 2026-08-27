@@ -320,6 +320,7 @@ function inputCard(
           ${icon("trash", 13)} ${t("json.action.clear")}
         </button>
       </header>
+      ${actions}
       <textarea
         class="tool-code-input"
         data-json-control="source"
@@ -328,7 +329,6 @@ function inputCard(
         aria-label="${inputLabel}"
         aria-describedby="json-mode-guidance"
       >${input}</textarea>
-      ${actions}
     </div>
   `;
 }

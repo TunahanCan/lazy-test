@@ -693,20 +693,22 @@ export function responsePanelMarkup(tab: RequestTab): TrustedHTMLFragment {
         aria-label="${t("requests.response.label")}"
         aria-busy="${tab.running ? "true" : "false"}"
       >
-        <div class="response-placeholder-header">
-          <strong>${t("requests.response.label")}</strong>
-          ${tab.running
-            ? html`<span>${t("requests.response.sending")}</span>`
-            : ""}
-        </div>
-        <div class="response-tabs response-tabs-placeholder" aria-hidden="true">
-          ${baseSections.map(
-            (section, index) => html`
-              <span class="${index === 0 ? "active" : ""}">
-                ${icon(section.icon, 13)} ${t(section.key)}
-              </span>
-            `,
-          )}
+        <div class="response-panel-toolbar">
+          <div class="response-placeholder-header">
+            <strong>${t("requests.response.label")}</strong>
+            ${tab.running
+              ? html`<span>${t("requests.response.sending")}</span>`
+              : ""}
+          </div>
+          <div class="response-tabs response-tabs-placeholder" aria-hidden="true">
+            ${baseSections.map(
+              (section, index) => html`
+                <span class="${index === 0 ? "active" : ""}">
+                  ${icon(section.icon, 13)} ${t(section.key)}
+                </span>
+              `,
+            )}
+          </div>
         </div>
         <div
           class="response-content response-content-empty"
@@ -745,131 +747,133 @@ export function responsePanelMarkup(tab: RequestTab): TrustedHTMLFragment {
       aria-label="${t("requests.response.label")}"
       aria-busy="${tab.running ? "true" : "false"}"
     >
-      <div class="response-summary" role="status" aria-live="polite">
-        <div class="response-summary-primary">
-          <span
-            class="status-mark ${tone}"
-            aria-label="${t("requests.response.status", {
-              value: response.status,
-            })}"
-          >
-            ${response.statusCode} ${responseTitle}
-          </span>
-          <span
-            class="response-duration"
-            aria-label="${t("requests.response.duration", {
-              value: formatDuration(response.durationMs),
-            })}"
-          >
-            ${formatDuration(response.durationMs)}
-          </span>
-          <span
-            class="response-size"
-            aria-label="${t("requests.response.size", {
-              value: formatBytes(response.sizeBytes),
-            })}"
-          >
-            ${formatBytes(response.sizeBytes)}
-          </span>
-          <span
-            class="response-content-type"
-            aria-label="${t("requests.response.contentType", {
-              value:
-                response.contentType ||
-                t("requests.response.unknownContentType"),
-            })}"
-          >
-            ${response.contentType ||
-            t("requests.response.unknownContentType")}
-          </span>
-          <span
-            class="response-protocol"
-            aria-label="${t("requests.response.protocol", {
-              value: response.protocol,
-            })}"
-          >
-            ${response.protocol}
-          </span>
+      <div class="response-panel-toolbar">
+        <div
+          class="response-tabs"
+          role="tablist"
+          aria-orientation="horizontal"
+          aria-label="${t("requests.response.views")}"
+        >
+          ${sections.map((section) => {
+            const count =
+              section.id === "headers"
+                ? headerCount
+                : section.id === "cookies"
+                  ? (response?.cookies.length ?? 0)
+                  : 0;
+            return html`
+              <button
+                type="button"
+                role="tab"
+                id="response-tab-${tab.id}-${section.id}"
+                data-response-section="${section.id}"
+                data-state="${section.id === active ? "active" : "inactive"}"
+                aria-selected="${section.id === active
+                  ? "true"
+                  : "false"}"
+                aria-controls="response-section-panel-${tab.id}"
+                tabindex="${section.id === active ? "0" : "-1"}"
+                title="${t(section.key)}"
+              >
+                ${icon(section.icon, 13)}
+                ${t(section.key)}
+                ${count > 0 ? html`<span class="count-badge">${count}</span>` : ""}
+              </button>
+            `;
+          })}
         </div>
-        <div class="response-summary-secondary">
-          ${response.remoteAddr
-            ? html`
-                <span
-                  aria-label="${t("requests.response.remoteAddress", {
-                    value: response.remoteAddr,
-                  })}"
-                  title="${t("requests.response.remoteAddress", {
-                    value: response.remoteAddr,
-                  })}"
-                >
-                  ${response.remoteAddr}
-                </span>
-              `
-            : ""}
-          ${response.tls
-            ? html`
-                <span
-                  aria-label="${t("requests.response.tlsVersion", {
-                    value: response.tls,
-                  })}"
-                  title="${t("requests.response.tlsVersion", {
-                    value: response.tls,
-                  })}"
-                >
-                  ${response.tls}
-                </span>
-              `
-            : ""}
-          ${response.traceId
-            ? html`
-                <button
-                  type="button"
-                  data-action="copy-trace"
-                  data-trace="${response.traceId}"
-                  aria-label="${t("requests.response.traceCopy")}"
-                  title="${t("requests.response.traceCopy")}"
-                >
-                  ${t("requests.response.traceShort", {
-                    value: response.traceId.slice(0, 10),
-                  })}
-                </button>
-              `
-            : ""}
-        </div>
-      </div>
-      <div
-        class="response-tabs"
-        role="tablist"
-        aria-orientation="horizontal"
-        aria-label="${t("requests.response.views")}"
-      >
-        ${sections.map((section) => {
-          const count =
-            section.id === "headers"
-              ? headerCount
-              : section.id === "cookies"
-                ? (response?.cookies.length ?? 0)
-                : 0;
-          return html`
-            <button
-              type="button"
-              role="tab"
-              id="response-tab-${tab.id}-${section.id}"
-              data-response-section="${section.id}"
-              data-state="${section.id === active ? "active" : "inactive"}"
-              aria-selected="${section.id === active
-                ? "true"
-                : "false"}"
-              aria-controls="response-section-panel-${tab.id}"
-              tabindex="${section.id === active ? "0" : "-1"}"
-              title="${t(section.key)}"
+        <div class="response-summary" role="status" aria-live="polite">
+          <div class="response-summary-primary">
+            <span
+              class="status-mark ${tone}"
+              aria-label="${t("requests.response.status", {
+                value: response.status,
+              })}"
             >
-              ${icon(section.icon, 13)}
-              ${t(section.key)}
-              ${count > 0 ? html`<span class="count-badge">${count}</span>` : ""}
-            </button>
-          `;
-        })}
+              ${response.statusCode} ${responseTitle}
+            </span>
+            <span
+              class="response-duration"
+              aria-label="${t("requests.response.duration", {
+                value: formatDuration(response.durationMs),
+              })}"
+            >
+              ${formatDuration(response.durationMs)}
+            </span>
+            <span
+              class="response-size"
+              aria-label="${t("requests.response.size", {
+                value: formatBytes(response.sizeBytes),
+              })}"
+            >
+              ${formatBytes(response.sizeBytes)}
+            </span>
+            <span
+              class="response-content-type"
+              aria-label="${t("requests.response.contentType", {
+                value:
+                  response.contentType ||
+                  t("requests.response.unknownContentType"),
+              })}"
+            >
+              ${response.contentType ||
+              t("requests.response.unknownContentType")}
+            </span>
+            <span
+              class="response-protocol"
+              aria-label="${t("requests.response.protocol", {
+                value: response.protocol,
+              })}"
+            >
+              ${response.protocol}
+            </span>
+          </div>
+          <div class="response-summary-secondary">
+            ${response.remoteAddr
+              ? html`
+                  <span
+                    aria-label="${t("requests.response.remoteAddress", {
+                      value: response.remoteAddr,
+                    })}"
+                    title="${t("requests.response.remoteAddress", {
+                      value: response.remoteAddr,
+                    })}"
+                  >
+                    ${response.remoteAddr}
+                  </span>
+                `
+              : ""}
+            ${response.tls
+              ? html`
+                  <span
+                    aria-label="${t("requests.response.tlsVersion", {
+                      value: response.tls,
+                    })}"
+                    title="${t("requests.response.tlsVersion", {
+                      value: response.tls,
+                    })}"
+                  >
+                    ${response.tls}
+                  </span>
+                `
+              : ""}
+            ${response.traceId
+              ? html`
+                  <button
+                    type="button"
+                    data-action="copy-trace"
+                    data-trace="${response.traceId}"
+                    aria-label="${t("requests.response.traceCopy")}"
+                    title="${t("requests.response.traceCopy")}"
+                  >
+                    ${t("requests.response.traceShort", {
+                      value: response.traceId.slice(0, 10),
+                    })}
+                  </button>
+                `
+              : ""}
+          </div>
+        </div>
       </div>
       <div
         class="response-content"

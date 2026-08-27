@@ -1381,13 +1381,6 @@ function springPanel(state: DiagnosticsState): TrustedHTMLFragment {
             disabled: !activeResponse,
           }),
         )}
-        <textarea
-          class="tool-code-input"
-          data-diagnostics-control="spring-body"
-          placeholder="${'{\n  "type": "about:blank",\n  "title": "Bad Request",\n  "status": 400,\n  "detail": "Validation failed"\n}'}"
-          spellcheck="false"
-          aria-label="${t("diagnostics.spring.bodyLabel")}"
-        >${state.springBody}</textarea>
         <div class="diagnostics-form-strip">
           <label class="diagnostics-field">
             ${t("diagnostics.spring.httpStatus")}
@@ -1412,6 +1405,13 @@ function springPanel(state: DiagnosticsState): TrustedHTMLFragment {
             icon: "warning",
           })}
         </div>
+        <textarea
+          class="tool-code-input"
+          data-diagnostics-control="spring-body"
+          placeholder="${'{\n  "type": "about:blank",\n  "title": "Bad Request",\n  "status": 400,\n  "detail": "Validation failed"\n}'}"
+          spellcheck="false"
+          aria-label="${t("diagnostics.spring.bodyLabel")}"
+        >${state.springBody}</textarea>
       </article>
       <div>
         ${state.springAnalysis

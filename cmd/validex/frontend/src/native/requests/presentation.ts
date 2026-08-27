@@ -1012,12 +1012,10 @@ export function workbenchMarkup({
         ${unresolvedVariables.length === 0 && !visibleValidationError
           ? html`
               <p
-                class="request-url-help ${validationError
-                  ? "is-attention"
-                  : ""}"
+                class="request-url-help"
                 id="request-url-help-${tab.id}"
               >
-                ${validationError ?? t("requests.workbench.urlHelp")}
+                ${t("requests.workbench.urlHelp")}
               </p>
             `
           : ""}
