@@ -24,6 +24,7 @@ func (w *browserWorld) openNamedWorkspace(label string) error {
 		"mock":        "mock",
 		"json":        "json",
 		"diagnostics": "diagnostics",
+		"performance": "performance",
 		"protocols":   "protocols",
 		"automation":  "automation",
 	}[strings.ToLower(strings.TrimSpace(label))]

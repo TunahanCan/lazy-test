@@ -900,6 +900,7 @@ export function workbenchMarkup({
         class="request-composer"
         id="request-composer-${tab.id}"
         data-request-form
+        data-request-form-tab="${tab.id}"
         aria-busy="${tab.running ? "true" : "false"}"
       >
         <div
@@ -1003,6 +1004,8 @@ export function workbenchMarkup({
             class="icon-button"
             data-action="request-menu"
             aria-label="${t("requests.workbench.moreSendOptions")}"
+            aria-haspopup="menu"
+            aria-expanded="false"
             title="${t("requests.workbench.moreSendOptions")}"
             ${tab.running ? "disabled" : ""}
           >

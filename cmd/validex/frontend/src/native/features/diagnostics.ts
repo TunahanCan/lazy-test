@@ -10,6 +10,10 @@ import {
 } from "../../core/dom.js";
 import { icon, type IconName } from "../../core/icons.js";
 import {
+  presentDialog,
+  type DialogHandle,
+} from "../../core/overlays.js";
+import {
   getLocale,
   subscribeLocale,
   t,
@@ -56,10 +60,12 @@ import {
   resultIssue,
   springAdvice,
   urlPerformanceLimits,
+  urlPerformanceStatistics,
   validateURLPerformanceOptions,
   validateURLPerformanceTarget,
   type DiagnosticsMode,
   type DiagnosticsNotice,
+  type DiagnosticsWorkspaceMode,
   type PendingOperation,
   type URLPerformanceSummary,
 } from "../../features/diagnostics/model.js";
@@ -67,6 +73,7 @@ import {
   emptyToolResult,
   toolPageHeader,
 } from "../tool.js";
+import { setWorkspaceBusy } from "../chrome/workspaceActivity.js";
 
 type ThreadLogMode = "thread" | "logs";
 
@@ -76,7 +83,7 @@ interface EnvironmentTarget {
 }
 
 interface DiagnosticsState {
-  mode: DiagnosticsMode;
+  mode: DiagnosticsWorkspaceMode;
   busy: string;
   notice: DiagnosticsNotice | null;
   springBody: string;
@@ -126,7 +133,7 @@ interface ModeDefinition {
   icon: IconName;
 }
 
-const modeIcons: Record<DiagnosticsMode, IconName> = {
+const modeIcons: Record<DiagnosticsWorkspaceMode, IconName> = {
   spring: "warning",
   jwt: "eye",
   runtime: "activity",
@@ -137,7 +144,7 @@ const modeIcons: Record<DiagnosticsMode, IconName> = {
 };
 
 function diagnosticsModeLabel(
-  mode: DiagnosticsMode,
+  mode: DiagnosticsWorkspaceMode,
   translate: Translate = t,
 ): string {
   const keys = {
@@ -153,7 +160,7 @@ function diagnosticsModeLabel(
 }
 
 function diagnosticsModeDescription(
-  mode: DiagnosticsMode,
+  mode: DiagnosticsWorkspaceMode,
   translate: Translate = t,
 ): string {
   const keys = {
@@ -774,6 +781,9 @@ function performanceResult(
   result: URLPerformanceSummary,
 ): TrustedHTMLFragment {
   const locale = getLocale();
+  const statistics = urlPerformanceStatistics(result);
+  const formatNumber = (value: number, maximumFractionDigits = 2) =>
+    value.toLocaleString(locale, { maximumFractionDigits });
   const sampleDetailLabel =
     result.samples.length < result.completedSamples
       ? t("diagnostics.performance.retainedSamples", {
@@ -783,18 +793,25 @@ function performanceResult(
       : t("diagnostics.performance.durationScale");
   const metricCards = [
     {
-      label: t("diagnostics.performance.fastest"),
-      value: formatURLPerformanceDuration(result.fastestMs, locale),
-      primary: false,
-    },
-    {
       label: t("diagnostics.performance.average"),
       value: formatURLPerformanceDuration(result.averageMs, locale),
       primary: true,
     },
     {
-      label: t("diagnostics.performance.slowest"),
-      value: formatURLPerformanceDuration(result.slowestMs, locale),
+      label: t("diagnostics.performance.p95"),
+      value: formatURLPerformanceDuration(statistics.p95Ms, locale),
+      primary: false,
+    },
+    {
+      label: t("diagnostics.performance.errorRate"),
+      value: `${formatNumber(statistics.errorRate)}%`,
+      primary: false,
+    },
+    {
+      label: t("diagnostics.performance.throughput"),
+      value: t("diagnostics.performance.requestsPerSecond", {
+        value: formatNumber(statistics.throughputPerSecond),
+      }),
       primary: false,
     },
     {
@@ -803,6 +820,37 @@ function performanceResult(
       primary: false,
     },
   ];
+  const percentiles = [
+    ["P50", statistics.medianMs],
+    ["P90", statistics.p90Ms],
+    ["P95", statistics.p95Ms],
+    ["P99", statistics.p99Ms],
+  ] as const;
+  const statusLabel = (status: string) => {
+    if (/^\d+$/.test(status)) return `HTTP ${status}`;
+    if (status === "network-error") {
+      return t("diagnostics.performance.networkError");
+    }
+    return t("diagnostics.performance.errorCode", { code: status });
+  };
+  const statusEntries = Object.entries(result.statusCounts).sort(
+    ([left], [right]) => {
+      const leftIsHTTP = /^\d+$/.test(left);
+      const rightIsHTTP = /^\d+$/.test(right);
+      if (leftIsHTTP && rightIsHTTP) return Number(left) - Number(right);
+      if (leftIsHTTP) return -1;
+      if (rightIsHTTP) return 1;
+      return left.localeCompare(right, locale);
+    },
+  );
+  const percentileScope = statistics.percentilesTruncated
+    ? t("diagnostics.performance.percentileScopeLimited", {
+        shown: statistics.percentileSampleCount,
+        total: result.completedSamples,
+      })
+    : t("diagnostics.performance.percentileScopeAll", {
+        count: statistics.percentileSampleCount,
+      });
 
   return html`
     <section
@@ -812,7 +860,7 @@ function performanceResult(
       <header class="diagnostics-performance-result-header">
         <div>
           <h2 id="diagnostics-performance-result-title">
-            ${t("diagnostics.performance.resultTitle")}
+            ${t("diagnostics.performance.aggregateTitle")}
           </h2>
           <p>${t("diagnostics.performance.resultDescription")}</p>
         </div>
@@ -834,6 +882,201 @@ function performanceResult(
         )}
       </div>
 
+      <div class="diagnostics-performance-analysis-grid">
+        <section
+          class="diagnostics-performance-analysis-card"
+          aria-labelledby="diagnostics-performance-percentiles-title"
+        >
+          <header>
+            <div>
+              <h3 id="diagnostics-performance-percentiles-title">
+                ${t("diagnostics.performance.percentilesTitle")}
+              </h3>
+              <p>${percentileScope}</p>
+            </div>
+          </header>
+          <div class="diagnostics-performance-percentiles">
+            ${percentiles.map(([label, value]) => {
+              const ratio =
+                result.slowestMs > 0
+                  ? Math.max(3, Math.min(100, (value / result.slowestMs) * 100))
+                  : 100;
+              return html`
+                <div>
+                  <strong>${label}</strong>
+                  <span aria-hidden="true">
+                    <i style="width: ${ratio.toFixed(1)}%"></i>
+                  </span>
+                  <code>${formatURLPerformanceDuration(value, locale)}</code>
+                </div>
+              `;
+            })}
+          </div>
+        </section>
+
+        <section
+          class="diagnostics-performance-analysis-card"
+          aria-labelledby="diagnostics-performance-run-title"
+        >
+          <header>
+            <div>
+              <h3 id="diagnostics-performance-run-title">
+                ${t("diagnostics.performance.runSummaryTitle")}
+              </h3>
+              <p>${t("diagnostics.performance.runSummaryDescription")}</p>
+            </div>
+          </header>
+          <dl class="diagnostics-performance-facts">
+            <div>
+              <dt>${t("diagnostics.performance.successfulSamples")}</dt>
+              <dd>${result.successfulSamples.toLocaleString(locale)}</dd>
+            </div>
+            <div>
+              <dt>${t("diagnostics.performance.failedSamples")}</dt>
+              <dd>${result.failedSamples.toLocaleString(locale)}</dd>
+            </div>
+            <div>
+              <dt>${t("diagnostics.performance.standardDeviation")}</dt>
+              <dd>${formatURLPerformanceDuration(
+                statistics.standardDeviationMs,
+                locale,
+              )}</dd>
+            </div>
+            <div>
+              <dt>${t("diagnostics.performance.totalDuration")}</dt>
+              <dd>${formatURLPerformanceDuration(
+                result.elapsedTimeMs ?? result.totalDurationMs,
+                locale,
+              )}</dd>
+            </div>
+            <div>
+              <dt>${t("diagnostics.performance.averageDNS")}</dt>
+              <dd>${formatURLPerformanceDuration(
+                statistics.averageDNSMs,
+                locale,
+              )}</dd>
+            </div>
+            <div>
+              <dt>${t("diagnostics.performance.averageRequest")}</dt>
+              <dd>${formatURLPerformanceDuration(
+                statistics.averageRequestMs,
+                locale,
+              )}</dd>
+            </div>
+            <div>
+              <dt>${t("diagnostics.performance.redirectedSamples")}</dt>
+              <dd>${result.redirectedSamples.toLocaleString(locale)}</dd>
+            </div>
+            <div>
+              <dt>${t("diagnostics.performance.fallbackSamples")}</dt>
+              <dd>${result.fallbackSamples.toLocaleString(locale)}</dd>
+            </div>
+          </dl>
+          <div class="diagnostics-performance-statuses">
+            <strong>${t("diagnostics.performance.statusDistribution")}</strong>
+            <div>
+              ${statusEntries.map(
+                ([status, count]) => html`
+                  <span>
+                    ${statusLabel(status)}
+                    <strong>${count.toLocaleString(locale)}</strong>
+                  </span>
+                `,
+              )}
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <section
+        class="diagnostics-performance-aggregate"
+        aria-labelledby="diagnostics-performance-aggregate-title"
+      >
+        <header>
+          <h3 id="diagnostics-performance-aggregate-title">
+            ${t("diagnostics.performance.aggregateReport")}
+          </h3>
+          <span>
+            ${t("diagnostics.performance.aggregateHint", {
+              scope: percentileScope,
+            })}
+          </span>
+        </header>
+        <div class="diagnostics-table-wrap">
+          <table class="diagnostics-table">
+            <thead>
+              <tr>
+                <th scope="col">${t("diagnostics.performance.label")}</th>
+                <th scope="col">
+                  ${t("diagnostics.performance.sampleCount")}
+                </th>
+                <th scope="col">${t("diagnostics.performance.average")}</th>
+                <th scope="col">${t("diagnostics.performance.median")}</th>
+                <th scope="col">P90</th>
+                <th scope="col">P95</th>
+                <th scope="col">P99</th>
+                <th scope="col">${t("diagnostics.performance.fastest")}</th>
+                <th scope="col">${t("diagnostics.performance.slowest")}</th>
+                <th scope="col">${t("diagnostics.performance.deviationShort")}</th>
+                <th scope="col">${t("diagnostics.performance.errorRate")}</th>
+                <th scope="col">${t("diagnostics.performance.throughput")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <th
+                  scope="row"
+                  data-label="${t("diagnostics.performance.label")}"
+                >${t("diagnostics.performance.totalLabel")}</th>
+                <td data-label="${t("diagnostics.performance.sampleCount")}">
+                  ${result.completedSamples.toLocaleString(locale)}
+                </td>
+                <td data-label="${t("diagnostics.performance.average")}">${formatURLPerformanceDuration(
+                  result.averageMs,
+                  locale,
+                )}</td>
+                <td data-label="${t("diagnostics.performance.median")}">${formatURLPerformanceDuration(
+                  statistics.medianMs,
+                  locale,
+                )}</td>
+                <td data-label="P90">${formatURLPerformanceDuration(
+                  statistics.p90Ms,
+                  locale,
+                )}</td>
+                <td data-label="P95">${formatURLPerformanceDuration(
+                  statistics.p95Ms,
+                  locale,
+                )}</td>
+                <td data-label="P99">${formatURLPerformanceDuration(
+                  statistics.p99Ms,
+                  locale,
+                )}</td>
+                <td data-label="${t("diagnostics.performance.fastest")}">${formatURLPerformanceDuration(
+                  result.fastestMs,
+                  locale,
+                )}</td>
+                <td data-label="${t("diagnostics.performance.slowest")}">${formatURLPerformanceDuration(
+                  result.slowestMs,
+                  locale,
+                )}</td>
+                <td data-label="${t("diagnostics.performance.deviationShort")}">${formatURLPerformanceDuration(
+                  statistics.standardDeviationMs,
+                  locale,
+                )}</td>
+                <td data-label="${t("diagnostics.performance.errorRate")}">
+                  ${formatNumber(statistics.errorRate)}%
+                </td>
+                <td data-label="${t("diagnostics.performance.throughput")}">
+                  ${t("diagnostics.performance.requestsPerSecond", {
+                    value: formatNumber(statistics.throughputPerSecond),
+                  })}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       <section
         class="diagnostics-performance-samples"
         aria-labelledby="diagnostics-performance-samples-title"
@@ -851,6 +1094,10 @@ function performanceResult(
                 <th scope="col">${t("diagnostics.performance.sample")}</th>
                 <th scope="col">${t("diagnostics.performance.status")}</th>
                 <th scope="col">${t("diagnostics.performance.duration")}</th>
+                <th scope="col">${t("diagnostics.performance.dns")}</th>
+                <th scope="col">${t("diagnostics.performance.requestTime")}</th>
+                <th scope="col">${t("diagnostics.performance.redirects")}</th>
+                <th scope="col">${t("diagnostics.performance.method")}</th>
                 <th scope="col">${t("diagnostics.performance.finalURL")}</th>
               </tr>
             </thead>
@@ -867,20 +1114,36 @@ function performanceResult(
                       )
                     : 100;
                 const statusClass =
-                  sample.statusCode >= 200 && sample.statusCode < 400
+                  sample.success
                     ? "is-success"
                     : sample.statusCode >= 400 && sample.statusCode < 500
                       ? "is-warning"
                       : "is-error";
                 return html`
                   <tr>
-                    <td>${sample.number.toLocaleString(locale)}</td>
-                    <td>
-                      <span class="diagnostics-status ${statusClass}">
-                        HTTP ${sample.statusCode}
+                    <td
+                      data-label="${t("diagnostics.performance.sample")}"
+                      data-performance-field="sample"
+                    >${sample.number.toLocaleString(locale)}</td>
+                    <td
+                      data-label="${t("diagnostics.performance.status")}"
+                      data-performance-field="status"
+                    >
+                      <span
+                        class="diagnostics-status ${statusClass}"
+                        title="${sample.error ?? ""}"
+                      >
+                        ${sample.statusCode > 0
+                          ? `HTTP ${sample.statusCode}`
+                          : statusLabel(
+                              sample.failureCategory ?? "network-error",
+                            )}
                       </span>
                     </td>
-                    <td>
+                    <td
+                      data-label="${t("diagnostics.performance.duration")}"
+                      data-performance-field="duration"
+                    >
                       <div class="diagnostics-performance-duration">
                         <strong>
                           ${formatURLPerformanceDuration(
@@ -893,10 +1156,48 @@ function performanceResult(
                         </span>
                       </div>
                     </td>
-                    <td>
+                    <td
+                      data-label="${t("diagnostics.performance.dns")}"
+                      data-performance-field="dns"
+                    >${formatURLPerformanceDuration(
+                      sample.dnsDurationMs,
+                      locale,
+                    )}</td>
+                    <td
+                      data-label="${t("diagnostics.performance.requestTime")}"
+                      data-performance-field="request"
+                    >${formatURLPerformanceDuration(
+                      sample.requestDurationMs,
+                      locale,
+                    )}</td>
+                    <td
+                      data-label="${t("diagnostics.performance.redirects")}"
+                      data-performance-field="redirects"
+                    >${sample.redirectCount.toLocaleString(locale)}</td>
+                    <td
+                      data-label="${t("diagnostics.performance.method")}"
+                      data-performance-field="method"
+                    >
+                      <code>
+                        ${sample.usedGetFallback
+                          ? t("diagnostics.performance.headToGet")
+                          : sample.method}
+                      </code>
+                    </td>
+                    <td
+                      data-label="${t("diagnostics.performance.finalURL")}"
+                      data-performance-field="url"
+                    >
                       <code title="${sample.finalURL}">
                         ${sample.finalURL}
                       </code>
+                      ${sample.error
+                        ? html`
+                            <small class="diagnostics-performance-sample-error">
+                              ${sample.error}
+                            </small>
+                          `
+                        : ""}
                     </td>
                   </tr>
                 `;
@@ -1694,6 +1995,7 @@ function performancePanel(state: DiagnosticsState): TrustedHTMLFragment {
                 <input
                   type="number"
                   min="${urlPerformanceLimits.minimumSamples}"
+                  max="${urlPerformanceLimits.maximumSamples}"
                   step="1"
                   value="${state.performanceSampleCount}"
                   data-diagnostics-control="performance-samples"
@@ -1713,9 +2015,16 @@ function performancePanel(state: DiagnosticsState): TrustedHTMLFragment {
                   step="1"
                   value="${state.performanceTimeout}"
                   data-diagnostics-control="performance-timeout"
+                  aria-describedby="diagnostics-performance-timeout-unit"
                   ${state.busy ? "disabled" : ""}
                 />
                 <span aria-hidden="true">ms</span>
+                <span
+                  id="diagnostics-performance-timeout-unit"
+                  class="sr-only"
+                >
+                  ${t("diagnostics.performance.timeoutUnit")}
+                </span>
               </span>
             </label>
           </div>
@@ -2158,19 +2467,37 @@ function coveragePanel(state: DiagnosticsState): TrustedHTMLFragment {
   `;
 }
 
-function pageMarkup(state: DiagnosticsState): TrustedHTMLFragment {
+function pageMarkup(
+  state: DiagnosticsState,
+  standalonePerformance: boolean,
+): TrustedHTMLFragment {
+  const titleID = standalonePerformance
+    ? "performance-title"
+    : "diagnostics-title";
   return html`
     <section
-      class="tool-page diagnostics-lab"
-      aria-labelledby="diagnostics-title"
+      class="tool-page diagnostics-lab ${standalonePerformance
+        ? "performance-lab"
+        : ""}"
+      aria-labelledby="${titleID}"
     >
       ${toolPageHeader({
-        id: "diagnostics-title",
-        eyebrow: t("diagnostics.eyebrow"),
-        title: t("diagnostics.title"),
-        description: t("diagnostics.description"),
+        id: titleID,
+        eyebrow: standalonePerformance
+          ? t("diagnostics.performance.eyebrow")
+          : t("diagnostics.eyebrow"),
+        title: standalonePerformance
+          ? t("workspace.performance.label")
+          : t("diagnostics.title"),
+        description: standalonePerformance
+          ? t("diagnostics.performance.workspaceDescription")
+          : t("diagnostics.description"),
         meta: html`
-          <strong>${diagnosticsModeLabel(state.mode)}</strong>
+          <strong>
+            ${standalonePerformance
+              ? t("diagnostics.performance.benchmarkType")
+              : diagnosticsModeLabel(state.mode)}
+          </strong>
           <span>
             ${state.busy
               ? t("diagnostics.status.busy")
@@ -2178,8 +2505,8 @@ function pageMarkup(state: DiagnosticsState): TrustedHTMLFragment {
           </span>
         `,
       })}
-      ${mainTabs(state)}
-      ${modeGuidance(state)}
+      ${standalonePerformance ? "" : mainTabs(state)}
+      ${standalonePerformance ? "" : modeGuidance(state)}
       ${state.busy
         ? html`
             <div
@@ -2200,8 +2527,10 @@ function pageMarkup(state: DiagnosticsState): TrustedHTMLFragment {
       </div>
       <div
         id="diagnostics-panel-${state.mode}"
-        role="tabpanel"
-        aria-labelledby="diagnostics-tab-${state.mode}"
+        role="${standalonePerformance ? "group" : "tabpanel"}"
+        aria-labelledby="${standalonePerformance
+          ? titleID
+          : `diagnostics-tab-${state.mode}`}"
         aria-busy="${state.busy ? "true" : "false"}"
       >
         ${state.mode === "spring"
@@ -2258,12 +2587,18 @@ function asyncInputSignature(state: DiagnosticsState): string {
  * a relevant input or disposing the controller invalidates the call so a late
  * backend response can never repopulate stale UI.
  */
-export function mountDiagnosticsLab(root: HTMLElement): Disposable {
+function mountDiagnosticsWorkspace(
+  root: HTMLElement,
+  initialMode: DiagnosticsWorkspaceMode,
+): Disposable {
   const lifecycle = new Lifecycle();
+  const activityView = initialMode === "performance"
+    ? "performance"
+    : "diagnostics";
   const initialTab = activeRequest();
   const initialResponse = initialTab?.response;
   const state: DiagnosticsState = {
-    mode: "spring",
+    mode: initialMode,
     busy: "",
     notice: null,
     springBody: initialResponse?.body ?? "",
@@ -2323,6 +2658,8 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
   let performanceOperationSequence = 0;
   let activePerformanceOperationID: string | undefined;
   let pendingPerformanceCancellationID: string | undefined;
+  let performanceRunStartedAt: number | undefined;
+  let performanceConfirmationDialog: DialogHandle | undefined;
   let pendingFocus:
     | {
         kind: "control" | "action" | "mode" | "thread-mode";
@@ -2388,7 +2725,7 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
       };
     }
 
-    setHTML(root, pageMarkup(state));
+    setHTML(root, pageMarkup(state, initialMode === "performance"));
 
     const restore = focusKey ? pendingFocus : state.busy ? undefined : pendingFocus;
     if (!restore) return;
@@ -2451,12 +2788,28 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
   };
 
   const invalidatePendingOperation = (): boolean => {
+    const invalidatedPerformance = state.busy === "performance";
+    if (
+      invalidatedPerformance &&
+      state.performanceResult &&
+      performanceRunStartedAt !== undefined
+    ) {
+      state.performanceResult = {
+        ...state.performanceResult,
+        elapsedTimeMs: Math.max(
+          0,
+          window.performance.now() - performanceRunStartedAt,
+        ),
+      };
+    }
     operationSequence += 1;
     cancelActivePerformanceOperation();
     pendingPerformanceCancellationID = undefined;
     state.performanceCanceling = false;
+    if (invalidatedPerformance) performanceRunStartedAt = undefined;
     if (!state.busy) return false;
     state.busy = "";
+    setWorkspaceBusy(activityView, false);
     state.notice = {
       tone: "info",
       text: t("diagnostics.operation.stale"),
@@ -2471,6 +2824,7 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
       inputSignature: asyncInputSignature(state),
     };
     state.busy = name;
+    setWorkspaceBusy(activityView, true);
     state.notice = null;
     render();
     return operation;
@@ -2484,12 +2838,81 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
   const finishOperation = (operation: PendingOperation) => {
     if (!isCurrentOperation(operation)) return;
     state.busy = "";
+    setWorkspaceBusy(activityView, false);
     render();
   };
 
   const showValidationError = (message: string) => {
     state.notice = { tone: "error", text: message };
     render();
+  };
+
+  const confirmLargePerformanceRun = async (
+    sampleCount: number,
+  ): Promise<boolean> => {
+    if (
+      sampleCount <= urlPerformanceLimits.largeRunConfirmationSamples
+    ) {
+      return true;
+    }
+    const trigger = root.querySelector<HTMLElement>(
+      '[data-diagnostics-action="performance-run"]',
+    ) ?? undefined;
+    performanceConfirmationDialog?.dispose();
+    const dialog = presentDialog(
+      html`
+        <div class="dialog-header performance-confirmation-header">
+          <span class="dialog-icon" aria-hidden="true">
+            ${icon("warning", 17)}
+          </span>
+          <div>
+            <h2>${t("diagnostics.performance.confirmLargeRun.title")}</h2>
+            <p id="performance-large-run-description">
+              ${t("diagnostics.performance.confirmLargeRun.description", {
+                count: sampleCount,
+              })}
+            </p>
+          </div>
+        </div>
+        <div class="performance-confirmation-note">
+          ${icon("info", 15)}
+          <span>${t("diagnostics.performance.confirmLargeRun.hint")}</span>
+        </div>
+        <div class="dialog-actions">
+          <button
+            type="button"
+            class="button button-secondary button-md"
+            data-dialog-close="cancel"
+            data-performance-confirm-cancel
+          >
+            ${t("sidebar.cancel")}
+          </button>
+          <button
+            type="button"
+            class="button button-primary button-md"
+            data-dialog-close="run"
+            data-performance-confirm-run
+          >
+            ${icon("play", 14)}
+            ${t("diagnostics.performance.confirmLargeRun.confirm", {
+              count: sampleCount,
+            })}
+          </button>
+        </div>
+      `,
+      {
+        className: "performance-confirmation-dialog",
+        trigger,
+        initialFocus: "[data-performance-confirm-cancel]",
+        describedBy: "performance-large-run-description",
+      },
+    );
+    performanceConfirmationDialog = dialog;
+    const choice = await dialog.closed;
+    if (performanceConfirmationDialog === dialog) {
+      performanceConfirmationDialog = undefined;
+    }
+    return !disposed && choice === "run";
   };
 
   const updatePerformanceProgress = () => {
@@ -2510,6 +2933,20 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
         total: state.performanceSampleCount,
       });
     }
+  };
+
+  const performanceElapsedTime = (): number | undefined =>
+    performanceRunStartedAt === undefined
+      ? undefined
+      : Math.max(0, window.performance.now() - performanceRunStartedAt);
+
+  const recordCurrentPerformanceElapsedTime = () => {
+    const elapsedTimeMs = performanceElapsedTime();
+    if (!state.performanceResult || elapsedTimeMs === undefined) return;
+    state.performanceResult = {
+      ...state.performanceResult,
+      elapsedTimeMs,
+    };
   };
 
   const loadActiveResponse = () => {
@@ -2665,19 +3102,37 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
       showValidationError(errorText(error));
       return;
     }
+    if (!(await confirmLargePerformanceRun(sampleCount))) return;
 
     state.performanceResult = null;
     state.performanceCompletedSamples = 0;
     state.performanceCanceling = false;
     const operation = startOperation("performance");
+    performanceRunStartedAt = window.performance.now();
     let summary: URLPerformanceSummary | undefined;
     const recordReport = (
       report: NonNullable<NetworkInspectResult["report"]>,
+      error?: string,
+      failureCategory?: string,
     ) => {
-      summary = appendURLPerformanceReport(summary, report);
+      summary = appendURLPerformanceReport(
+        summary,
+        report,
+        error,
+        failureCategory,
+      );
       state.performanceResult = summary;
       state.performanceCompletedSamples = summary.completedSamples;
       updatePerformanceProgress();
+    };
+    const recordElapsedTime = () => {
+      const elapsedTimeMs = performanceElapsedTime();
+      if (!summary || elapsedTimeMs === undefined) return;
+      summary = {
+        ...summary,
+        elapsedTimeMs,
+      };
+      state.performanceResult = summary;
     };
     try {
       for (let index = 0; index < sampleCount; index += 1) {
@@ -2699,10 +3154,40 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
           }
         }
         if (!isCurrentOperation(operation)) return;
-        if (pendingPerformanceCancellationID === operationID) {
-          if (!result.error && result.report?.finalStatusCode) {
-            recordReport(result.report);
+        const toolCanceled =
+          typeof result.error !== "string" &&
+          result.error?.code === "tool_canceled";
+        const failure = toolCanceled
+          ? null
+          : resultIssue(result, t, {
+              title: "diagnostics.performance.errorTitle",
+              message: "diagnostics.performance.failure",
+              hint: "diagnostics.performance.errorHint",
+            });
+        const failureCategory =
+          result.error && typeof result.error !== "string"
+            ? result.error.code
+            : result.error
+              ? "network-error"
+              : "no-http-response";
+        const sampleFailureText = failure
+          ? [...new Set([failure.text, failure.technical].filter(Boolean))].join(
+              " · ",
+            )
+          : t("diagnostics.performance.sampleFailure");
+        if (
+          pendingPerformanceCancellationID === operationID ||
+          toolCanceled
+        ) {
+          if (!toolCanceled && result.report) {
+            const sampleFailed = failure || !result.report.finalStatusCode;
+            recordReport(
+              result.report,
+              sampleFailed ? sampleFailureText : undefined,
+              sampleFailed ? failureCategory : undefined,
+            );
           }
+          recordElapsedTime();
           pendingPerformanceCancellationID = undefined;
           state.performanceCanceling = false;
           invalidatePendingOperation();
@@ -2713,31 +3198,49 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
           render();
           return;
         }
-        const failure = resultIssue(result, t);
-        if (failure || !result.report?.finalStatusCode) {
+        if (!result.report) {
+          recordElapsedTime();
           state.performanceResult = summary ?? null;
           state.notice =
             failure ?? {
               tone: "error",
-              title: t("diagnostics.error.operationTitle"),
+              title: t("diagnostics.performance.errorTitle"),
               text: t("diagnostics.performance.failure"),
-              hint: t("diagnostics.error.operationHint"),
+              hint: t("diagnostics.performance.errorHint"),
             };
           return;
+        }
+        if (failure || !result.report.finalStatusCode) {
+          recordReport(
+            result.report,
+            sampleFailureText,
+            failureCategory,
+          );
+          continue;
         }
         recordReport(result.report);
       }
 
       if (!isCurrentOperation(operation)) return;
+      recordElapsedTime();
       state.performanceResult = summary ?? null;
-      state.notice = {
-        tone: "success",
-        text: t("diagnostics.performance.success", {
-          count: summary?.completedSamples ?? 0,
-        }),
-      };
+      state.notice = summary?.failedSamples
+        ? {
+            tone: "info",
+            text: t("diagnostics.performance.completedWithErrors", {
+              count: summary.completedSamples,
+              failed: summary.failedSamples,
+            }),
+          }
+        : {
+            tone: "success",
+            text: t("diagnostics.performance.success", {
+              count: summary?.completedSamples ?? 0,
+            }),
+          };
     } catch (error) {
       if (isCurrentOperation(operation)) {
+        recordElapsedTime();
         state.performanceResult = summary ?? null;
         state.notice = bridgeIssue(
           error,
@@ -2749,6 +3252,7 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
       if (isCurrentOperation(operation)) {
         pendingPerformanceCancellationID = undefined;
         state.performanceCanceling = false;
+        performanceRunStartedAt = undefined;
       }
       finishOperation(operation);
     }
@@ -2780,6 +3284,7 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
       if (!accepted) {
         pendingPerformanceCancellationID = undefined;
         state.performanceCanceling = false;
+        recordCurrentPerformanceElapsedTime();
         state.notice = {
           tone: "error",
           title: t("diagnostics.performance.cancelRejectedTitle"),
@@ -2789,6 +3294,7 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
         render();
         return;
       }
+      recordCurrentPerformanceElapsedTime();
       activePerformanceOperationID = undefined;
       pendingPerformanceCancellationID = undefined;
       state.performanceCanceling = false;
@@ -2809,6 +3315,7 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
       }
       pendingPerformanceCancellationID = undefined;
       state.performanceCanceling = false;
+      recordCurrentPerformanceElapsedTime();
       state.notice = bridgeIssue(
         error,
         t("diagnostics.performance.cancelFailure"),
@@ -3454,6 +3961,9 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
     }),
   );
   lifecycle.add(() => {
+    setWorkspaceBusy(activityView, false);
+    performanceConfirmationDialog?.dispose();
+    performanceConfirmationDialog = undefined;
     cancelActivePerformanceOperation();
     disposed = true;
     operationSequence += 1;
@@ -3462,4 +3972,12 @@ export function mountDiagnosticsLab(root: HTMLElement): Disposable {
 
   render();
   return lifecycle;
+}
+
+export function mountDiagnosticsLab(root: HTMLElement): Disposable {
+  return mountDiagnosticsWorkspace(root, "spring");
+}
+
+export function mountPerformanceLab(root: HTMLElement): Disposable {
+  return mountDiagnosticsWorkspace(root, "performance");
 }

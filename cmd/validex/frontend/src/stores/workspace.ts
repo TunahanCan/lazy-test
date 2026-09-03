@@ -697,6 +697,7 @@ export function migratePersistedWorkspaceState(
       state.activeView === "mock" ||
       state.activeView === "json" ||
       state.activeView === "diagnostics" ||
+      state.activeView === "performance" ||
       state.activeView === "protocols" ||
       state.activeView === "automation"
         ? state.activeView

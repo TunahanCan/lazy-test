@@ -25,5 +25,6 @@ Feature: Validex browser smoke
       | mock        |
       | json        |
       | diagnostics |
+      | performance |
       | protocols   |
       | automation  |

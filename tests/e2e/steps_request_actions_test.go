@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/chromedp"
 	"github.com/cucumber/godog"
 )
@@ -239,6 +238,14 @@ func registerRequestActionSteps(
 	context.Step(
 		`^the duplicate is removed and the adjacent clean tab receives focus$`,
 		steps.duplicateIsRemovedAndAdjacentFocused,
+	)
+	context.Step(
+		`^I open the only request tab context menu$`,
+		steps.openOnlyRequestTabContextMenu,
+	)
+	context.Step(
+		`^bulk close actions without eligible targets are disabled$`,
+		steps.bulkCloseActionsWithoutTargetsAreDisabled,
 	)
 
 	context.Step(
@@ -827,10 +834,7 @@ func (s *requestActionSteps) renameTabFromContextMenu(from, to string) error {
 		return err
 	}
 	s.renamedTabID = tabID
-	if err := requestClick(
-		s.world,
-		fmt.Sprintf(`[data-request-tab-button][data-tab-id=%s]`, requestJSON(tabID)),
-	); err != nil {
+	if err := requestActionSelectTab(s.world, tabID); err != nil {
 		return err
 	}
 	if err := requestAssertActiveFocusedTab(s.world, tabID); err != nil {
@@ -1098,10 +1102,7 @@ func (s *requestActionSteps) closeOtherCleanTabs(name string) error {
 		return err
 	}
 	s.bulkTargetTabID = tabID
-	if err := requestClick(
-		s.world,
-		fmt.Sprintf(`[data-request-tab-button][data-tab-id=%s]`, requestJSON(tabID)),
-	); err != nil {
+	if err := requestActionSelectTab(s.world, tabID); err != nil {
 		return err
 	}
 	if err := requestActionOpenTabMenu(s.world, tabID); err != nil {
@@ -1127,9 +1128,26 @@ func (s *requestActionSteps) onlyChosenAndDirtyRemain() error {
 		),
 		"chosen clean tab and dirty draft after bulk close",
 	); err != nil {
-		return err
+		return requestActionTabStateError(s.world, err)
 	}
 	return requestAssertActiveFocusedTab(s.world, s.bulkTargetTabID)
+}
+
+func requestActionTabStateError(world *browserWorld, cause error) error {
+	var snapshot string
+	if err := world.run(chromedp.Evaluate(`JSON.stringify({
+		tabs: [...document.querySelectorAll("[data-request-tab]")].map((tab) => ({
+			id: tab.getAttribute("data-request-tab"),
+			name: tab.querySelector("[data-request-tab-button] span")?.textContent,
+			dirty: Boolean(tab.querySelector(".dirty-dot")),
+			active: tab.querySelector("[data-request-tab-button]")?.getAttribute("aria-selected"),
+		})),
+		focusedTab: document.activeElement?.getAttribute("data-tab-id") || "",
+		menuOpen: Boolean(document.querySelector('[role="menu"].native-menu')),
+	})`, &snapshot)); err != nil {
+		return fmt.Errorf("%w; capture tab state: %v", cause, err)
+	}
+	return fmt.Errorf("%w; tab state: %s", cause, snapshot)
 }
 
 func (s *requestActionSteps) closeCleanTabsToRight(name string) error {
@@ -1151,6 +1169,83 @@ func (s *requestActionSteps) closeCleanTabsToRight(name string) error {
 		s.world,
 		"Close clean tabs to the right",
 	)
+}
+
+func (s *requestActionSteps) openOnlyRequestTabContextMenu() error {
+	if err := requestWaitFor(
+		s.world,
+		`document.querySelectorAll("[data-request-tab]").length === 1`,
+		"one request tab before opening its context menu",
+	); err != nil {
+		return err
+	}
+	var tabID string
+	if err := s.world.run(chromedp.Evaluate(
+		`document.querySelector(
+			'[data-request-tab-button][aria-selected="true"]'
+		)?.getAttribute("data-tab-id") || ""`,
+		&tabID,
+	)); err != nil {
+		return err
+	}
+	if tabID == "" {
+		return fmt.Errorf("the only active request tab has no identifier")
+	}
+	var dispatched bool
+	if err := s.world.run(chromedp.Evaluate(fmt.Sprintf(`(() => {
+		const tab = document.querySelector(
+			'[data-request-tab=%s]'
+		);
+		if (!tab) return false;
+		const rect = tab.getBoundingClientRect();
+		return tab.dispatchEvent(new MouseEvent("contextmenu", {
+			bubbles: true,
+			cancelable: true,
+			clientX: rect.left + Math.min(20, rect.width / 2),
+			clientY: rect.top + Math.min(20, rect.height / 2),
+		}));
+	})()`, requestJSON(tabID)), &dispatched)); err != nil {
+		return err
+	}
+	// The handler intentionally prevents the browser's native context menu.
+	if dispatched {
+		return fmt.Errorf("request tab contextmenu event was not handled")
+	}
+	return requestWaitVisible(s.world, `[role="menu"].native-menu`)
+}
+
+func (s *requestActionSteps) bulkCloseActionsWithoutTargetsAreDisabled() error {
+	var result struct {
+		Count    int  `json:"count"`
+		Disabled bool `json:"disabled"`
+		Focused  bool `json:"focused"`
+	}
+	if err := s.world.run(chromedp.Evaluate(`(() => {
+		const expected = new Set([
+			"Close other clean tabs",
+			"Close clean tabs to the right",
+		]);
+		const items = [...document.querySelectorAll(
+			'[role="menu"].native-menu [role="menuitem"]'
+		)].filter((item) => expected.has(item.textContent?.trim() || ""));
+		return {
+			count: items.length,
+			disabled: items.every((item) =>
+				item.matches(":disabled") ||
+				item.getAttribute("aria-disabled") === "true"
+			),
+			focused: items.some((item) => document.activeElement === item),
+		};
+	})()`, &result)); err != nil {
+		return err
+	}
+	if result.Count != 2 || !result.Disabled || result.Focused {
+		return fmt.Errorf(
+			"bulk close menu state with no eligible targets is invalid: %+v",
+			result,
+		)
+	}
+	return nil
 }
 
 func (s *requestActionSteps) cleanRightTabIsClosed() error {
@@ -1362,28 +1457,57 @@ func requestActionOpenTabMenu(world *browserWorld, tabID string) error {
 	if err := requestWaitVisible(world, selector); err != nil {
 		return err
 	}
-	if err := world.run(chromedp.Focus(selector, chromedp.ByQuery)); err != nil {
+	var dispatched bool
+	if err := world.run(chromedp.Evaluate(fmt.Sprintf(`(() => {
+		const tab = document.querySelector(%s);
+		if (!(tab instanceof HTMLElement)) return false;
+		tab.focus();
+		const rect = tab.getBoundingClientRect();
+		tab.dispatchEvent(new MouseEvent("contextmenu", {
+			bubbles: true,
+			cancelable: true,
+			button: 2,
+			clientX: rect.left + Math.min(20, rect.width / 2),
+			clientY: rect.top + Math.min(20, rect.height / 2),
+		}));
+		return true;
+	})()`, requestJSON(selector)), &dispatched)); err != nil {
 		return err
 	}
-	var nodes []*cdp.Node
-	if err := world.run(chromedp.Nodes(
-		selector,
-		&nodes,
-		chromedp.ByQuery,
-		chromedp.AtLeast(1),
-	)); err != nil {
-		return err
-	}
-	if len(nodes) == 0 {
-		return fmt.Errorf("request tab %q has no browser node", tabID)
-	}
-	if err := world.run(chromedp.MouseClickNode(
-		nodes[0],
-		chromedp.ButtonRight,
-	)); err != nil {
-		return err
+	if !dispatched {
+		return fmt.Errorf("request tab %q has no interactive browser node", tabID)
 	}
 	return requestWaitVisible(world, `[role="menu"].native-menu`)
+}
+
+func requestActionSelectTab(world *browserWorld, tabID string) error {
+	selector := fmt.Sprintf(
+		`[data-request-tab-button][data-tab-id=%s]`,
+		requestJSON(tabID),
+	)
+	if err := requestWaitVisible(world, selector); err != nil {
+		return err
+	}
+	var clicked bool
+	if err := world.run(chromedp.Evaluate(fmt.Sprintf(`(() => {
+		const tab = document.querySelector(%s);
+		if (!(tab instanceof HTMLButtonElement)) return false;
+		tab.click();
+		return true;
+	})()`, requestJSON(selector)), &clicked)); err != nil {
+		return err
+	}
+	if !clicked {
+		return fmt.Errorf("request tab %q was not clickable", tabID)
+	}
+	return requestWaitFor(
+		world,
+		fmt.Sprintf(
+			`document.querySelector(%s)?.getAttribute("aria-selected") === "true"`,
+			requestJSON(selector),
+		),
+		"active request tab "+tabID,
+	)
 }
 
 func requestActionChooseMenuItem(
@@ -1434,18 +1558,29 @@ func requestActionChooseMenuItem(
 		`[role="menu"].native-menu [data-menu-index=%s]`,
 		requestJSON(index),
 	)
-	if err := world.run(chromedp.Focus(selector, chromedp.ByQuery)); err != nil {
+	var focused bool
+	if err := world.run(chromedp.Evaluate(fmt.Sprintf(`(() => {
+		const item = document.querySelector(%s);
+		if (!(item instanceof HTMLButtonElement)) return false;
+		item.focus();
+		return document.activeElement === item;
+	})()`, requestJSON(selector)), &focused)); err != nil {
 		return err
 	}
-	if err := requestActionAssertFocus(
-		world,
-		selector,
-		"menu item "+label,
-	); err != nil {
+	if !focused {
+		return fmt.Errorf("menu item %q did not receive focus", label)
+	}
+	var clicked bool
+	if err := world.run(chromedp.Evaluate(fmt.Sprintf(`(() => {
+		const item = document.querySelector(%s);
+		if (!(item instanceof HTMLButtonElement) || item.disabled) return false;
+		item.click();
+		return true;
+	})()`, requestJSON(selector)), &clicked)); err != nil {
 		return err
 	}
-	if err := requestClick(world, selector); err != nil {
-		return err
+	if !clicked {
+		return fmt.Errorf("menu item %q was not clickable", label)
 	}
 	return requestWaitFor(
 		world,

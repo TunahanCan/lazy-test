@@ -150,6 +150,18 @@ func registerDiagnosticsSteps(
 		`^both Stop commands used the active URL performance operation identifier$`,
 		world.diagnosticsPerformanceCancelIDsMatch,
 	)
+	context.Step(
+		`^the URL benchmark has one failed and one successful sample$`,
+		world.diagnosticsConfigureMixedPerformanceSamples,
+	)
+	context.Step(
+		`^the URL benchmark reports both samples and a fifty percent error rate$`,
+		world.diagnosticsMixedPerformanceSamplesAreReported,
+	)
+	context.Step(
+		`^performance result tables expose labeled cells without hidden horizontal content$`,
+		world.diagnosticsPerformanceTablesAreResponsive,
+	)
 }
 
 func diagnosticsQuoted(value string) string {
@@ -165,8 +177,6 @@ func diagnosticsMode(label string) (mainMode, threadMode string, err error) {
 		return "jwt", "", nil
 	case "Runtime":
 		return "runtime", "", nil
-	case "Performance":
-		return "performance", "", nil
 	case "Environments":
 		return "environments", "", nil
 	case "Thread":
@@ -181,6 +191,9 @@ func diagnosticsMode(label string) (mainMode, threadMode string, err error) {
 }
 
 func (w *browserWorld) diagnosticsOpenMode(label string) error {
+	if label == "Performance" {
+		return w.shellOpenWorkspace("Performance")
+	}
 	mainMode, threadMode, err := diagnosticsMode(label)
 	if err != nil {
 		return err
@@ -433,6 +446,158 @@ func diagnosticsPerformanceReport(
 	}
 }
 
+func (w *browserWorld) diagnosticsConfigureMixedPerformanceSamples() error {
+	failed := diagnosticsPerformanceReport(15, 0)
+	failed["error"] = map[string]any{
+		"code":      "network_inspection_failed",
+		"technical": "dial tcp: connection refused",
+	}
+	if err := w.diagnosticsConfigure(map[string]any{
+		"overrides": map[string]any{
+			"AnalyzeNetwork": []any{
+				failed,
+				diagnosticsPerformanceReport(5, 200),
+			},
+		},
+	}); err != nil {
+		return err
+	}
+	if err := w.diagnosticsSetControl(
+		`[data-diagnostics-control="performance-url"]`,
+		diagnosticsPerformanceURL,
+	); err != nil {
+		return err
+	}
+	return w.diagnosticsSetControl(
+		`[data-diagnostics-control="performance-samples"]`,
+		"2",
+	)
+}
+
+func (w *browserWorld) diagnosticsMixedPerformanceSamplesAreReported() error {
+	var result struct {
+		Calls      int    `json:"calls"`
+		Rows       int    `json:"rows"`
+		FirstState string `json:"firstState"`
+		Second     string `json:"second"`
+		Text       string `json:"text"`
+		Notice     string `json:"notice"`
+		Info       bool   `json:"info"`
+	}
+	if err := w.run(chromedp.Evaluate(`(() => {
+		const panel = document.querySelector("#diagnostics-panel-performance");
+		const rows = [...(panel?.querySelectorAll(
+			".diagnostics-performance-samples tbody tr"
+		) ?? [])];
+		const notice = document.querySelector(
+			'[data-diagnostics-slot="notice"] .tool-notice.info[role="status"]'
+		);
+		return {
+			calls: globalThis.__VALIDEX_E2E__.calls.filter(
+				(call) => call.method === "AnalyzeNetwork"
+			).length,
+			rows: rows.length,
+			firstState: rows[0]?.cells[1]?.textContent?.trim() || "",
+			second: rows[1]?.cells[1]?.textContent?.trim() || "",
+			text: panel?.textContent || "",
+			notice: notice?.textContent || "",
+			info: Boolean(notice),
+		};
+	})()`, &result)); err != nil {
+		return err
+	}
+	if result.Calls != 2 || result.Rows != 2 ||
+		result.FirstState != "ERR · network_inspection_failed" ||
+		result.Second != "HTTP 200" ||
+		!strings.Contains(result.Text, "Successful samples") ||
+		!strings.Contains(result.Text, "Failed samples") ||
+		!strings.Contains(result.Text, "50%") ||
+		!strings.Contains(result.Text, "dial tcp: connection refused") ||
+		!strings.Contains(result.Text, "ERR · network_inspection_failed") ||
+		!result.Info || !strings.Contains(result.Notice, "unsuccessful: 1") {
+		return fmt.Errorf("mixed URL performance samples were not retained: %+v", result)
+	}
+	return nil
+}
+
+func (w *browserWorld) diagnosticsPerformanceTablesAreResponsive() error {
+	var result struct {
+		AggregateHeaders int      `json:"aggregateHeaders"`
+		AggregateCells   int      `json:"aggregateCells"`
+		SampleHeaders    int      `json:"sampleHeaders"`
+		SampleCells      int      `json:"sampleCells"`
+		MissingLabels    []string `json:"missingLabels"`
+		HiddenLabels     []string `json:"hiddenLabels"`
+		Overflowing      []string `json:"overflowing"`
+	}
+	if err := w.run(chromedp.Evaluate(`(() => {
+		const normalize = (value) => (value || "").replace(/\s+/g, " ").trim();
+		const audit = (selector, name) => {
+			const section = document.querySelector(selector);
+			const table = section?.querySelector("table");
+			const wrapper = section?.querySelector(".diagnostics-table-wrap");
+			const headers = [...(table?.querySelectorAll("thead th") || [])]
+				.map((header) => normalize(header.textContent));
+			const cells = [...(table?.querySelectorAll("tbody td") || [])];
+			const missing = cells.flatMap((cell) => {
+				const expected = headers[cell.cellIndex] || "";
+				const actual = normalize(cell.getAttribute("data-label"));
+				return expected && actual === expected
+					? []
+					: [name + "[" + cell.cellIndex + "]:" + actual + "!=" + expected];
+			});
+			const hidden = innerWidth > 600 ? [] : cells.flatMap((cell) => {
+				const content = getComputedStyle(cell, "::before").content;
+				return content && content !== "none" && content !== "normal" && content !== '""'
+					? []
+					: [name + "[" + cell.cellIndex + "]"];
+			});
+			return {
+				headers: headers.length,
+				cells: cells.length,
+				missing,
+				hidden,
+				overflow: innerWidth <= 600 && wrapper &&
+					wrapper.scrollWidth > wrapper.clientWidth + 2
+					? name + ":" + wrapper.scrollWidth + "/" + wrapper.clientWidth
+					: "",
+			};
+		};
+		const aggregate = audit(
+			".diagnostics-performance-aggregate",
+			"aggregate"
+		);
+		const samples = audit(
+			".diagnostics-performance-samples",
+			"samples"
+		);
+		return {
+			aggregateHeaders: aggregate.headers,
+			aggregateCells: aggregate.cells,
+			sampleHeaders: samples.headers,
+			sampleCells: samples.cells,
+			missingLabels: [...aggregate.missing, ...samples.missing],
+			hiddenLabels: [...aggregate.hidden, ...samples.hidden],
+			overflowing: [
+				...(aggregate.overflow ? [aggregate.overflow] : []),
+				...(samples.overflow ? [samples.overflow] : []),
+			],
+		};
+	})()`, &result)); err != nil {
+		return err
+	}
+	if result.AggregateHeaders != 12 || result.AggregateCells != 11 ||
+		result.SampleHeaders != 8 || result.SampleCells != 24 ||
+		len(result.MissingLabels) > 0 || len(result.HiddenLabels) > 0 ||
+		len(result.Overflowing) > 0 {
+		return fmt.Errorf(
+			"performance responsive table contract failed: %+v",
+			result,
+		)
+	}
+	return nil
+}
+
 func (w *browserWorld) diagnosticsProvideFixture(name string) error {
 	control := func(name string) string {
 		return fmt.Sprintf(`[data-diagnostics-control="%s"]`, name)
@@ -612,7 +777,7 @@ func (w *browserWorld) diagnosticsClickAndWait(action string) error {
 		chromedp.Poll(
 			`Boolean(
 				document.querySelector(
-					'[data-diagnostics-slot="notice"] .tool-notice.success[role="status"]'
+					'[data-diagnostics-slot="notice"] .tool-notice:is(.success, .info)[role="status"]'
 				)
 			) && !document.querySelector(
 				'[id^="diagnostics-panel-"][aria-busy="true"]'
@@ -684,7 +849,7 @@ func (w *browserWorld) diagnosticsResultShowsSummary(name string) error {
 				(card.textContent || "").replace(/\s+/g, " ").trim()
 			);
 			const rows = [...(panel?.querySelectorAll(
-				".diagnostics-table tbody tr"
+				".diagnostics-performance-samples .diagnostics-table tbody tr"
 			) ?? [])];
 			const rowValues = rows.map((row) =>
 				[...row.cells].map((cell) => cell.textContent?.trim() || "")
@@ -695,15 +860,29 @@ func (w *browserWorld) diagnosticsResultShowsSummary(name string) error {
 			const operationIds = calls.map(
 				(call) => call.input?.operationId
 			);
-			return cards.length === 4 &&
-				cardText[0].includes("Fastest") &&
-				cardText[0].includes("4 ms") &&
-				cardText[1].includes("Average") &&
-				cardText[1].includes("8 ms") &&
-				cardText[2].includes("Slowest") &&
-				cardText[2].includes("12 ms") &&
-				cardText[3].includes("Completed samples") &&
-				cardText[3].includes("3") &&
+			const aggregate = panel?.querySelector(
+				".diagnostics-performance-aggregate tbody tr"
+			);
+			const text = panel?.textContent || "";
+			return cards.length === 5 &&
+				cardText[0].includes("Average") &&
+				cardText[0].includes("8 ms") &&
+				cardText[1].includes("95th percentile") &&
+				cardText[1].includes("11.6 ms") &&
+				cardText[2].includes("Error %%") &&
+				cardText[2].includes("0%%") &&
+				cardText[3].includes("Throughput") &&
+				cardText[3].includes("req/s") &&
+				cardText[4].includes("Completed samples") &&
+				cardText[4].includes("3") &&
+				panel.querySelectorAll(
+					".diagnostics-performance-percentiles > div"
+				).length === 4 &&
+				aggregate?.cells.length === 12 &&
+				(aggregate?.textContent || "").includes("req/s") &&
+				text.includes("Successful samples") &&
+				text.includes("HTTP 200") &&
+				text.includes("HTTP 204") &&
 				rows.length === 3 &&
 				rowValues[0][0] === "1" &&
 				rowValues[0][1] === "HTTP 200" &&
@@ -714,7 +893,11 @@ func (w *browserWorld) diagnosticsResultShowsSummary(name string) error {
 				rowValues[2][0] === "3" &&
 				rowValues[2][1] === "HTTP 200" &&
 				rowValues[2][2] === "8 ms" &&
-				rowValues.every((row) => row[3] === %s) &&
+				rowValues.every((row) => row[3] === "< 1 ms") &&
+				rowValues.every((row) => row[4] === "< 1 ms") &&
+				rowValues.every((row) => row[5] === "0") &&
+				rowValues.every((row) => row[6] === "HEAD") &&
+				rowValues.every((row) => row[7] === %s) &&
 				calls.length === 3 &&
 				calls.every((call) => call.input?.url === %s) &&
 				operationIds.every((id) =>
@@ -1154,7 +1337,7 @@ func (w *browserWorld) diagnosticsSwitchLocaleWhileBusy() error {
 		const target = current === "tr" ? "en" : "tr";
 		const label = target === "tr" ? "Türkçe" : "English";
 		const item = [...document.querySelectorAll(
-			'[role="menuitem"]:not(:disabled)'
+			':is([role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]):not(:disabled)'
 		)].find((candidate) => candidate.textContent?.trim() === label);
 		if (!(item instanceof HTMLButtonElement)) return "";
 		item.click();
@@ -1486,7 +1669,7 @@ func (w *browserWorld) diagnosticsUseLocale(label string) error {
 	if err := w.run(
 		chromedp.Evaluate(fmt.Sprintf(`(() => {
 			const item = [...document.querySelectorAll(
-				'[role="menuitem"]:not(:disabled)'
+				':is([role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]):not(:disabled)'
 			)].find((candidate) => candidate.textContent?.trim() === %s);
 			if (!(item instanceof HTMLButtonElement)) return false;
 			item.click();

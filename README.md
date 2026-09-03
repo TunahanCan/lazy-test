@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  HTTP Requests · Collections · OpenAPI · Mock Server · JSON Lab · Diagnostics · SSE · Automation
+  HTTP Requests · Collections · OpenAPI · Mock Server · JSON Lab · Diagnostics · Performance · SSE · Automation
 </p>
 
 Validex; istek hazırlama, response inceleme, collection, OpenAPI ve mock server
@@ -26,7 +26,8 @@ koleksiyonlar bilgisayarınızda tutulur, istekleriniz Validex’e ait bir sunuc
 | OpenAPI | YAML veya JSON belge içe aktarın, endpoint’ten istek oluşturun ve response contract farklarını görün. |
 | Mock Server | Route’ları elle ya da OpenAPI’den üretin; status, header, body ve gecikme davranışını belirleyin. |
 | JSON Lab | JSON biçimlendirin, karşılaştırın, JSON Path çalıştırın, şema çıkarın ve örnek veri üretin. |
-| Diagnostics | Spring hatalarını, JWT’leri, Actuator verilerini, URL yanıt sürelerini, thread dump’ları, logları ve environment farklarını inceleyin. |
+| Diagnostics | Spring hatalarını, JWT’leri, Actuator verilerini, thread dump’ları, logları ve environment farklarını inceleyin. |
+| Performance | URL’leri çoklu koşularla ölçün; JMeter benzeri özet, yüzdelikler, throughput, hata oranı ve koşu ayrıntılarını karşılaştırın. |
 | SSE | Header ve timeout desteğiyle Server-Sent Events akışlarını canlı izleyin ve durdurun. |
 | Automation | Koleksiyonları assertion’larla çalıştırın, ağ yönlendirmelerini inceleyin ve OpenAPI lint alın. |
 | CLI | Otomasyon, network inspection ve lint işlerini masaüstü arayüzü olmadan çalıştırın. |

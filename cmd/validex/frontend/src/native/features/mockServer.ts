@@ -36,6 +36,7 @@ import {
   type ToolNotice,
 } from "../../features/mock-server/model.js";
 import { copyText } from "../clipboard.js";
+import { setWorkspaceBusy } from "../chrome/workspaceActivity.js";
 
 const mockPollIntervalMs = 1_500;
 const mockPollTimeoutMs = 5_000;
@@ -104,6 +105,7 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
   let enableCors = false;
   let dirty = false;
   let busy = "refresh";
+  setWorkspaceBusy("mock", true);
   let notice: ToolNotice | null = null;
   let routeRevision = 0;
   let snapshotRequest = 0;
@@ -172,15 +174,26 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
           <span class="mock-route-empty-description">
             ${t("mock.routes.empty.description")}
           </span>
-          <button
-            type="button"
-            class="${buttonClass("primary", "sm")}"
-            data-action="add-route"
-            data-focus="action:add-first"
-            ${disabledAttribute(isBusy)}
-          >
-            ${icon("plus", 13)} ${t("mock.action.addFirst")}
-          </button>
+          <div class="mock-route-empty-actions">
+            <button
+              type="button"
+              class="${buttonClass("primary", "sm")}"
+              data-action="add-route"
+              data-focus="action:add-first"
+              ${disabledAttribute(isBusy)}
+            >
+              ${icon("plus", 13)} ${t("mock.action.addFirst")}
+            </button>
+            <button
+              type="button"
+              class="${buttonClass("secondary", "sm")}"
+              data-action="import-openapi"
+              data-focus="action:import-empty"
+              ${disabledAttribute(isBusy)}
+            >
+              ${icon("import", 13)} ${t("mock.action.importOpenAPI")}
+            </button>
+          </div>
         </div>
       `;
     }
@@ -463,11 +476,30 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
           class="tool-panel mock-server-controls"
           aria-label="${t("mock.server.controls")}"
         >
-          ${icon(
-            busy ? "spinner" : server?.running ? "check" : "stop",
-            19,
-            busy ? "spin" : "",
-          )}
+          <span
+            class="mock-server-state-indicator ${busy
+              ? "is-busy"
+              : server?.running
+                ? "is-running"
+                : "is-stopped"}"
+            role="img"
+            aria-label="${busy
+              ? t("mock.state.processing")
+              : server?.running
+                ? t("mock.state.running")
+                : t("mock.state.stopped")}"
+            title="${busy
+              ? t("mock.state.processing")
+              : server?.running
+                ? t("mock.state.running")
+                : t("mock.state.stopped")}"
+          >
+            ${icon(
+              busy ? "spinner" : server?.running ? "check" : "stop",
+              16,
+              busy ? "spin" : "",
+            )}
+          </span>
           <div class="mock-server-port-field">
             <span>${t("mock.port")}</span>
             <div
@@ -594,65 +626,74 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
 
         ${renderNoticeArea()}
 
-        <div class="mock-server-workspace">
+        <div class="mock-server-workspace${routes.length === 0 ? " is-empty" : ""}">
           <aside class="tool-panel" aria-label="${t("mock.routes.aria")}">
             <div class="tool-card-header">
               <div>
                 <h2>${t("mock.routes.title")}</h2>
                 <span>${t("mock.routes.count", { count: routes.length })}</span>
               </div>
-              <div class="mock-route-header-actions">
-                <button
-                  type="button"
-                  class="${buttonClass("ghost", "sm")}"
-                  data-action="add-route"
-                  data-focus="action:add"
-                  ${disabledAttribute(isBusy)}
-                >
-                  ${icon("plus", 13)} ${t("mock.action.add")}
-                </button>
-                <button
-                  type="button"
-                  class="${buttonClass("ghost", "sm")}"
-                  data-action="import-openapi"
-                  data-focus="action:import"
-                  ${disabledAttribute(isBusy)}
-                >
-                  ${icon("import", 13)} ${t("mock.action.importOpenAPI")}
-                </button>
-              </div>
+              ${routes.length > 0
+                ? html`
+                    <div class="mock-route-header-actions">
+                      <button
+                        type="button"
+                        class="${buttonClass("ghost", "sm")}"
+                        data-action="add-route"
+                        data-focus="action:add"
+                        ${disabledAttribute(isBusy)}
+                      >
+                        ${icon("plus", 13)} ${t("mock.action.add")}
+                      </button>
+                      <button
+                        type="button"
+                        class="${buttonClass("ghost", "sm")}"
+                        data-action="import-openapi"
+                        data-focus="action:import"
+                        ${disabledAttribute(isBusy)}
+                      >
+                        ${icon("import", 13)} ${t("mock.action.importOpenAPI")}
+                      </button>
+                    </div>
+                  `
+                : ""}
             </div>
             ${renderRouteList()}
-            <div class="tool-card-actions mock-route-footer">
-              <span class="mock-route-sync-status">
-                ${dirty ? t("mock.routes.dirty") : t("mock.routes.synced")}
-              </span>
-              <button
-                type="button"
-                class="${buttonClass("primary", "sm")}"
-                data-action="apply-routes"
-                data-focus="action:apply"
-                ${disabledAttribute(!dirty || isBusy)}
-              >
-                ${icon(
-                  busy === "apply" ? "spinner" : "save",
-                  13,
-                  busy === "apply" ? "spin" : "",
-                )}
-                ${t("mock.action.apply")}
-              </button>
-            </div>
           </aside>
 
-          <section
-            class="tool-editor-card"
-            aria-label="${t("mock.editor.aria")}"
-          >
-            ${renderRouteEditor()}
-          </section>
+          ${routes.length > 0
+            ? html`
+                <section
+                  class="tool-editor-card"
+                  aria-label="${t("mock.editor.aria")}"
+                >
+                  ${renderRouteEditor()}
+                </section>
+                <div class="tool-card-actions mock-route-footer">
+                  <span class="mock-route-sync-status">
+                    ${dirty ? t("mock.routes.dirty") : t("mock.routes.synced")}
+                  </span>
+                  <button
+                    type="button"
+                    class="${buttonClass("primary", "sm")}"
+                    data-action="apply-routes"
+                    data-focus="action:apply"
+                    ${disabledAttribute(!dirty || isBusy)}
+                  >
+                    ${icon(
+                      busy === "apply" ? "spinner" : "save",
+                      13,
+                      busy === "apply" ? "spin" : "",
+                    )}
+                    ${t("mock.action.apply")}
+                  </button>
+                </div>
+              `
+            : ""}
         </div>
 
-        <section class="tool-panel mock-hit-panel">
+        ${routes.length > 0 || hits.length > 0 || server?.running
+          ? html`<section class="tool-panel mock-hit-panel">
           <div class="tool-card-header">
             <div>
               <h2>${t("mock.hits.title")}</h2>
@@ -674,7 +715,8 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
             </button>
           </div>
           ${renderHits()}
-        </section>
+        </section>`
+          : ""}
       </section>
     `;
   };
@@ -901,6 +943,7 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
     const expectedRouteRevision = routeRevision;
     const expectedSnapshotRequest = ++snapshotRequest;
     busy = "refresh";
+    setWorkspaceBusy("mock", true);
     render();
     try {
       const snapshot = await backend.getMockServer();
@@ -923,6 +966,7 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
     } finally {
       if (!disposed) {
         busy = "";
+        setWorkspaceBusy("mock", false);
         render();
       }
     }
@@ -949,6 +993,7 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
     const expectedRouteRevision = routeRevision;
     const expectedSnapshotRequest = ++snapshotRequest;
     busy = operation;
+    setWorkspaceBusy("mock", true);
     notice = null;
     render();
     try {
@@ -988,6 +1033,7 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
     } finally {
       if (!disposed) {
         busy = "";
+        setWorkspaceBusy("mock", false);
         syncPolling();
         render();
       }
@@ -1411,6 +1457,7 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
   );
   lifecycle.add(workspaceStore.subscribe(render));
   lifecycle.add(() => {
+    setWorkspaceBusy("mock", false);
     disposed = true;
     invalidateSilentRefresh();
     clearPolling();

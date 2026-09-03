@@ -18,10 +18,13 @@ import {
 import { issueFrom } from "../.typescript-build/esm/features/protocols/model.js";
 import {
   appendURLPerformanceReport,
+  diagnosticsModes,
   formatURLPerformanceDuration,
   jwtErrorText,
+  resultIssue,
   summarizeURLPerformance,
   urlPerformanceLimits,
+  urlPerformanceStatistics,
   validateURLPerformanceOptions,
   validateURLPerformanceTarget,
 } from "../.typescript-build/esm/features/diagnostics/model.js";
@@ -535,6 +538,22 @@ test("Spring and JWT analyzers expose structured diagnostics", () => {
 
 test("URL performance diagnostics accept professional run sizes safely", () => {
   const translator = (key, values) => translate("en", key, values);
+  const performanceFallback = resultIssue(
+    { error: "bridge detail" },
+    translator,
+    {
+      title: "diagnostics.performance.errorTitle",
+      message: "diagnostics.performance.failure",
+      hint: "diagnostics.performance.errorHint",
+    },
+  );
+  assert.equal(performanceFallback?.title, "URL performance test failed");
+  assert.equal(
+    performanceFallback?.text,
+    "The URL performance test could not be completed.",
+  );
+  assert.equal(performanceFallback?.technical, "bridge detail");
+  assert.equal(diagnosticsModes.includes("performance"), false);
   assert.equal(
     validateURLPerformanceTarget(
       "  https://api.example.test/health  ",
@@ -549,12 +568,19 @@ test("URL performance diagnostics accept professional run sizes safely", () => {
   ]) {
     assert.throws(() => validateURLPerformanceTarget(invalid, translator));
   }
+  assert.equal(urlPerformanceLimits.maximumSamples, 1_000);
+  assert.equal(urlPerformanceLimits.largeRunConfirmationSamples, 100);
   assert.doesNotThrow(() =>
-    validateURLPerformanceOptions(25_000, 3_600_000, translator),
+    validateURLPerformanceOptions(
+      urlPerformanceLimits.maximumSamples,
+      3_600_000,
+      translator,
+    ),
   );
   for (const [samples, timeout] of [
     [0, 5_000],
     [1.5, 5_000],
+    [urlPerformanceLimits.maximumSamples + 1, 5_000],
     [Number.MAX_SAFE_INTEGER + 1, 5_000],
     [3, 0],
     [3, 1.5],
@@ -584,10 +610,56 @@ test("URL performance diagnostics accept professional run sizes safely", () => {
   assert.equal(summary.fastestMs, 4);
   assert.equal(summary.averageMs, 8);
   assert.equal(summary.slowestMs, 12);
+  assert.equal(summary.successfulSamples, 3);
+  assert.equal(summary.failedSamples, 0);
+  assert.equal(summary.totalDurationMs, 24);
   assert.deepEqual(
     summary.samples.map((sample) => sample.statusCode),
     [200, 204, 200],
   );
+  const statistics = urlPerformanceStatistics(summary);
+  assert.equal(statistics.medianMs, 8);
+  assert.equal(statistics.p90Ms, 11.2);
+  assert.equal(statistics.p95Ms, 11.6);
+  assert.equal(statistics.p99Ms, 11.92);
+  assert.ok(Math.abs(statistics.standardDeviationMs - 3.265986) < 0.000001);
+  assert.equal(statistics.errorRate, 0);
+  assert.equal(statistics.throughputPerSecond, 125);
+  assert.equal(statistics.percentileSampleCount, 3);
+  assert.equal(statistics.percentilesTruncated, false);
+
+  const failed = appendURLPerformanceReport(
+    summary,
+    report(20, 0, "https://api.example.test/health"),
+    "connection refused",
+  );
+  assert.deepEqual(summary.durationValuesMs, [12, 4, 8]);
+  assert.equal(summary.completedSamples, 3);
+  assert.equal(failed.successfulSamples, 3);
+  assert.equal(failed.failedSamples, 1);
+  assert.equal(failed.statusCounts["network-error"], 1);
+  assert.equal(urlPerformanceStatistics(failed).errorRate, 25);
+
+  const timedOut = appendURLPerformanceReport(
+    undefined,
+    report(25, 0, "https://api.example.test/health"),
+    "request timed out",
+    "tool_timeout",
+  );
+  assert.equal(timedOut.samples[0].failureCategory, "tool_timeout");
+  assert.equal(timedOut.statusCounts.tool_timeout, 1);
+
+  const redirects = appendURLPerformanceReport(undefined, {
+    ...report(15, 200, "https://api.example.test/final"),
+    hops: [
+      { statusCode: 304, location: "/cached", durationMs: 2, method: "HEAD" },
+      { statusCode: 302, location: " /next ", durationMs: 3, method: "HEAD" },
+      { statusCode: 308, location: "   ", durationMs: 4, method: "HEAD" },
+      { statusCode: 200, location: "", durationMs: 5, method: "HEAD" },
+    ],
+  });
+  assert.equal(redirects.samples[0].redirectCount, 1);
+  assert.equal(redirects.redirectedSamples, 1);
 
   const longSummary = summarizeURLPerformance(
     Array.from({ length: 1_000 }, (_, index) =>
@@ -609,6 +681,30 @@ test("URL performance diagnostics accept professional run sizes safely", () => {
   assert.equal(longSummary.fastestMs, 1);
   assert.ok(Math.abs(longSummary.averageMs - 10.5) < Number.EPSILON * 20);
   assert.equal(longSummary.slowestMs, 20);
+
+  let boundedSummary;
+  for (
+    let index = 0;
+    index < urlPerformanceLimits.retainedPercentileSamples + 5;
+    index += 1
+  ) {
+    boundedSummary = appendURLPerformanceReport(
+      boundedSummary,
+      report(index, 200, "https://api.example.test/health"),
+    );
+  }
+  assert.equal(
+    boundedSummary.durationValuesMs.length,
+    urlPerformanceLimits.retainedPercentileSamples,
+  );
+  assert.equal(
+    boundedSummary.samples.length,
+    urlPerformanceLimits.retainedSampleDetails,
+  );
+  assert.equal(
+    urlPerformanceStatistics(boundedSummary).percentilesTruncated,
+    true,
+  );
 
   const appended = appendURLPerformanceReport(
     undefined,

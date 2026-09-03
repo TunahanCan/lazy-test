@@ -13,6 +13,8 @@ export interface MenuAction {
   label: string;
   icon?: IconName;
   disabled?: boolean;
+  role?: "menuitem" | "menuitemradio" | "menuitemcheckbox";
+  checked?: boolean;
   danger?: boolean;
   shortcut?: string;
   action(): void | Promise<void>;
@@ -42,9 +44,11 @@ export interface OpenOverlay extends Disposable {
 }
 
 function menuButtons(menu: HTMLElement): HTMLButtonElement[] {
-  return [...menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].filter(
-    (item) => !item.disabled,
-  );
+  return [
+    ...menu.querySelectorAll<HTMLButtonElement>(
+      '[role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]',
+    ),
+  ].filter((item) => !item.disabled);
 }
 
 function focusMenuItem(menu: HTMLElement, index: number): void {
@@ -67,6 +71,9 @@ export function openMenu(options: OpenMenuOptions): OpenOverlay {
   menu.setAttribute("aria-label", options.label);
   menu.dataset.state = "open";
   menu.tabIndex = -1;
+  if (options.anchor?.matches('[aria-haspopup="menu"]')) {
+    options.anchor.setAttribute("aria-expanded", "true");
+  }
 
   setHTML(
     menu,
@@ -77,7 +84,11 @@ export function openMenu(options: OpenMenuOptions): OpenOverlay {
             <button
               type="button"
               class="menu-item${entry.danger ? " danger" : ""}"
-              role="menuitem"
+              role="${entry.role ?? "menuitem"}"
+              ${entry.role === "menuitemradio" ||
+              entry.role === "menuitemcheckbox"
+                ? html`aria-checked="${entry.checked ? "true" : "false"}"`
+                : ""}
               data-menu-index="${index}"
               ${entry.disabled ? "disabled data-disabled" : ""}
             >
@@ -120,6 +131,9 @@ export function openMenu(options: OpenMenuOptions): OpenOverlay {
       lifecycle.dispose();
       menu.remove();
       if (activeMenu === overlay) activeMenu = undefined;
+      if (options.anchor?.matches('[aria-haspopup="menu"]')) {
+        options.anchor.setAttribute("aria-expanded", "false");
+      }
       if (shouldRestore) restoreFocus?.focus();
     },
     dispose() {
@@ -142,7 +156,9 @@ export function openMenu(options: OpenMenuOptions): OpenOverlay {
   lifecycle.listen(menu, "pointermove", (event) => {
     const target =
       event.target instanceof Element
-        ? event.target.closest<HTMLButtonElement>('[role="menuitem"]')
+        ? event.target.closest<HTMLButtonElement>(
+            '[role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]',
+          )
         : null;
     if (!target || target.disabled) return;
     for (const item of menuButtons(menu)) item.removeAttribute("data-highlighted");

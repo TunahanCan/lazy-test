@@ -40,6 +40,22 @@ Feature: Use Validex across viewport sizes and input methods
       | 375x760  |
       | 320x700  |
 
+  @responsive @controls @workspace-matrix
+  Scenario Outline: Keep every workspace control named and touch-friendly on mobile
+    Given the viewport is "390x844"
+    And I am in the "<workspace>" workspace
+    Then every visible enabled control has an accessible name and compact shell targets are usable
+
+    Examples:
+      | workspace   |
+      | Requests    |
+      | Mock        |
+      | JSON        |
+      | Diagnostics |
+      | Performance |
+      | Protocols   |
+      | Automation  |
+
   @responsive @drawer @keyboard
   Scenario: Use request side panels as modal drawers on a narrow viewport
     Given the viewport is "600x760"

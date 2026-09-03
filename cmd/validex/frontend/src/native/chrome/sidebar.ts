@@ -29,6 +29,7 @@ import {
 import {
   parsePostmanCollection,
   serializePostmanCollection,
+  type PostmanTransferWarning,
 } from "../../features/collections/postmanTransfer.js";
 import {
   getLocale,
@@ -440,7 +441,7 @@ export function mountSidebar(
                     ? "sidebar.endpointCount.one"
                     : "sidebar.endpointCount.many",
                   { count: importedSpec.endpoints.length },
-                )}
+                )} · ${t("sidebar.openapiSessionOnly")}
               </span>
             </div>
           `
@@ -597,6 +598,8 @@ export function mountSidebar(
               data-library-item-id="${node.collection.id}"
               data-request-count="${node.requestCount}"
               data-focus="menu:collection:${node.collection.id}"
+              aria-haspopup="menu"
+              aria-expanded="false"
               aria-label="${t("sidebar.moreActions", {
                 name: node.collection.name,
               })}"
@@ -644,6 +647,8 @@ export function mountSidebar(
             data-library-kind="request"
             data-library-item-id="${node.request.id}"
             data-focus="menu:request:${node.request.id}"
+            aria-haspopup="menu"
+            aria-expanded="false"
             aria-label="${t("sidebar.moreActions", {
               name: node.request.name,
             })}"
@@ -669,7 +674,9 @@ export function mountSidebar(
     );
     const isReadOnly = readOnly();
     return html`
-      <div class="sidebar-toolbar collection-toolbar">
+      <div class="sidebar-toolbar collection-toolbar${library.collections.length === 0
+        ? " is-onboarding"
+        : ""}">
         <label class="sidebar-search">
           ${icon("search", 14)}
           <input
@@ -683,37 +690,41 @@ export function mountSidebar(
             spellcheck="false"
           />
         </label>
-        <button
-          type="button"
-          class="icon-button collection-transfer-button"
-          data-action="import-collection"
-          data-focus="import-collection"
-          aria-label="${t("sidebar.importCollection")}"
-          aria-busy="${collectionImportInFlight ? "true" : "false"}"
-          title="${isReadOnly
-            ? t("sidebar.readOnlyAction")
-            : t("sidebar.importCollectionDescription")}"
-          ${isReadOnly || collectionImportInFlight ? "disabled" : ""}
-        >
-          ${icon(
-            collectionImportInFlight ? "spinner" : "import",
-            15,
-            collectionImportInFlight ? "spin" : "",
-          )}
-        </button>
-        <button
-          type="button"
-          class="icon-button new-collection-button"
-          data-action="new-collection"
-          data-focus="new-collection"
-          aria-label="${t("sidebar.newCollection")}"
-          title="${isReadOnly
-            ? t("sidebar.readOnlyAction")
-            : t("sidebar.newCollection")}"
-          ${isReadOnly ? "disabled" : ""}
-        >
-          ${icon("plus", 15)}
-        </button>
+        ${library.collections.length > 0
+          ? html`
+              <button
+                type="button"
+                class="icon-button collection-transfer-button"
+                data-action="import-collection"
+                data-focus="import-collection"
+                aria-label="${t("sidebar.importCollection")}"
+                aria-busy="${collectionImportInFlight ? "true" : "false"}"
+                title="${isReadOnly
+                  ? t("sidebar.readOnlyAction")
+                  : t("sidebar.importCollectionDescription")}"
+                ${isReadOnly || collectionImportInFlight ? "disabled" : ""}
+              >
+                ${icon(
+                  collectionImportInFlight ? "spinner" : "import",
+                  15,
+                  collectionImportInFlight ? "spin" : "",
+                )}
+              </button>
+              <button
+                type="button"
+                class="icon-button new-collection-button"
+                data-action="new-collection"
+                data-focus="new-collection"
+                aria-label="${t("sidebar.newCollection")}"
+                title="${isReadOnly
+                  ? t("sidebar.readOnlyAction")
+                  : t("sidebar.newCollection")}"
+                ${isReadOnly ? "disabled" : ""}
+              >
+                ${icon("plus", 15)}
+              </button>
+            `
+          : ""}
       </div>
       ${query.trim()
         ? html`
@@ -1338,7 +1349,141 @@ export function mountSidebar(
     });
   };
 
-  const importCollection = async (): Promise<void> => {
+  const collectionWarningText = (
+    code: PostmanTransferWarning["code"],
+  ): string => {
+    switch (code) {
+      case "folder_hierarchy_flattened":
+        return t("sidebar.collectionImportWarning.folderHierarchy");
+      case "scripts_ignored":
+        return t("sidebar.collectionImportWarning.scripts");
+      case "variables_ignored":
+        return t("sidebar.collectionImportWarning.variables");
+      case "auth_ignored":
+        return t("sidebar.collectionImportWarning.auth");
+      case "body_ignored":
+        return t("sidebar.collectionImportWarning.body");
+      case "examples_ignored":
+        return t("sidebar.collectionImportWarning.examples");
+      case "request_ignored":
+        return t("sidebar.collectionImportWarning.request");
+      case "transport_ignored":
+        return t("sidebar.collectionImportWarning.transport");
+    }
+  };
+
+  const confirmCollectionImport = async (
+    parsed: ReturnType<typeof parsePostmanCollection>,
+    trigger?: HTMLElement,
+  ): Promise<boolean> => {
+    const collection = parsed.batch.collections[0];
+    const requestCount = collection?.requests.length ?? 0;
+    const warningCount = parsed.warnings.reduce(
+      (total, warning) => total + warning.count,
+      0,
+    );
+    const dialog = trackDialog(
+      presentDialog(
+        html`
+          <div class="dialog-header collection-import-preview-header">
+            <span class="dialog-icon" aria-hidden="true">
+              ${icon("import", 17)}
+            </span>
+            <div>
+              <h2>${t("sidebar.collectionImportPreview.title")}</h2>
+              <p>
+                ${t("sidebar.collectionImportPreview.description", {
+                  name: collection?.name ?? t("sidebar.importedCollection"),
+                })}
+              </p>
+            </div>
+          </div>
+          <div class="collection-import-preview-summary">
+            <div>
+              <span>${t("sidebar.collectionImportPreview.collection")}</span>
+              <strong>${collection?.name ?? t("sidebar.importedCollection")}</strong>
+            </div>
+            <div>
+              <span>${t("sidebar.collectionImportPreview.requests")}</span>
+              <strong>${requestCount}</strong>
+            </div>
+            <div>
+              <span>${t("sidebar.collectionImportPreview.warnings")}</span>
+              <strong>${warningCount}</strong>
+            </div>
+          </div>
+          ${parsed.warnings.length > 0
+            ? html`
+                <section
+                  class="collection-import-warning-report"
+                  aria-labelledby="collection-import-warning-title"
+                >
+                  <h3 id="collection-import-warning-title">
+                    ${icon("warning", 15)}
+                    ${t("sidebar.collectionImportPreview.reviewWarnings")}
+                  </h3>
+                  <p>${t("sidebar.collectionImportPreview.warningHint")}</p>
+                  <ul>
+                    ${parsed.warnings.map(
+                      (warning) => html`
+                        <li>
+                          <strong aria-label="${t(
+                            warning.count === 1
+                              ? "sidebar.collectionImportWarnings.one"
+                              : "sidebar.collectionImportWarnings.many",
+                            { count: warning.count },
+                          )}">${warning.count}×</strong>
+                          <span>${collectionWarningText(warning.code)}</span>
+                        </li>
+                      `,
+                    )}
+                  </ul>
+                </section>
+              `
+            : html`
+                <p class="collection-import-compatible">
+                  ${icon("check", 15)}
+                  ${t("sidebar.collectionImportPreview.compatible")}
+                </p>
+              `}
+          <div class="dialog-actions">
+            <button
+              type="button"
+              class="button button-secondary button-md"
+              data-dialog-close="cancel"
+              data-import-preview-cancel
+            >
+              ${t("sidebar.cancel")}
+            </button>
+            <button
+              type="button"
+              class="button button-primary button-md"
+              data-dialog-close="import"
+              data-import-preview-confirm
+            >
+              ${icon("import", 14)}
+              ${t("sidebar.collectionImportPreview.confirm")}
+            </button>
+          </div>
+        `,
+        {
+          className: "library-dialog collection-import-preview-dialog",
+          trigger,
+          initialFocus: parsed.warnings.length > 0
+            ? "[data-import-preview-cancel]"
+            : "[data-import-preview-confirm]",
+          describedBy: parsed.warnings.length > 0
+            ? "collection-import-warning-title"
+            : undefined,
+        },
+      ),
+      trigger,
+    );
+    const result = await dialog.closed;
+    return !disposed && result === "import";
+  };
+
+  const importCollection = async (trigger?: HTMLElement): Promise<void> => {
     if (readOnly() || collectionImportInFlight) return;
     collectionImportInFlight = true;
     render();
@@ -1356,6 +1501,7 @@ export function mountSidebar(
         return;
       }
       const parsed = parsePostmanCollection(selected.data);
+      if (!(await confirmCollectionImport(parsed, trigger))) return;
       const summary = collectionLibraryStore
         .getState()
         .importCollections(parsed.batch);
@@ -1695,7 +1841,7 @@ export function mountSidebar(
         openCreateCollectionDialog(target);
         break;
       case "import-collection":
-        void importCollection();
+        void importCollection(target);
         break;
       case "toggle-collection": {
         const collectionID = target.dataset.libraryItemId;

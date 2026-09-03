@@ -172,8 +172,7 @@ func TestLiveURLPerformanceAudit(t *testing.T) {
 	audit.initialize()
 	audit.setViewport(1440, 900)
 	audit.setTheme("light")
-	audit.openWorkspace("diagnostics")
-	audit.diagnosticsMode("Performance")
+	audit.openWorkspace("performance")
 	audit.diagnosticsControl("performance-url", api.URL()+"/actuator/health")
 	audit.diagnosticsControl("performance-timeout", "60000")
 	audit.diagnosticsControl("performance-samples", "12")
@@ -198,8 +197,8 @@ func TestLiveURLPerformanceAudit(t *testing.T) {
 		};
 	})()`, &configured))
 	if configured.Timeout != "60000" || configured.Samples != "12" ||
-		configured.TimeoutMax != "" || configured.SamplesMax != "" {
-		t.Fatalf("URL performance limits were not removed: %+v", configured)
+		configured.TimeoutMax != "" || configured.SamplesMax != "1000" {
+		t.Fatalf("URL performance limits are inconsistent: %+v", configured)
 	}
 	audit.diagnosticsRun("performance-run")
 	audit.capture("live-diagnostics-04-performance")
@@ -437,11 +436,30 @@ func (audit *liveAudit) setTheme(theme string) {
 	if label == "" {
 		audit.t.Fatalf("unsupported live theme %q", theme)
 	}
-	audit.click(`[data-topbar] [data-action="settings"]`)
+	var settingsAction string
+	audit.run(chromedp.Evaluate(`(() => {
+		const actions = ["settings", "mobile-more"];
+		return actions.find((action) => {
+			const element = document.querySelector(
+				'[data-topbar] [data-action="' + action + '"]'
+			);
+			if (!(element instanceof HTMLElement)) return false;
+			const style = getComputedStyle(element);
+			const bounds = element.getBoundingClientRect();
+			return !element.hidden && style.display !== "none" &&
+				style.visibility !== "hidden" && bounds.width > 0 && bounds.height > 0;
+		}) || "";
+	})()`, &settingsAction))
+	if settingsAction == "" {
+		audit.t.Fatal("no visible settings action")
+	}
+	audit.click(fmt.Sprintf(`[data-topbar] [data-action=%q]`, settingsAction))
 	audit.wait(`Boolean(document.querySelector('.native-menu[role="menu"]'))`, "settings menu")
 	var selected bool
 	audit.run(chromedp.Evaluate(fmt.Sprintf(`(() => {
-		const item = [...document.querySelectorAll('.native-menu [role="menuitem"]')]
+		const item = [...document.querySelectorAll(
+			'.native-menu :is([role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"])'
+		)]
 			.find((candidate) => candidate.textContent?.trim() === %q);
 		if (!(item instanceof HTMLButtonElement)) return false;
 		item.click();
@@ -508,7 +526,7 @@ func (audit *liveAudit) capture(name string) {
 				element.tagName
 			).slice(0, 90);
 			const controls = [...document.querySelectorAll(
-				'button, input, select, textarea, [role="tab"], [role="menuitem"]'
+				'button, input, select, textarea, [role="tab"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]'
 			)].filter(visible);
 			const insideHorizontalScroller = (element) => {
 				for (let parent = element.parentElement; parent; parent = parent.parentElement) {
@@ -613,7 +631,13 @@ func (audit *liveAudit) captureWorkspaceMatrix(
 ) {
 	audit.setViewport(width, height)
 	for _, workspace := range []string{
-		"requests", "mock", "json", "diagnostics", "protocols", "automation",
+		"requests",
+		"mock",
+		"json",
+		"diagnostics",
+		"performance",
+		"protocols",
+		"automation",
 	} {
 		audit.openWorkspace(workspace)
 		audit.capture(fmt.Sprintf("live-matrix-%s-%s", prefix, workspace))
@@ -878,13 +902,14 @@ func (audit *liveAudit) testDiagnostics(
 	audit.diagnosticsRun("runtime-snapshot")
 	audit.capture("live-diagnostics-03-runtime")
 
-	audit.diagnosticsMode("Performance")
+	audit.openWorkspace("performance")
 	audit.diagnosticsControl("performance-url", primary.URL()+"/actuator/health")
 	audit.diagnosticsControl("performance-timeout", "3000")
 	audit.diagnosticsControl("performance-samples", "3")
 	audit.diagnosticsRun("performance-run")
 	audit.capture("live-diagnostics-04-performance")
 
+	audit.openWorkspace("diagnostics")
 	audit.diagnosticsMode("Environments")
 	audit.diagnosticsControl("environment-path", "/environment")
 	audit.diagnosticsControl("environment-target", "Primary")

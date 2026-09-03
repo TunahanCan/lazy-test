@@ -17,6 +17,7 @@ var shellWorkspaceIDs = map[string]string{
 	"Mock":        "mock",
 	"JSON":        "json",
 	"Diagnostics": "diagnostics",
+	"Performance": "performance",
 	"Protocols":   "protocols",
 	"Automation":  "automation",
 }
@@ -104,6 +105,10 @@ func registerShellSteps(context *godog.ScenarioContext, world *browserWorld) {
 	context.Step(
 		`^the application uses the expected "([^"]+)" color scheme$`,
 		world.shellExpectedColorSchemeIsUsed,
+	)
+	context.Step(
+		`^the current "([^"]+)" theme choice is disabled and alternatives remain available$`,
+		world.shellCurrentThemeChoiceIsDisabled,
 	)
 	context.Step(
 		`^application bootstrap fails with technical details$`,
@@ -446,7 +451,9 @@ func (w *browserWorld) shellClickMenuItem(label string) error {
 	var clicked bool
 	if err := w.run(chromedp.Evaluate(fmt.Sprintf(`(() => {
 		const expected = %q.toLocaleLowerCase();
-		const item = [...document.querySelectorAll('[role="menuitem"]')]
+		const item = [...document.querySelectorAll(
+			':is([role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"])'
+		)]
 			.find((candidate) =>
 				candidate.textContent?.trim().toLocaleLowerCase().includes(expected),
 			);
@@ -629,6 +636,67 @@ func (w *browserWorld) shellExpectedColorSchemeIsUsed(theme string) error {
 			result.Inline,
 			result.Expected,
 			result.Computed,
+		)
+	}
+	return nil
+}
+
+func (w *browserWorld) shellCurrentThemeChoiceIsDisabled(theme string) error {
+	labels := map[string]string{
+		"system": "System theme",
+		"light":  "Light theme",
+		"dark":   "Dark theme",
+	}
+	currentLabel := labels[theme]
+	if currentLabel == "" {
+		return fmt.Errorf("unsupported theme %q", theme)
+	}
+	var menuVisible bool
+	if err := w.run(chromedp.Evaluate(
+		`Boolean(document.querySelector('[role="menu"].native-menu'))`,
+		&menuVisible,
+	)); err != nil {
+		return err
+	}
+	if !menuVisible {
+		if err := w.shellOpenSettings(); err != nil {
+			return err
+		}
+	}
+
+	var result struct {
+		Count               int  `json:"count"`
+		CurrentDisabled     bool `json:"currentDisabled"`
+		AlternativesEnabled bool `json:"alternativesEnabled"`
+		CurrentFocused      bool `json:"currentFocused"`
+	}
+	if err := w.run(chromedp.Evaluate(fmt.Sprintf(`(() => {
+		const labels = new Set(["System theme", "Light theme", "Dark theme"]);
+		const current = %q;
+		const items = [...document.querySelectorAll(
+			'[role="menu"].native-menu :is([role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"])'
+		)].filter((item) => labels.has(item.textContent?.trim() || ""));
+		const disabled = (item) => item.matches(":disabled") ||
+			item.getAttribute("aria-disabled") === "true";
+		const active = items.find(
+			(item) => item.textContent?.trim() === current
+		);
+		const alternatives = items.filter((item) => item !== active);
+		return {
+			count: items.length,
+			currentDisabled: Boolean(active && disabled(active)),
+			alternativesEnabled:
+				alternatives.length === 2 && alternatives.every((item) => !disabled(item)),
+			currentFocused: document.activeElement === active,
+		};
+	})()`, currentLabel), &result)); err != nil {
+		return err
+	}
+	if result.Count != 3 || !result.CurrentDisabled ||
+		!result.AlternativesEnabled || result.CurrentFocused {
+		return fmt.Errorf(
+			"theme menu does not expose one unavailable current choice: %+v",
+			result,
 		)
 	}
 	return nil

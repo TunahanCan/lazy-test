@@ -897,7 +897,7 @@ func (w *browserWorld) automationSwitchLocaleWhileBusy(
 		const target = current === "tr" ? "en" : "tr";
 		const label = target === "tr" ? "Türkçe" : "English";
 		const item = [...document.querySelectorAll(
-			'[role="menuitem"]:not(:disabled)'
+			':is([role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]):not(:disabled)'
 		)].find((candidate) => candidate.textContent?.trim() === label);
 		if (!(item instanceof HTMLButtonElement)) return "";
 		item.click();

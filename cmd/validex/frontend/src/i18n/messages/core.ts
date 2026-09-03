@@ -28,6 +28,7 @@ export const coreEnglish = {
     "{title} {version} imported. {count} endpoints are ready.",
   "chrome.untitledRequest": "Untitled request",
   "chrome.layoutAndSettings": "Layout and settings",
+  "chrome.moreActions": "More actions",
   "chrome.requestLayout": "REQUEST LAYOUT",
   "chrome.toggleRequestPanel": "Toggle request panel",
   "chrome.toggleContextPanel": "Toggle context panel",
@@ -63,6 +64,9 @@ export const coreEnglish = {
   "workspace.diagnostics.label": "Diagnostics",
   "workspace.diagnostics.description":
     "Analyze Spring, runtime, log, and coverage issues.",
+  "workspace.performance.label": "Performance",
+  "workspace.performance.description":
+    "Run URL performance benchmarks and inspect latency, throughput, and errors.",
   "workspace.protocols.label": "SSE Stream",
   "workspace.protocols.description":
     "Connect to SSE endpoints and inspect server-sent events as they arrive.",
@@ -72,9 +76,10 @@ export const coreEnglish = {
   "workspace.requests.compactLabel": "Request",
   "workspace.mock.compactLabel": "Mock",
   "workspace.json.compactLabel": "JSON",
-  "workspace.diagnostics.compactLabel": "Inspect",
+  "workspace.diagnostics.compactLabel": "Diag",
+  "workspace.performance.compactLabel": "Perf",
   "workspace.protocols.compactLabel": "SSE",
-  "workspace.automation.compactLabel": "Runs",
+  "workspace.automation.compactLabel": "Auto",
 
   "sidebar.navigation": "Request navigation",
   "sidebar.sections": "Request sections",
@@ -84,7 +89,7 @@ export const coreEnglish = {
   "sidebar.newCollection": "New collection",
   "sidebar.importCollection": "Import collection",
   "sidebar.importCollectionDescription":
-    "Import Postman Collection v2.1 JSON (compatible with Postman and Bruno)",
+    "Import a Postman Collection v2.1 JSON file",
   "sidebar.exportCollection": "Export collection",
   "sidebar.collectionImported.one":
     "{count} request imported into a new collection.",
@@ -99,6 +104,36 @@ export const coreEnglish = {
   "sidebar.collectionImportSecrets.many":
     "{count} sensitive headers were imported disabled.",
   "sidebar.collectionImportFailed": "Collection couldn’t be imported.",
+  "sidebar.importedCollection": "Imported collection",
+  "sidebar.collectionImportPreview.title": "Review collection import",
+  "sidebar.collectionImportPreview.description":
+    "Review what will be saved from “{name}” before importing it.",
+  "sidebar.collectionImportPreview.collection": "Collection",
+  "sidebar.collectionImportPreview.requests": "Requests",
+  "sidebar.collectionImportPreview.warnings": "Compatibility warnings",
+  "sidebar.collectionImportPreview.reviewWarnings":
+    "Review unsupported Postman features",
+  "sidebar.collectionImportPreview.warningHint":
+    "The items below cannot be represented exactly in Validex. Nothing has been saved yet.",
+  "sidebar.collectionImportPreview.compatible":
+    "This collection can be imported without compatibility warnings.",
+  "sidebar.collectionImportPreview.confirm": "Import collection",
+  "sidebar.collectionImportWarning.folderHierarchy":
+    "Nested folders will be flattened into request names.",
+  "sidebar.collectionImportWarning.scripts":
+    "Pre-request scripts and tests will not be imported.",
+  "sidebar.collectionImportWarning.variables":
+    "Collection, folder, and request variable values will not be imported; references remain intact.",
+  "sidebar.collectionImportWarning.auth":
+    "Unsupported authorization settings will need to be configured again.",
+  "sidebar.collectionImportWarning.body":
+    "Unsupported request body formats will be omitted.",
+  "sidebar.collectionImportWarning.examples":
+    "Saved response examples will not be imported.",
+  "sidebar.collectionImportWarning.request":
+    "Invalid or non-HTTP items will be skipped.",
+  "sidebar.collectionImportWarning.transport":
+    "Proxy and client-certificate settings will need to be configured again.",
   "sidebar.collectionExported": "“{name}” exported.",
   "sidebar.collectionExportedWithWarning":
     "“{name}” was exported, but the save location couldn’t be fully synchronized.",
@@ -129,6 +164,7 @@ export const coreEnglish = {
   "sidebar.importedOpenAPI": "Imported OpenAPI",
   "sidebar.endpointCount.one": "{count} endpoint",
   "sidebar.endpointCount.many": "{count} endpoints",
+  "sidebar.openapiSessionOnly": "session only",
   "sidebar.searchRequests": "Search collections",
   "sidebar.searchAPIs": "Search APIs",
   "sidebar.searchResultCount.one": "{count} matching item",
@@ -198,6 +234,7 @@ export const coreEnglish = {
   "status.requestReady": "Request ready",
   "status.noActiveRequest": "No active request",
   "status.workspaceReady": "Ready",
+  "status.workspaceBusy": "Working…",
   "status.barLabel": "Application status",
 
   "context.panel": "Request context",
@@ -289,6 +326,7 @@ export const coreTurkish = {
     "{title} {version} içe aktarıldı. {count} endpoint hazır.",
   "chrome.untitledRequest": "Adsız istek",
   "chrome.layoutAndSettings": "Düzen ve ayarlar",
+  "chrome.moreActions": "Diğer işlemler",
   "chrome.requestLayout": "İSTEK DÜZENİ",
   "chrome.toggleRequestPanel": "İstek panelini aç/kapat",
   "chrome.toggleContextPanel": "Bağlam panelini aç/kapat",
@@ -325,6 +363,9 @@ export const coreTurkish = {
   "workspace.diagnostics.label": "Tanılama",
   "workspace.diagnostics.description":
     "Spring, çalışma zamanı, log ve kapsama sorunlarını analiz edin.",
+  "workspace.performance.label": "Performans",
+  "workspace.performance.description":
+    "URL performans ölçümleri çalıştırın; gecikme, istek hızı ve hataları inceleyin.",
   "workspace.protocols.label": "SSE Akışı",
   "workspace.protocols.description":
     "SSE endpoint’lerine bağlanın ve olayları geldikçe inceleyin.",
@@ -335,8 +376,9 @@ export const coreTurkish = {
   "workspace.mock.compactLabel": "Mock",
   "workspace.json.compactLabel": "JSON",
   "workspace.diagnostics.compactLabel": "Tanı",
+  "workspace.performance.compactLabel": "Perf",
   "workspace.protocols.compactLabel": "SSE",
-  "workspace.automation.compactLabel": "Koşular",
+  "workspace.automation.compactLabel": "Oto",
 
   "sidebar.navigation": "İstek navigasyonu",
   "sidebar.sections": "İstek bölümleri",
@@ -346,7 +388,7 @@ export const coreTurkish = {
   "sidebar.newCollection": "Yeni koleksiyon",
   "sidebar.importCollection": "Koleksiyon içe aktar",
   "sidebar.importCollectionDescription":
-    "Postman ve Bruno uyumlu Collection v2.1 JSON dosyası içe aktar",
+    "Postman Collection v2.1 JSON dosyası içe aktar",
   "sidebar.exportCollection": "Koleksiyonu dışa aktar",
   "sidebar.collectionImported.one":
     "{count} istek yeni bir koleksiyona aktarıldı.",
@@ -361,6 +403,36 @@ export const coreTurkish = {
   "sidebar.collectionImportSecrets.many":
     "{count} hassas header devre dışı olarak içe aktarıldı.",
   "sidebar.collectionImportFailed": "Koleksiyon içe aktarılamadı.",
+  "sidebar.importedCollection": "İçe aktarılan koleksiyon",
+  "sidebar.collectionImportPreview.title": "Koleksiyon aktarımını inceleyin",
+  "sidebar.collectionImportPreview.description":
+    "“{name}” içinden kaydedilecek verileri aktarmadan önce inceleyin.",
+  "sidebar.collectionImportPreview.collection": "Koleksiyon",
+  "sidebar.collectionImportPreview.requests": "İstekler",
+  "sidebar.collectionImportPreview.warnings": "Uyumluluk uyarıları",
+  "sidebar.collectionImportPreview.reviewWarnings":
+    "Desteklenmeyen Postman özelliklerini inceleyin",
+  "sidebar.collectionImportPreview.warningHint":
+    "Aşağıdaki öğeler Validex’te birebir temsil edilemez. Henüz hiçbir şey kaydedilmedi.",
+  "sidebar.collectionImportPreview.compatible":
+    "Bu koleksiyon uyumluluk uyarısı olmadan içe aktarılabilir.",
+  "sidebar.collectionImportPreview.confirm": "Koleksiyonu içe aktar",
+  "sidebar.collectionImportWarning.folderHierarchy":
+    "İç içe klasörler istek adlarına düzleştirilecek.",
+  "sidebar.collectionImportWarning.scripts":
+    "Pre-request script’leri ve testler içe aktarılmayacak.",
+  "sidebar.collectionImportWarning.variables":
+    "Koleksiyon, klasör ve istek variable değerleri aktarılmayacak; referanslar korunacak.",
+  "sidebar.collectionImportWarning.auth":
+    "Desteklenmeyen yetkilendirme ayarlarının yeniden yapılandırılması gerekecek.",
+  "sidebar.collectionImportWarning.body":
+    "Desteklenmeyen istek body biçimleri atlanacak.",
+  "sidebar.collectionImportWarning.examples":
+    "Kayıtlı response örnekleri içe aktarılmayacak.",
+  "sidebar.collectionImportWarning.request":
+    "Geçersiz veya HTTP dışı öğeler atlanacak.",
+  "sidebar.collectionImportWarning.transport":
+    "Proxy ve istemci sertifikası ayarlarının yeniden yapılandırılması gerekecek.",
   "sidebar.collectionExported": "“{name}” dışa aktarıldı.",
   "sidebar.collectionExportedWithWarning":
     "“{name}” dışa aktarıldı ancak kayıt konumu tamamen eşitlenemedi.",
@@ -393,6 +465,7 @@ export const coreTurkish = {
   "sidebar.importedOpenAPI": "İçe aktarılan OpenAPI",
   "sidebar.endpointCount.one": "{count} endpoint",
   "sidebar.endpointCount.many": "{count} endpoint",
+  "sidebar.openapiSessionOnly": "yalnız bu oturum",
   "sidebar.searchRequests": "Koleksiyonlarda ara",
   "sidebar.searchAPIs": "API’lerde ara",
   "sidebar.searchResultCount.one": "{count} eşleşen öğe",
@@ -463,6 +536,7 @@ export const coreTurkish = {
   "status.requestReady": "İstek hazır",
   "status.noActiveRequest": "Etkin istek yok",
   "status.workspaceReady": "Hazır",
+  "status.workspaceBusy": "Çalışıyor…",
   "status.barLabel": "Uygulama durumu",
 
   "context.panel": "İstek bağlamı",

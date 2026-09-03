@@ -9,6 +9,7 @@ export type WorkspaceView =
   | "mock"
   | "json"
   | "diagnostics"
+  | "performance"
   | "protocols"
   | "automation";
 

@@ -27,6 +27,7 @@ import {
   localizeUserError,
 } from "../../lib/userErrors.js";
 import { workspaceStore } from "../../stores/workspace.js";
+import { workspaceDefinition } from "../workspaces.js";
 import type { WorkspaceLayoutCommands } from "./workspaceLayoutCommands.js";
 
 export function mountTopBar(
@@ -79,6 +80,11 @@ export function mountTopBar(
               <span>${t("chrome.workspace")}</span>
               <strong>${localizedBootstrapWorkspaceName(bootstrap)}</strong>
             </div>
+            <span
+              class="mobile-workspace-context"
+              title="${t(workspaceDefinition(state.activeView).labelKey)}"
+              aria-hidden="true"
+            >${t(workspaceDefinition(state.activeView).labelKey)}</span>
             <label class="environment-select">
               <span>${t("chrome.environment")}</span>
               <select
@@ -124,7 +130,7 @@ export function mountTopBar(
             <div class="topbar-actions">
               <button
                 type="button"
-                class="button primary"
+                class="button primary topbar-desktop-action"
                 data-action="new-request"
                 data-focus="new-request"
                 aria-keyshortcuts="Meta+N Control+N"
@@ -134,7 +140,7 @@ export function mountTopBar(
               </button>
               <button
                 type="button"
-                class="button secondary topbar-import-button"
+                class="button secondary topbar-import-button topbar-desktop-action"
                 data-action="import"
                 data-focus="import"
                 aria-label="${t("chrome.importOpenAPI")}"
@@ -151,7 +157,7 @@ export function mountTopBar(
               </button>
               <button
                 type="button"
-                class="icon-button"
+                class="icon-button topbar-desktop-action"
                 data-action="settings"
                 data-focus="settings"
                 aria-label="${t("chrome.layoutAndSettings")}"
@@ -159,6 +165,18 @@ export function mountTopBar(
                 title="${t("chrome.layoutAndSettings")}"
               >
                 ${icon("settings", 16)}
+              </button>
+              <button
+                type="button"
+                class="icon-button mobile-more-button"
+                data-action="mobile-more"
+                data-focus="mobile-more"
+                aria-label="${t("chrome.moreActions")}"
+                aria-haspopup="menu"
+                aria-expanded="false"
+                title="${t("chrome.moreActions")}"
+              >
+                ${icon("more", 17)}
               </button>
             </div>
           </header>
@@ -202,11 +220,12 @@ export function mountTopBar(
     }
   };
 
-  const importOpenAPI = async () => {
+  const importOpenAPI = async (restoreFocusKey = "import") => {
     if (importPending) return;
     const restoreImportFocus =
-      document.activeElement instanceof HTMLElement &&
-      document.activeElement.matches('[data-focus="import"]');
+      (document.activeElement instanceof HTMLElement &&
+        document.activeElement.dataset.focus === restoreFocusKey) ||
+      restoreFocusKey !== "import";
     importPending = true;
     notice = undefined;
     render();
@@ -260,10 +279,151 @@ export function mountTopBar(
       render();
       if (restoreImportFocus) {
         root
-          .querySelector<HTMLElement>('[data-focus="import"]')
+          .querySelector<HTMLElement>(
+            `[data-focus="${restoreFocusKey}"]`,
+          )
           ?.focus({ preventScroll: true });
       }
     }
+  };
+
+  const openSettingsMenu = (
+    target: HTMLElement,
+    includeGlobalActions: boolean,
+  ) => {
+    const state = workspaceStore.getState();
+    const restoreFocusKey = target.dataset.focus ?? "settings";
+    const restoreSettingsFocus = () => {
+      window.requestAnimationFrame(() => {
+        root
+          .querySelector<HTMLElement>(
+            `[data-focus="${restoreFocusKey}"]`,
+          )
+          ?.focus({ preventScroll: true });
+      });
+    };
+    const setTheme = (theme: ThemePreference) => {
+      workspaceStore.getState().setTheme(theme);
+      restoreSettingsFocus();
+    };
+    activeSettingsMenu?.dispose();
+    activeSettingsMenu = openMenu({
+      anchor: target,
+      align: "end",
+      restoreFocus: target,
+      label: includeGlobalActions
+        ? t("chrome.moreActions")
+        : t("chrome.layoutAndSettings"),
+      entries: [
+        ...(includeGlobalActions
+          ? [
+              {
+                label: t("chrome.newRequest"),
+                icon: "plus" as const,
+                action: () => {
+                  applicationCommands.openRequestDraft({
+                    name: t("chrome.untitledRequest"),
+                  });
+                },
+              },
+              {
+                label: importPending
+                  ? t("chrome.importOpenAPIPending")
+                  : t("chrome.importOpenAPI"),
+                icon: "import" as const,
+                disabled: importPending,
+                action: () => void importOpenAPI(restoreFocusKey),
+              },
+              { kind: "separator" as const },
+            ]
+          : []),
+        ...(state.activeView === "requests"
+          ? [
+              {
+                label: t("chrome.toggleRequestPanel"),
+                icon: "panel-left" as const,
+                action: () => layoutCommands.togglePanel("left", target),
+              },
+              {
+                label: t("chrome.toggleContextPanel"),
+                icon: "panel-right" as const,
+                action: () => layoutCommands.togglePanel("right", target),
+              },
+              {
+                label: t("chrome.response", {
+                  placement:
+                    state.responsePlacement === "vertical"
+                      ? t("chrome.responseRight")
+                      : t("chrome.responseBottom"),
+                }),
+                action: () => {
+                  workspaceStore
+                    .getState()
+                    .setResponsePlacement(
+                      state.responsePlacement === "vertical"
+                        ? "horizontal"
+                        : "vertical",
+                    );
+                  restoreSettingsFocus();
+                },
+              },
+              {
+                label: t("chrome.resetLayout"),
+                icon: "refresh" as const,
+                action: () => layoutCommands.resetLayout(target),
+              },
+              { kind: "separator" as const },
+            ]
+          : []),
+        {
+          label: t("chrome.themeSystem"),
+          icon: "settings",
+          role: "menuitemradio",
+          checked: state.theme === "system",
+          disabled: state.theme === "system",
+          action: () => setTheme("system"),
+        },
+        {
+          label: t("chrome.themeLight"),
+          icon: "sun",
+          role: "menuitemradio",
+          checked: state.theme === "light",
+          disabled: state.theme === "light",
+          action: () => setTheme("light"),
+        },
+        {
+          label: t("chrome.themeDark"),
+          icon: "moon",
+          role: "menuitemradio",
+          checked: state.theme === "dark",
+          disabled: state.theme === "dark",
+          action: () => setTheme("dark"),
+        },
+        { kind: "separator" },
+        {
+          label: "Türkçe",
+          icon: "language",
+          role: "menuitemradio",
+          checked: getLocale() === "tr",
+          disabled: getLocale() === "tr",
+          action: () => {
+            setLocale("tr");
+            restoreSettingsFocus();
+          },
+        },
+        {
+          label: "English",
+          icon: "language",
+          role: "menuitemradio",
+          checked: getLocale() === "en",
+          disabled: getLocale() === "en",
+          action: () => {
+            setLocale("en");
+            restoreSettingsFocus();
+          },
+        },
+      ],
+    });
   };
 
   lifecycle.listen(root, "change", (event) => {
@@ -293,99 +453,9 @@ export function mountTopBar(
         .querySelector<HTMLElement>('[data-focus="import"]')
         ?.focus({ preventScroll: true });
     } else if (action === "settings" && target) {
-      const state = workspaceStore.getState();
-      const restoreSettingsFocus = () => {
-        window.requestAnimationFrame(() => {
-          root
-            .querySelector<HTMLElement>('[data-focus="settings"]')
-            ?.focus({ preventScroll: true });
-        });
-      };
-      const setTheme = (theme: ThemePreference) => {
-        workspaceStore.getState().setTheme(theme);
-        restoreSettingsFocus();
-      };
-      activeSettingsMenu?.dispose();
-      activeSettingsMenu = openMenu({
-        anchor: target,
-        align: "end",
-        restoreFocus: target,
-        label: t("chrome.layoutAndSettings"),
-        entries: [
-          ...(state.activeView === "requests"
-            ? [
-                {
-                  label: t("chrome.toggleRequestPanel"),
-                  icon: "panel-left" as const,
-                  action: () => layoutCommands.togglePanel("left", target),
-                },
-                {
-                  label: t("chrome.toggleContextPanel"),
-                  icon: "panel-right" as const,
-                  action: () => layoutCommands.togglePanel("right", target),
-                },
-                {
-                  label: t("chrome.response", {
-                    placement:
-                      state.responsePlacement === "vertical"
-                        ? t("chrome.responseRight")
-                        : t("chrome.responseBottom"),
-                  }),
-                  action: () => {
-                    workspaceStore
-                      .getState()
-                      .setResponsePlacement(
-                        state.responsePlacement === "vertical"
-                          ? "horizontal"
-                          : "vertical",
-                      );
-                    restoreSettingsFocus();
-                  },
-                },
-                {
-                  label: t("chrome.resetLayout"),
-                  icon: "refresh" as const,
-                  action: () => layoutCommands.resetLayout(target),
-                },
-                { kind: "separator" as const },
-              ]
-            : []),
-          {
-            label: t("chrome.themeSystem"),
-            icon: "settings",
-            action: () => setTheme("system"),
-          },
-          {
-            label: t("chrome.themeLight"),
-            icon: "sun",
-            action: () => setTheme("light"),
-          },
-          {
-            label: t("chrome.themeDark"),
-            icon: "moon",
-            action: () => setTheme("dark"),
-          },
-          { kind: "separator" },
-          {
-            label: "Türkçe",
-            icon: "language",
-            disabled: getLocale() === "tr",
-            action: () => {
-              setLocale("tr");
-              restoreSettingsFocus();
-            },
-          },
-          {
-            label: "English",
-            icon: "language",
-            disabled: getLocale() === "en",
-            action: () => {
-              setLocale("en");
-              restoreSettingsFocus();
-            },
-          },
-        ],
-      });
+      openSettingsMenu(target, false);
+    } else if (action === "mobile-more" && target) {
+      openSettingsMenu(target, true);
     }
   });
 
@@ -397,7 +467,8 @@ export function mountTopBar(
   lifecycle.add(
     workspaceStore.subscribe((state, previous) => {
       if (
-        state.activeEnvironmentID !== previous.activeEnvironmentID
+        state.activeEnvironmentID !== previous.activeEnvironmentID ||
+        state.activeView !== previous.activeView
       ) {
         render();
       }

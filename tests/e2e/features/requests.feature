@@ -188,6 +188,13 @@ Feature: Compose requests and inspect responses
     Then the duplicate is removed and the adjacent clean tab receives focus
     And the application has no uncaught frontend error
 
+  @request-actions @tabs @context-menu @disabled-state
+  Scenario: Disable bulk tab actions when there is nothing they can close
+    Given I have an editable request
+    When I open the only request tab context menu
+    Then bulk close actions without eligible targets are disabled
+    And the application has no uncaught frontend error
+
   @request-actions @tabs @context-menu
   Scenario: Close every other clean request tab from the context menu
     Given I have clean request tabs and a dirty draft for bulk close actions

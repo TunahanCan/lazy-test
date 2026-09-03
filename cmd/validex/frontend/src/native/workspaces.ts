@@ -40,6 +40,14 @@ export const workspaceDefinitions: readonly WorkspaceDefinition[] = [
     icon: "activity",
   },
   {
+    id: "performance",
+    labelKey: "workspace.performance.label",
+    descriptionKey: "workspace.performance.description",
+    keywords:
+      "performance load latency throughput percentile url test performans yük gecikme",
+    icon: "history",
+  },
+  {
     id: "protocols",
     labelKey: "workspace.protocols.label",
     descriptionKey: "workspace.protocols.description",

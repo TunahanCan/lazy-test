@@ -86,8 +86,6 @@ import {
   horizontalTabIndexFromKey,
   responseSizeFromKey,
   responseSizeFromPointer,
-  responseSizeMaximum,
-  responseSizeMinimum,
   type ResponseSplitPlacement,
 } from "./interaction.js";
 import {
@@ -317,6 +315,20 @@ export function mountRequestWorkspace(
   const activeTab = (): RequestTab | undefined => {
     const state = workspaceStore.getState();
     return state.tabs.find((tab) => tab.id === state.activeTabID);
+  };
+
+  const requestTabForElement = (
+    target: EventTarget | null,
+  ): RequestTab | undefined => {
+    const form =
+      target instanceof Element
+        ? target.closest<HTMLFormElement>("[data-request-form]")
+        : undefined;
+    const tabID = form?.dataset.requestFormTab;
+    if (!tabID) return activeTab();
+    return workspaceStore
+      .getState()
+      .tabs.find((tab) => tab.id === tabID);
   };
 
   const canMutateCollectionLibrary = (): boolean => {
@@ -565,8 +577,8 @@ export function mountRequestWorkspace(
   }
 
   const captureDraft = (): RequestDraft | undefined => {
-    const tab = activeTab();
     const form = root.querySelector<HTMLFormElement>("[data-request-form]");
+    const tab = requestTabForElement(form);
     if (!tab || !form || tab.running) return;
     const draft = draftFor(tab);
     captureVisibleVariableValues();
@@ -788,7 +800,6 @@ export function mountRequestWorkspace(
 
   const updateDraftInStore = (
     tab: RequestTab,
-    draft: RequestDraft,
     fields: readonly RequestDraftField[],
     rerender: boolean,
   ) => {
@@ -1854,10 +1865,10 @@ export function mountRequestWorkspace(
   });
 
   lifecycle.listen(root, "input", (event) => {
-    const tab = activeTab();
+    const target = event.target;
+    const tab = requestTabForElement(target);
     if (!tab || tab.running) return;
     const draft = draftFor(tab);
-    const target = event.target;
     if (target instanceof HTMLSelectElement && target.name === "method") {
       if (draft.method !== target.value) {
         draft.method = target.value as HTTPMethod;
@@ -1954,14 +1965,14 @@ export function mountRequestWorkspace(
   });
 
   lifecycle.listen(root, "change", (event) => {
-    const tab = activeTab();
+    const target = event.target;
+    const tab = requestTabForElement(target);
     if (!tab || tab.running) return;
     const draft = draftFor(tab);
-    const target = event.target;
     if (target instanceof HTMLSelectElement && target.name === "method") {
       draft.method = target.value as HTTPMethod;
       if (draft.method !== tab.method) {
-        updateDraftInStore(tab, draft, ["method"], true);
+        updateDraftInStore(tab, ["method"], true);
       }
     } else if (
       target instanceof HTMLInputElement &&
@@ -2023,10 +2034,10 @@ export function mountRequestWorkspace(
   });
 
   lifecycle.listen(root, "focusout", (event) => {
-    const tab = activeTab();
+    const target = event.target;
+    const tab = requestTabForElement(target);
     if (!tab || tab.running) return;
     const draft = draftFor(tab);
-    const target = event.target;
     let deriveRequestName = false;
     let validationStateChanged = false;
     if (target instanceof HTMLInputElement && target.name === "url") {
@@ -2294,7 +2305,7 @@ export function mountRequestWorkspace(
           description: "",
           source: "Manual",
         });
-        updateDraftInStore(tab, draft, ["headers"], true);
+        updateDraftInStore(tab, ["headers"], true);
         announce(t("requests.editor.headers.added"));
         focusSelectorAfterRender(
           `[data-header-row="${draft.headers.length - 1}"] [data-header-field="key"]`,
@@ -2303,7 +2314,7 @@ export function mountRequestWorkspace(
         captureDraft();
         const removedIndex = Number(target.dataset.index);
         draft.headers.splice(removedIndex, 1);
-        updateDraftInStore(tab, draft, ["headers"], true);
+        updateDraftInStore(tab, ["headers"], true);
         announce(t("requests.editor.headers.removed"));
         if (draft.headers.length > 0) {
           focusSelectorAfterRender(
@@ -2323,7 +2334,7 @@ export function mountRequestWorkspace(
             action === "format-body"
               ? JSON.stringify(parsed, null, 2)
               : JSON.stringify(parsed);
-          updateDraftInStore(tab, draft, ["body"], true);
+          updateDraftInStore(tab, ["body"], true);
           notify({
             message: t(
               action === "format-body"
@@ -2347,7 +2358,7 @@ export function mountRequestWorkspace(
         captureDraft();
         urlValidationTouched.add(tab.id);
         draft.url = addURLQueryRow(draft.url, { key: "", value: "" });
-        updateDraftInStore(tab, draft, ["url"], true);
+        updateDraftInStore(tab, ["url"], true);
         announce(t("requests.editor.query.added"));
         const newIndex = parseURLQuery(draft.url).at(-1)?.index;
         if (newIndex !== undefined) {
@@ -2363,7 +2374,7 @@ export function mountRequestWorkspace(
           draft.url,
           removedIndex,
         );
-        updateDraftInStore(tab, draft, ["url"], true);
+        updateDraftInStore(tab, ["url"], true);
         announce(t("requests.editor.query.removed"));
         const remainingRows = parseURLQuery(draft.url);
         const nextRow =
@@ -2786,6 +2797,17 @@ export function mountRequestWorkspace(
     const tabButton = tabElement.querySelector<HTMLButtonElement>(
       "[data-request-tab-button]",
     ) ?? undefined;
+    const tabs = workspaceStore.getState().tabs;
+    const tabIndex = tabs.findIndex((candidate) => candidate.id === tabID);
+    const closable = (candidate: RequestTab) =>
+      candidate.id !== tabID &&
+      !candidate.pinned &&
+      !candidate.dirty &&
+      !candidate.running;
+    const hasClosableOther = tabs.some(closable);
+    const hasClosableRight = tabs.some(
+      (candidate, index) => index > tabIndex && closable(candidate),
+    );
     openMenu({
       point: { x: event.clientX, y: event.clientY },
       restoreFocus: tabButton,
@@ -2827,6 +2849,7 @@ export function mountRequestWorkspace(
         { kind: "separator" },
         {
           label: t("requests.tabs.closeOtherClean"),
+          disabled: !hasClosableOther,
           action: () => {
             workspaceStore.getState().closeOtherTabs(tabID);
             focusElementAfterRender(`request-tab-${tabID}`);
@@ -2834,6 +2857,7 @@ export function mountRequestWorkspace(
         },
         {
           label: t("requests.tabs.closeCleanRight"),
+          disabled: !hasClosableRight,
           action: () => {
             workspaceStore.getState().closeTabsToRight(tabID);
             focusElementAfterRender(`request-tab-${tabID}`);

@@ -21,24 +21,59 @@ export type DiagnosticsMode =
   | "spring"
   | "jwt"
   | "runtime"
-  | "performance"
   | "environments"
   | "thread-logs"
   | "coverage";
+
+export type DiagnosticsWorkspaceMode = DiagnosticsMode | "performance";
 
 export interface URLPerformanceSample {
   number: number;
   statusCode: number;
   durationMs: number;
+  dnsDurationMs: number;
+  requestDurationMs: number;
+  redirectCount: number;
+  method: string;
+  usedGetFallback: boolean;
+  success: boolean;
+  error?: string;
+  failureCategory?: string;
   finalURL: string;
 }
 
 export interface URLPerformanceSummary {
   samples: URLPerformanceSample[];
+  durationValuesMs: number[];
+  durationValueCursor: number;
   completedSamples: number;
+  successfulSamples: number;
+  failedSamples: number;
   fastestMs: number;
   averageMs: number;
+  durationM2: number;
   slowestMs: number;
+  totalDurationMs: number;
+  elapsedTimeMs?: number;
+  totalDNSDurationMs: number;
+  totalRequestDurationMs: number;
+  redirectedSamples: number;
+  fallbackSamples: number;
+  statusCounts: Record<string, number>;
+}
+
+export interface URLPerformanceStatistics {
+  medianMs: number;
+  p90Ms: number;
+  p95Ms: number;
+  p99Ms: number;
+  standardDeviationMs: number;
+  errorRate: number;
+  throughputPerSecond: number;
+  averageDNSMs: number;
+  averageRequestMs: number;
+  percentileSampleCount: number;
+  percentilesTruncated: boolean;
 }
 
 export interface DiagnosticsNotice {
@@ -58,7 +93,6 @@ export const diagnosticsModes: readonly DiagnosticsMode[] = [
   "spring",
   "jwt",
   "runtime",
-  "performance",
   "environments",
   "thread-logs",
   "coverage",
@@ -66,10 +100,15 @@ export const diagnosticsModes: readonly DiagnosticsMode[] = [
 
 export const urlPerformanceLimits = {
   minimumSamples: 1,
+  maximumSamples: 1_000,
+  largeRunConfirmationSamples: 100,
   minimumTimeoutMs: 1,
   retainedSampleDetails: 250,
+  retainedPercentileSamples: 20_000,
   maximumRepresentableTimeoutMs: 9_223_372_036_854,
 } as const;
+
+const followedRedirectStatusCodes = new Set([301, 302, 303, 307, 308]);
 
 export const defaultMetricNames = [
   "jvm.memory.used",
@@ -179,13 +218,23 @@ function structuredErrorDetails(error: Partial<UserError>): string | undefined {
 export function resultIssue(
   result: { error?: UserError | string } | null,
   t: Translate,
+  fallback?: {
+    title: TranslationKey;
+    message: TranslationKey;
+    hint: TranslationKey;
+  },
 ): DiagnosticsNotice | null {
   if (!result?.error) return null;
+  const fallbackTitle = fallback?.title ?? "diagnostics.error.operationTitle";
+  const fallbackMessage =
+    fallback?.message ?? "diagnostics.error.operationMessage";
+  const fallbackHint = fallback?.hint ?? "diagnostics.error.operationHint";
   if (typeof result.error === "string") {
     return {
       tone: "error",
-      title: t("diagnostics.error.operationTitle"),
-      text: t("diagnostics.error.operationMessage"),
+      title: t(fallbackTitle),
+      text: t(fallbackMessage),
+      ...(fallback ? { hint: t(fallbackHint) } : {}),
       technical: result.error,
     };
   }
@@ -203,7 +252,7 @@ export function resultIssue(
     return {
       tone: "error",
       title: t("diagnostics.error.bridgeTitle"),
-      text: t("diagnostics.error.operationMessage"),
+      text: t(fallbackMessage),
       hint: t("diagnostics.error.bridgeHint"),
       technical: result.error.technical,
     };
@@ -211,13 +260,13 @@ export function resultIssue(
   const translated = translatedDiagnosticsErrors[result.error.code];
   return {
     tone: "error",
-    title: t("diagnostics.error.operationTitle"),
+    title: t(fallbackTitle),
     text: translated
       ? t(translated.message)
-      : t("diagnostics.error.operationMessage"),
+      : t(fallbackMessage),
     hint: translated
       ? t(translated.hint)
-      : t("diagnostics.error.operationHint"),
+      : t(fallbackHint),
     technical: translated
       ? result.error.technical
       : structuredErrorDetails(result.error),
@@ -324,9 +373,14 @@ export function validateURLPerformanceOptions(
 ): void {
   if (
     !Number.isSafeInteger(sampleCount) ||
-    sampleCount < urlPerformanceLimits.minimumSamples
+    sampleCount < urlPerformanceLimits.minimumSamples ||
+    sampleCount > urlPerformanceLimits.maximumSamples
   ) {
-    throw new Error(t("diagnostics.performance.sampleRange"));
+    throw new Error(
+      t("diagnostics.performance.sampleRange", {
+        max: urlPerformanceLimits.maximumSamples,
+      }),
+    );
   }
   if (
     !Number.isSafeInteger(timeoutMs) ||
@@ -340,37 +394,119 @@ export function validateURLPerformanceOptions(
 export function appendURLPerformanceReport(
   summary: URLPerformanceSummary | undefined,
   report: NetworkReport,
+  error?: string,
+  failureCategory?: string,
 ): URLPerformanceSummary {
   const durationMs = Math.max(0, report.totalDurationMs);
   const completedSamples = (summary?.completedSamples ?? 0) + 1;
+  const statusCode = report.finalStatusCode ?? 0;
+  const success = !error && statusCode >= 200 && statusCode < 400;
+  const dnsLookups = report.dnsLookups ?? [];
+  const hops = report.hops ?? [];
+  const dnsDurationMs = dnsLookups.reduce(
+    (total, lookup) => total + Math.max(0, lookup.durationMs),
+    0,
+  );
+  const requestDurationMs = hops.reduce(
+    (total, hop) => total + Math.max(0, hop.durationMs),
+    0,
+  );
+  const redirectCount = hops.filter(
+    (hop) =>
+      followedRedirectStatusCodes.has(hop.statusCode) &&
+      Boolean(hop.location?.trim()),
+  ).length;
   const sample: URLPerformanceSample = {
     number: completedSamples,
-    statusCode: report.finalStatusCode ?? 0,
+    statusCode,
     durationMs,
+    dnsDurationMs,
+    requestDurationMs,
+    redirectCount,
+    method: hops.at(-1)?.method ?? "HEAD",
+    usedGetFallback: report.usedGetFallback,
+    success,
+    ...(error ? { error } : {}),
+    ...(failureCategory ? { failureCategory } : {}),
     finalURL: report.finalUrl ?? report.inputUrl,
   };
   const samples = [...(summary?.samples ?? []), sample].slice(
     -urlPerformanceLimits.retainedSampleDetails,
   );
+  const statusKey =
+    statusCode > 0
+      ? String(statusCode)
+      : (failureCategory ?? "network-error");
+  const statusCounts = {
+    ...(summary?.statusCounts ?? {}),
+    [statusKey]: (summary?.statusCounts[statusKey] ?? 0) + 1,
+  };
 
   if (!summary) {
     return {
       samples,
+      durationValuesMs: [durationMs],
+      durationValueCursor: 0,
       completedSamples,
+      successfulSamples: success ? 1 : 0,
+      failedSamples: success ? 0 : 1,
       fastestMs: durationMs,
       averageMs: durationMs,
+      durationM2: 0,
       slowestMs: durationMs,
+      totalDurationMs: durationMs,
+      totalDNSDurationMs: dnsDurationMs,
+      totalRequestDurationMs: requestDurationMs,
+      redirectedSamples: redirectCount > 0 ? 1 : 0,
+      fallbackSamples: report.usedGetFallback ? 1 : 0,
+      statusCounts,
     };
+  }
+
+  const durationValuesMs = [...summary.durationValuesMs];
+  let durationValueCursor = summary.durationValueCursor;
+  if (
+    durationValuesMs.length <
+    urlPerformanceLimits.retainedPercentileSamples
+  ) {
+    durationValuesMs.push(durationMs);
+  } else {
+    durationValuesMs[durationValueCursor] = durationMs;
+    durationValueCursor =
+      (durationValueCursor + 1) %
+      urlPerformanceLimits.retainedPercentileSamples;
   }
 
   return {
     samples,
+    durationValuesMs,
+    durationValueCursor,
     completedSamples,
+    successfulSamples: summary.successfulSamples + (success ? 1 : 0),
+    failedSamples: summary.failedSamples + (success ? 0 : 1),
     fastestMs: Math.min(summary.fastestMs, durationMs),
     averageMs:
       summary.averageMs +
       (durationMs - summary.averageMs) / completedSamples,
+    durationM2:
+      summary.durationM2 +
+      (durationMs - summary.averageMs) *
+        (durationMs -
+          (summary.averageMs +
+            (durationMs - summary.averageMs) / completedSamples)),
     slowestMs: Math.max(summary.slowestMs, durationMs),
+    totalDurationMs: summary.totalDurationMs + durationMs,
+    ...(summary.elapsedTimeMs === undefined
+      ? {}
+      : { elapsedTimeMs: summary.elapsedTimeMs }),
+    totalDNSDurationMs: summary.totalDNSDurationMs + dnsDurationMs,
+    totalRequestDurationMs:
+      summary.totalRequestDurationMs + requestDurationMs,
+    redirectedSamples:
+      summary.redirectedSamples + (redirectCount > 0 ? 1 : 0),
+    fallbackSamples:
+      summary.fallbackSamples + (report.usedGetFallback ? 1 : 0),
+    statusCounts,
   };
 }
 
@@ -381,6 +517,55 @@ export function summarizeURLPerformance(
     (summary, report) => appendURLPerformanceReport(summary, report),
     undefined,
   );
+}
+
+function percentile(sortedValues: readonly number[], value: number): number {
+  if (sortedValues.length === 0) return 0;
+  if (sortedValues.length === 1) return sortedValues[0] ?? 0;
+  const position = (sortedValues.length - 1) * value;
+  const lowerIndex = Math.floor(position);
+  const upperIndex = Math.ceil(position);
+  const lower = sortedValues[lowerIndex] ?? 0;
+  const upper = sortedValues[upperIndex] ?? lower;
+  return lower + (upper - lower) * (position - lowerIndex);
+}
+
+export function urlPerformanceStatistics(
+  summary: URLPerformanceSummary,
+): URLPerformanceStatistics {
+  const values = [...summary.durationValuesMs].sort(
+    (left, right) => left - right,
+  );
+  const variance =
+    summary.completedSamples > 0
+      ? summary.durationM2 / summary.completedSamples
+      : 0;
+  return {
+    medianMs: percentile(values, 0.5),
+    p90Ms: percentile(values, 0.9),
+    p95Ms: percentile(values, 0.95),
+    p99Ms: percentile(values, 0.99),
+    standardDeviationMs: Math.sqrt(variance),
+    errorRate:
+      summary.completedSamples > 0
+        ? (summary.failedSamples / summary.completedSamples) * 100
+        : 0,
+    throughputPerSecond:
+      (summary.elapsedTimeMs ?? summary.totalDurationMs) > 0
+        ? (summary.completedSamples * 1_000) /
+          (summary.elapsedTimeMs ?? summary.totalDurationMs)
+        : 0,
+    averageDNSMs:
+      summary.completedSamples > 0
+        ? summary.totalDNSDurationMs / summary.completedSamples
+        : 0,
+    averageRequestMs:
+      summary.completedSamples > 0
+        ? summary.totalRequestDurationMs / summary.completedSamples
+        : 0,
+    percentileSampleCount: values.length,
+    percentilesTruncated: values.length < summary.completedSamples,
+  };
 }
 
 export function formatURLPerformanceDuration(

@@ -43,6 +43,10 @@ func registerResponsiveSteps(
 		world.responsiveTopBarActionsAreReachable,
 	)
 	context.Step(
+		`^every visible enabled control has an accessible name and compact shell targets are usable$`,
+		world.responsiveControlsAreNamedAndUsable,
+	)
+	context.Step(
 		`^the response uses the expected "([^"]+)" placement$`,
 		world.responsiveResponseUsesPlacement,
 	)
@@ -512,7 +516,7 @@ func (w *browserWorld) responsiveNavigationItemsAreFullyVisible() error {
 	})()`, &result)); err != nil {
 		return err
 	}
-	if result.Count != 6 || !result.InsideBar || !result.LabelsFit || result.BarOverflow {
+	if result.Count != 7 || !result.InsideBar || !result.LabelsFit || result.BarOverflow {
 		return fmt.Errorf("primary navigation is clipped: %+v", result)
 	}
 	return nil
@@ -520,33 +524,145 @@ func (w *browserWorld) responsiveNavigationItemsAreFullyVisible() error {
 
 func (w *browserWorld) responsiveTopBarActionsAreReachable() error {
 	var result struct {
-		Visible bool `json:"visible"`
-		Inside  bool `json:"inside"`
+		Visible       bool `json:"visible"`
+		Inside        bool `json:"inside"`
+		DesktopHidden bool `json:"desktopHidden"`
 	}
 	if err := w.run(chromedp.Evaluate(`(() => {
 		const controls = [
-			document.querySelector("[data-environment]"),
-			document.querySelector('[data-focus="new-request"]'),
-			document.querySelector('[data-focus="import"]'),
-			document.querySelector('[data-focus="settings"]'),
+			document.querySelector('[data-focus="home"]'),
+			document.querySelector(".mobile-workspace-context"),
+			document.querySelector(".environment-select"),
+			document.querySelector('[data-focus="palette"]'),
+			document.querySelector('[data-focus="mobile-more"]'),
 		].filter(Boolean);
+		const desktopActions = [...document.querySelectorAll(
+			".topbar-actions > .topbar-desktop-action"
+		)];
+		const visible = (control) => {
+			const rect = control.getBoundingClientRect();
+			const style = getComputedStyle(control);
+			return rect.width > 0 && rect.height > 0 &&
+				style.display !== "none" && style.visibility !== "hidden";
+		};
 		return {
-			visible: controls.length === 4 && controls.every((control) => {
-				const rect = control.getBoundingClientRect();
-				const style = getComputedStyle(control);
-				return rect.width > 0 && rect.height > 0 &&
-					style.display !== "none" && style.visibility !== "hidden";
-			}),
-			inside: controls.length === 4 && controls.every((control) => {
+			visible: controls.length === 5 && controls.every(visible),
+			inside: controls.length === 5 && controls.every((control) => {
 				const rect = control.getBoundingClientRect();
 				return rect.left >= -1 && rect.right <= window.innerWidth + 1;
 			}),
+			desktopHidden:
+				desktopActions.length === 3 && desktopActions.every(
+					(control) => !visible(control)
+				),
 		};
 	})()`, &result)); err != nil {
 		return err
 	}
-	if !result.Visible || !result.Inside {
+	if !result.Visible || !result.Inside || !result.DesktopHidden {
 		return fmt.Errorf("compact top bar controls are unreachable: %+v", result)
+	}
+	if err := w.run(
+		chromedp.Click(`[data-focus="mobile-more"]`, chromedp.ByQuery),
+		chromedp.WaitVisible(`[role="menu"].native-menu`, chromedp.ByQuery),
+	); err != nil {
+		return fmt.Errorf("open compact top bar action menu: %w", err)
+	}
+	var globalActionsAvailable bool
+	if err := w.run(chromedp.Evaluate(`(() => {
+		const items = [...document.querySelectorAll(
+			'[role="menu"].native-menu :is([role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]):not(:disabled)'
+		)].map((item) => item.textContent?.trim() || "");
+		return items.includes("New request") && items.includes("Import OpenAPI");
+	})()`, &globalActionsAvailable)); err != nil {
+		return err
+	}
+	if !globalActionsAvailable {
+		return fmt.Errorf("compact top bar menu does not expose global actions")
+	}
+	if err := w.run(chromedp.KeyEvent(kb.Escape)); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (w *browserWorld) responsiveControlsAreNamedAndUsable() error {
+	var result struct {
+		ControlCount int      `json:"controlCount"`
+		MissingNames []string `json:"missingNames"`
+		ShellTargets int      `json:"shellTargets"`
+		SmallTargets []string `json:"smallTargets"`
+	}
+	if err := w.run(chromedp.Evaluate(`(() => {
+		const rendered = (element) => {
+			if (element.closest('[hidden], [inert], [aria-hidden="true"]')) return false;
+			const style = getComputedStyle(element);
+			const rect = element.getBoundingClientRect();
+			return !element.hidden && style.display !== "none" &&
+				style.visibility !== "hidden" && rect.width > 0 && rect.height > 0;
+		};
+		const enabled = (element) =>
+			!("disabled" in element && element.disabled) &&
+			element.getAttribute("aria-disabled") !== "true";
+		const accessibleName = (element) => {
+			const labelledBy = (element.getAttribute("aria-labelledby") || "")
+				.split(/\s+/)
+				.filter(Boolean)
+				.map((id) => document.getElementById(id)?.textContent?.trim() || "")
+				.filter(Boolean)
+				.join(" ");
+			const labels = "labels" in element && element.labels
+				? [...element.labels]
+					.map((label) => label.textContent?.trim() || "")
+					.filter(Boolean)
+					.join(" ")
+				: "";
+			return (
+				element.getAttribute("aria-label") ||
+				labelledBy || labels ||
+				element.getAttribute("alt") ||
+				element.getAttribute("title") ||
+				element.textContent?.trim() || ""
+			).replace(/\s+/g, " ").trim();
+		};
+		const controls = [...new Set(document.querySelectorAll(
+			'button, input:not([type="hidden"]), select, textarea, a[href], summary, [role="tab"], [role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]'
+		))].filter((element) => rendered(element) && enabled(element));
+		const missingNames = controls
+			.filter((element) => !accessibleName(element))
+			.map((element) => element.outerHTML.slice(0, 140));
+
+		const shellTargets = [...document.querySelectorAll([
+			".topbar .brand",
+			".topbar .global-search",
+			".topbar .environment-select",
+			".topbar .topbar-actions > button",
+			".activity-bar .activity-item",
+		].join(", "))].filter((element) => rendered(element) && enabled(element));
+		const smallTargets = shellTargets.flatMap((element) => {
+			const rect = element.getBoundingClientRect();
+			if (rect.width >= 40 && rect.height >= 40) return [];
+			return [
+				(accessibleName(element) || element.className || element.tagName) +
+				" (" + Math.round(rect.width) + "x" +
+				Math.round(rect.height) + ")",
+			];
+		});
+		return {
+			controlCount: controls.length,
+			missingNames,
+			shellTargets: shellTargets.length,
+			smallTargets,
+		};
+	})()`, &result)); err != nil {
+		return err
+	}
+	if result.ControlCount == 0 || len(result.MissingNames) > 0 ||
+		result.ShellTargets == 0 || len(result.SmallTargets) > 0 {
+		return fmt.Errorf(
+			"accessible control contract failed: %+v",
+			result,
+		)
 	}
 	return nil
 }
@@ -1586,11 +1702,25 @@ func responsiveResizeSeparator(
 	})()`, selector), &before)); err != nil {
 		return err
 	}
-	if err := w.run(
-		chromedp.Focus(selector, chromedp.ByQuery),
-		chromedp.KeyEvent(key),
+	if err := responsiveFocusAfterRenderSettles(
+		w,
+		selector,
+		fmt.Sprintf("%s separator did not receive stable focus", name),
 	); err != nil {
+		return err
+	}
+	if err := w.run(chromedp.KeyEvent(key)); err != nil {
 		return fmt.Errorf("resize %s separator: %w", name, err)
+	}
+	if err := shellPoll(
+		w,
+		fmt.Sprintf(`(() => {
+			const separator = document.querySelector(%q);
+			return separator?.getAttribute("aria-valuenow") !== %q;
+		})()`, selector, fmt.Sprint(before.Now)),
+		fmt.Sprintf("%s separator value did not update", name),
+	); err != nil {
+		return err
 	}
 	var after struct {
 		Max   int    `json:"max"`

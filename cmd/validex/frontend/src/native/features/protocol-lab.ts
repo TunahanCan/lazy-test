@@ -26,6 +26,7 @@ import {
   validateURL,
   type ProtocolIssue,
 } from "../../features/protocols/model.js";
+import { setWorkspaceBusy } from "../chrome/workspaceActivity.js";
 
 interface SSEFormState {
   url: string;
@@ -486,6 +487,7 @@ export function mountProtocolLab(root: HTMLElement): Disposable {
       };
       state.loading = true;
       state.activeOperationID = operationID;
+      setWorkspaceBusy("protocols", true);
       backendStarted = true;
       renderPage(root, state);
       optionalElement<HTMLButtonElement>(
@@ -507,6 +509,7 @@ export function mountProtocolLab(root: HTMLElement): Disposable {
     } finally {
       if (!disposed) {
         state.loading = false;
+        setWorkspaceBusy("protocols", false);
         if (state.activeOperationID === operationID) {
           state.activeOperationID = "";
         }
@@ -577,6 +580,7 @@ export function mountProtocolLab(root: HTMLElement): Disposable {
     }),
   );
   lifecycle.add(() => {
+    setWorkspaceBusy("protocols", false);
     disposed = true;
     root.replaceChildren();
   });

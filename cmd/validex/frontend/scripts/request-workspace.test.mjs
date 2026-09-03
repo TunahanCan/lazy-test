@@ -311,6 +311,46 @@ test("background request updates only refresh the tab strip", () => {
   );
 });
 
+test("an empty response is a neutral status surface, not a fake tab strip", () => {
+  const markup = responsePanelMarkup({
+    id: "response-empty",
+    running: false,
+    responseSection: "body",
+  }).value;
+
+  assert.ok(markup.includes("response-panel-empty"));
+  assert.ok(markup.includes('role="status"'));
+  assert.equal(markup.includes("response-tabs-placeholder"), false);
+  assert.equal(markup.includes('role="tablist"'), false);
+  assert.equal(markup.includes("data-response-section"), false);
+});
+
+test("legacy request errors retain the complete backend payload in details", () => {
+  const legacyError = {
+    code: "network_error",
+    title: "Legacy proxy failure",
+    message: "The upstream socket closed before headers arrived.",
+    hint: "Check the corporate proxy route.",
+    technical: "dial tcp 203.0.113.8:443: connection reset",
+  };
+  const markup = responsePanelMarkup({
+    id: "response-legacy-error",
+    running: false,
+    responseSection: "body",
+    userError: legacyError,
+  }).value;
+
+  assert.ok(markup.includes("<details>"));
+  for (const detail of [
+    legacyError.title,
+    legacyError.message,
+    legacyError.hint,
+    legacyError.technical,
+  ]) {
+    assert.ok(markup.includes(detail), `missing legacy detail: ${detail}`);
+  }
+});
+
 test("response viewer escapes highlighted content and uses the code surface", () => {
   const body = JSON.stringify({
     unsafe: "</code><script>boom()</script>",

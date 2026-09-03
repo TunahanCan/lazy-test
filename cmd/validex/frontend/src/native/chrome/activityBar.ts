@@ -16,6 +16,7 @@ const compactLabelKeys = {
   mock: "workspace.mock.compactLabel",
   json: "workspace.json.compactLabel",
   diagnostics: "workspace.diagnostics.compactLabel",
+  performance: "workspace.performance.compactLabel",
   protocols: "workspace.protocols.compactLabel",
   automation: "workspace.automation.compactLabel",
 } as const;

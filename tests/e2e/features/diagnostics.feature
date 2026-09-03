@@ -22,11 +22,36 @@ Feature: Diagnose backend and runtime behavior
       | Spring       | Spring ProblemDetail response | analyze Spring response      | HTTP and error advice      |
       | JWT          | valid JWT token               | decode JWT                   | header payload and claims  |
       | Runtime      | Actuator endpoint             | capture runtime snapshot     | components and metrics     |
-      | Performance  | URL performance target        | test URL performance         | URL timing samples         |
       | Environments | three environment targets     | compare environments         | response differences       |
       | Thread       | blocked thread dump           | analyze thread dump          | thread states              |
       | Logs         | trace-bearing log text        | search trace logs            | matching log lines         |
       | Coverage     | known and observed endpoints  | calculate endpoint coverage  | coverage totals            |
+
+  @performance @happy-path
+  Scenario Outline: Run a detailed URL benchmark in its own workspace
+    Given the viewport is "<viewport>"
+    And I am in the "Performance" workspace
+    And I provide the "URL performance target" diagnostics fixture
+    When I run the "test URL performance" diagnostics operation
+    Then the diagnostics result shows the "URL timing samples" summary
+    And a successful diagnostics status is announced
+    And no application content overflows the viewport horizontally
+    And performance result tables expose labeled cells without hidden horizontal content
+    And the diagnostics workspace has no uncaught frontend error
+
+    Examples:
+      | viewport |
+      | 1440x900 |
+      | 390x844  |
+
+  @performance @error
+  Scenario: Keep failed samples in the aggregate and continue the benchmark
+    Given I am in the "Performance" workspace
+    And Diagnostics uses the "English" locale
+    And the URL benchmark has one failed and one successful sample
+    When I run the "test URL performance" diagnostics operation
+    Then the URL benchmark reports both samples and a fifty percent error rate
+    And the diagnostics workspace has no uncaught frontend error
 
   @runtime
   Scenario: Capture a runtime baseline and compare a later snapshot

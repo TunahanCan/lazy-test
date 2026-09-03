@@ -1089,9 +1089,55 @@ func (s *collectionSteps) importPostmanCollection() error {
 	}
 	if err := requestClick(
 		s.world,
-		`.collection-toolbar [data-action="import-collection"]`,
+		`[data-left-panel] [data-action="import-collection"]:not(:disabled)`,
 	); err != nil {
 		return err
+	}
+	if err := requestWaitVisible(
+		s.world,
+		`.collection-import-preview-dialog`,
+	); err != nil {
+		return fmt.Errorf("open Postman collection import preview: %w", err)
+	}
+	if err := requestWaitFor(
+		s.world,
+		`document.activeElement?.matches("[data-import-preview-confirm]")`,
+		"safe default focus in compatible collection import preview",
+	); err != nil {
+		return err
+	}
+	var preview struct {
+		Collection string `json:"collection"`
+		Requests   string `json:"requests"`
+		Warnings   string `json:"warnings"`
+		Compatible bool   `json:"compatible"`
+		Focused    bool   `json:"focused"`
+	}
+	if err := s.world.run(chromedp.Evaluate(`(() => {
+		const dialog = document.querySelector(".collection-import-preview-dialog");
+		const facts = [...(dialog?.querySelectorAll(
+			".collection-import-preview-summary > div"
+		) || [])].map((item) => item.querySelector("strong")?.textContent?.trim() || "");
+		const confirm = dialog?.querySelector("[data-import-preview-confirm]");
+		return {
+			collection: facts[0] || "",
+			requests: facts[1] || "",
+			warnings: facts[2] || "",
+			compatible: Boolean(dialog?.querySelector(".collection-import-compatible")),
+			focused: document.activeElement === confirm,
+		};
+	})()`, &preview)); err != nil {
+		return err
+	}
+	if preview.Collection != postmanCollectionName || preview.Requests != "1" ||
+		preview.Warnings != "0" || !preview.Compatible || !preview.Focused {
+		return fmt.Errorf("Postman import preview is incomplete: %+v", preview)
+	}
+	if err := requestClick(
+		s.world,
+		`.collection-import-preview-dialog [data-import-preview-confirm]`,
+	); err != nil {
+		return fmt.Errorf("confirm Postman collection import: %w", err)
 	}
 	return requestWaitFor(
 		s.world,

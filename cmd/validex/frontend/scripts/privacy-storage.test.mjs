@@ -88,6 +88,12 @@ test("workspace migration adopts the new response default without replacing pref
   );
   assert.equal(currentVersion.responseSize, 36);
 
+  const performanceWorkspace = migratePersistedWorkspaceState(
+    { ...previousDefault, activeView: "performance" },
+    workspaceStorageVersion,
+  );
+  assert.equal(performanceWorkspace.activeView, "performance");
+
   const customized = {
     ...previousDefault,
     leftVisible: false,

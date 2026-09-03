@@ -74,6 +74,10 @@ const toolMounts: Record<ToolView, () => Promise<ToolMount>> = {
     const module = await import("../features/diagnostics.js");
     return module.mountDiagnosticsLab;
   },
+  performance: async () => {
+    const module = await import("../features/performance.js");
+    return module.mountPerformanceLab;
+  },
   protocols: async () => mountProtocolLab,
   automation: async () => mountAutomationLab,
 };
@@ -124,8 +128,14 @@ export function mountAppShell(
         <div data-topbar></div>
         <div class="application-body">
           <div data-activity></div>
-          ${(["mock", "json", "diagnostics", "protocols", "automation"] as const).map(
-            (view) => html`
+          ${([
+            "mock",
+            "json",
+            "diagnostics",
+            "performance",
+            "protocols",
+            "automation",
+          ] as const).map((view) => html`
               <main
                 id="workspace-view-${view}"
                 class="tool-workspace"
@@ -143,8 +153,7 @@ export function mountAppShell(
                   <span>${t("shell.workspacePreparing")}</span>
                 </div>
               </main>
-            `,
-          )}
+            `)}
           <main
             id="workspace-view-requests"
             class="workspace-layout"
@@ -387,15 +396,15 @@ export function mountAppShell(
     const layout = layoutState();
     const state = workspaceStore.getState();
     if (side === "left") {
-      if (state.rightVisible && state.rightWidth !== layout.fitted.right) {
-        state.setRightWidth(layout.fitted.right);
-      }
-      state.setLeftWidth(width);
+      workspaceStore.setState({
+        leftWidth: width,
+        ...(state.rightVisible ? { rightWidth: layout.fitted.right } : {}),
+      });
     } else {
-      if (state.leftVisible && state.leftWidth !== layout.fitted.left) {
-        state.setLeftWidth(layout.fitted.left);
-      }
-      state.setRightWidth(width);
+      workspaceStore.setState({
+        rightWidth: width,
+        ...(state.leftVisible ? { leftWidth: layout.fitted.left } : {}),
+      });
     }
   };
 

@@ -21,6 +21,7 @@ Feature: Navigate the Validex application shell
       | Mock        | Mock Server        |
       | JSON        | JSON Lab           |
       | Diagnostics | Diagnostics        |
+      | Performance | Performance        |
       | Protocols   | SSE Stream         |
       | Automation  | Automation         |
 
@@ -51,6 +52,7 @@ Feature: Navigate the Validex application shell
     When I select the "<theme>" theme from layout settings
     Then the persisted theme preference is "<theme>"
     And the application uses the expected "<theme>" color scheme
+    And the current "<theme>" theme choice is disabled and alternatives remain available
 
     Examples:
       | theme  |

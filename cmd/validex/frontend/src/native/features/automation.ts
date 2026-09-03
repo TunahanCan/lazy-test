@@ -48,6 +48,7 @@ import {
   toolTabs,
   type ToolNotice,
 } from "../tool.js";
+import { setWorkspaceBusy } from "../chrome/workspaceActivity.js";
 
 interface AutomationState {
   mode: AutomationMode;
@@ -526,74 +527,75 @@ function runnerPanel(
         ${toolCardHeader(
           t("automation.runner.editor.title"),
           t("automation.runner.editor.description"),
-          html`
-            <button
-              type="button"
-              class="button button-ghost button-sm"
-              data-action="runner-sample"
-              ${state.runnerOperation ? "disabled" : ""}
-            >
-              ${t("automation.runner.loadSample")}
-            </button>
-          `,
+          state.collection.trim() === sampleCollection.trim()
+            ? undefined
+            : html`
+                <button
+                  type="button"
+                  class="button button-ghost button-sm"
+                  data-action="runner-sample"
+                  ${state.runnerOperation ? "disabled" : ""}
+                >
+                  ${t("automation.runner.loadSample")}
+                </button>
+              `,
         )}
-        <div class="automation-saved-collection">
-          <label for="automation-saved-collection">
-            <span>${t("automation.runner.savedCollection.label")}</span>
-            <select
-              id="automation-saved-collection"
-              data-runner-saved-collection
-              aria-describedby="automation-saved-collection-help"
-              ${savedCollections.length === 0 || state.runnerOperation
-                ? "disabled"
-                : ""}
-            >
-              <option
-                value=""
-                ${selectedCollectionAvailable ? "" : "selected"}
-              >
-                ${t(
-                  savedCollections.length === 0
-                    ? "automation.runner.savedCollection.emptyOption"
-                    : "automation.runner.savedCollection.placeholder",
-                )}
-              </option>
-              ${savedCollections.map(
-                (collection) => html`
-                  <option
-                    value="${collection.id}"
-                    ${collection.id === state.savedCollectionID
-                      ? "selected"
-                      : ""}
+        ${savedCollections.length > 0
+          ? html`
+              <div class="automation-saved-collection">
+                <label for="automation-saved-collection">
+                  <span>${t("automation.runner.savedCollection.label")}</span>
+                  <select
+                    id="automation-saved-collection"
+                    data-runner-saved-collection
+                    aria-describedby="automation-saved-collection-help"
+                    ${state.runnerOperation ? "disabled" : ""}
                   >
-                    ${t("automation.runner.savedCollection.option", {
-                      name: collection.name,
-                      count: collection.requestCount,
-                    })}
-                  </option>
-                `,
-              )}
-            </select>
-          </label>
-          <button
-            type="button"
-            class="button button-secondary button-sm"
-            data-action="runner-load-saved"
-            ${!selectedCollectionAvailable || state.runnerOperation
-              ? "disabled"
-              : ""}
-          >
-            ${icon("collection", 14)}
-            ${t("automation.runner.savedCollection.load")}
-          </button>
-          <small id="automation-saved-collection-help">
-            ${t(
-              savedCollections.length === 0
-                ? "automation.runner.savedCollection.emptyHelp"
-                : "automation.runner.savedCollection.help",
-            )}
-          </small>
-        </div>
+                    <option
+                      value=""
+                      ${selectedCollectionAvailable ? "" : "selected"}
+                    >
+                      ${t("automation.runner.savedCollection.placeholder")}
+                    </option>
+                    ${savedCollections.map(
+                      (collection) => html`
+                        <option
+                          value="${collection.id}"
+                          ${collection.id === state.savedCollectionID
+                            ? "selected"
+                            : ""}
+                        >
+                          ${t("automation.runner.savedCollection.option", {
+                            name: collection.name,
+                            count: collection.requestCount,
+                          })}
+                        </option>
+                      `,
+                    )}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  class="button button-secondary button-sm"
+                  data-action="runner-load-saved"
+                  ${!selectedCollectionAvailable || state.runnerOperation
+                    ? "disabled"
+                    : ""}
+                >
+                  ${icon("collection", 14)}
+                  ${t("automation.runner.savedCollection.load")}
+                </button>
+                <small id="automation-saved-collection-help">
+                  ${t("automation.runner.savedCollection.help")}
+                </small>
+              </div>
+            `
+          : html`
+              <div class="automation-saved-collection is-empty">
+                ${icon("collection", 14)}
+                <span>${t("automation.runner.savedCollection.emptyHelp")}</span>
+              </div>
+            `}
         <textarea
           class="tool-code-input automation-collection-input"
           name="collection"
@@ -855,7 +857,7 @@ export function mountAutomationLab(root: HTMLElement): Disposable {
   const state: AutomationState = {
     mode: "runner",
     notice: null,
-    collection: sampleCollection,
+    collection: "",
     savedCollectionID: "",
     variables: "{}",
     runnerReport: null,
@@ -1041,9 +1043,10 @@ validex-cli lint --file openapi.yaml</code></pre>
     if (action === "runner-sample") {
       state.collection = sampleCollection;
       state.savedCollectionID = "";
-      const textarea =
-        root.querySelector<HTMLTextAreaElement>('[name="collection"]');
-      if (textarea) textarea.value = sampleCollection;
+      render();
+      root
+        .querySelector<HTMLTextAreaElement>('[name="collection"]')
+        ?.focus();
     } else if (action === "runner-load-saved") {
       loadSavedCollection();
     } else if (action === "runner-stop") {
@@ -1110,6 +1113,7 @@ validex-cli lint --file openapi.yaml</code></pre>
       JSON.parse(state.collection);
       const variables = parseVariables(state.variables, t);
       state.runnerOperation = operationID;
+      setWorkspaceBusy("automation", true);
       render();
       root
         .querySelector<HTMLElement>('[data-focus="runner-stop"]')
@@ -1150,6 +1154,7 @@ validex-cli lint --file openapi.yaml</code></pre>
       if (!disposed) {
         state.runnerOperation = "";
         state.runnerCanceling = false;
+        setWorkspaceBusy("automation", false);
         render();
         root
           .querySelector<HTMLElement>('[data-focus="runner-run"]')
@@ -1185,6 +1190,7 @@ validex-cli lint --file openapi.yaml</code></pre>
         t,
       );
       state.networkOperation = operationID;
+      setWorkspaceBusy("automation", true);
       render();
       root
         .querySelector<HTMLElement>('[data-focus="network-stop"]')
@@ -1212,6 +1218,7 @@ validex-cli lint --file openapi.yaml</code></pre>
       if (!disposed) {
         state.networkOperation = "";
         state.networkCanceling = false;
+        setWorkspaceBusy("automation", false);
         render();
         root
           .querySelector<HTMLElement>('[data-focus="network-run"]')
@@ -1274,6 +1281,7 @@ validex-cli lint --file openapi.yaml</code></pre>
   const lintOpenAPI = async () => {
     state.notice = null;
     state.lintPending = true;
+    setWorkspaceBusy("automation", true);
     render();
     try {
       const result = await backend.lintOpenAPI();
@@ -1298,6 +1306,7 @@ validex-cli lint --file openapi.yaml</code></pre>
     } finally {
       if (!disposed) {
         state.lintPending = false;
+        setWorkspaceBusy("automation", false);
         render();
         root.querySelector<HTMLElement>('[data-focus="lint"]')?.focus();
       }
@@ -1328,6 +1337,7 @@ validex-cli lint --file openapi.yaml</code></pre>
   render();
   return {
     dispose() {
+      setWorkspaceBusy("automation", false);
       disposed = true;
       lifecycle.dispose();
       root.replaceChildren();

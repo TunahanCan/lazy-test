@@ -14,6 +14,10 @@ import {
 } from "../../stores/collectionLibraryStorage.js";
 import { workspaceStore } from "../../stores/workspace.js";
 import { workspaceDefinition } from "../workspaces.js";
+import {
+  subscribeWorkspaceActivity,
+  workspaceIsBusy,
+} from "./workspaceActivity.js";
 
 export function mountStatusBar(
   root: HTMLElement,
@@ -29,6 +33,9 @@ export function mountStatusBar(
     const activeWorkspace = requestViewActive
       ? undefined
       : workspaceDefinition(state.activeView);
+    const activeWorkspaceBusy = activeWorkspace
+      ? workspaceIsBusy(activeWorkspace.id)
+      : false;
     const active = state.tabs.find((tab) => tab.id === state.activeTabID);
     const runningCount = state.tabs.filter((tab) => tab.running).length;
     const failedCount = state.tabs.filter(
@@ -82,7 +89,7 @@ export function mountStatusBar(
           persistence.phase,
           persistence.operation,
         ])
-      : JSON.stringify([state.activeView]);
+      : JSON.stringify([state.activeView, activeWorkspaceBusy]);
     if (!force && signature === lastSignature) return;
     lastSignature = signature;
 
@@ -144,13 +151,23 @@ export function mountStatusBar(
               ? html`
                   <span
                     class="statusbar-message"
-                    data-tone="neutral"
+                    data-tone="${activeWorkspaceBusy
+                      ? "progress"
+                      : "neutral"}"
                     role="status"
                     aria-live="polite"
                     aria-atomic="true"
                   >
-                    ${icon("check", 11)}
-                    ${t("status.workspaceReady")}
+                    ${icon(
+                      activeWorkspaceBusy ? "spinner" : "check",
+                      11,
+                      activeWorkspaceBusy ? "spin" : "",
+                    )}
+                    ${t(
+                      activeWorkspaceBusy
+                        ? "status.workspaceBusy"
+                        : "status.workspaceReady",
+                    )}
                   </span>
                 `
               : html`
@@ -200,6 +217,7 @@ export function mountStatusBar(
     }),
   );
   lifecycle.add(subscribeCollectionLibraryPersistence(render));
+  lifecycle.add(subscribeWorkspaceActivity(render));
   lifecycle.add(subscribeLocale(() => render(true)));
   render();
 

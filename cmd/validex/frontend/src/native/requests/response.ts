@@ -178,7 +178,7 @@ function localizedError(error: UserError): UserError {
     title: t(mapped.title),
     message: t(mapped.message),
     hint: mapped.hint ? t(mapped.hint) : undefined,
-    technical: error.technical,
+    technical: structuredErrorDetails(error),
   };
 }
 
@@ -699,15 +699,6 @@ export function responsePanelMarkup(tab: RequestTab): TrustedHTMLFragment {
             ${tab.running
               ? html`<span>${t("requests.response.sending")}</span>`
               : ""}
-          </div>
-          <div class="response-tabs response-tabs-placeholder" aria-hidden="true">
-            ${baseSections.map(
-              (section, index) => html`
-                <span class="${index === 0 ? "active" : ""}">
-                  ${icon(section.icon, 13)} ${t(section.key)}
-                </span>
-              `,
-            )}
           </div>
         </div>
         <div
