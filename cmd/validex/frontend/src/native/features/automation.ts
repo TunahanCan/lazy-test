@@ -48,7 +48,7 @@ import {
   toolTabs,
   type ToolNotice,
 } from "../tool.js";
-import { setWorkspaceBusy } from "../chrome/workspaceActivity.js";
+import { createWorkspaceActivityScope } from "../chrome/workspaceActivity.js";
 
 interface AutomationState {
   mode: AutomationMode;
@@ -854,6 +854,9 @@ function lintPanel(state: AutomationState): TrustedHTMLFragment {
 export function mountAutomationLab(root: HTMLElement): Disposable {
   const lifecycle = new Lifecycle();
   let disposed = false;
+  const activityScope = lifecycle.child(
+    createWorkspaceActivityScope("automation"),
+  );
   const state: AutomationState = {
     mode: "runner",
     notice: null,
@@ -1109,11 +1112,12 @@ validex-cli lint --file openapi.yaml</code></pre>
     state.notice = null;
     state.runnerReport = null;
     const operationID = automationOperationID("collection");
+    let activity: ReturnType<typeof activityScope.begin> | undefined;
     try {
       JSON.parse(state.collection);
       const variables = parseVariables(state.variables, t);
       state.runnerOperation = operationID;
-      setWorkspaceBusy("automation", true);
+      activity = activityScope.begin();
       render();
       root
         .querySelector<HTMLElement>('[data-focus="runner-stop"]')
@@ -1151,10 +1155,10 @@ validex-cli lint --file openapi.yaml</code></pre>
             }
           : errorNotice(error, t("automation.runner.failedFallback"));
     } finally {
+      activity?.dispose();
       if (!disposed) {
         state.runnerOperation = "";
         state.runnerCanceling = false;
-        setWorkspaceBusy("automation", false);
         render();
         root
           .querySelector<HTMLElement>('[data-focus="runner-run"]')
@@ -1172,6 +1176,7 @@ validex-cli lint --file openapi.yaml</code></pre>
     state.notice = null;
     state.networkReport = null;
     const operationID = automationOperationID("network");
+    let activity: ReturnType<typeof activityScope.begin> | undefined;
     try {
       const url = new URL(state.networkURL);
       if (!["http:", "https:"].includes(url.protocol)) {
@@ -1190,7 +1195,7 @@ validex-cli lint --file openapi.yaml</code></pre>
         t,
       );
       state.networkOperation = operationID;
-      setWorkspaceBusy("automation", true);
+      activity = activityScope.begin();
       render();
       root
         .querySelector<HTMLElement>('[data-focus="network-stop"]')
@@ -1215,10 +1220,10 @@ validex-cli lint --file openapi.yaml</code></pre>
           : t("automation.network.failedFallback"),
       );
     } finally {
+      activity?.dispose();
       if (!disposed) {
         state.networkOperation = "";
         state.networkCanceling = false;
-        setWorkspaceBusy("automation", false);
         render();
         root
           .querySelector<HTMLElement>('[data-focus="network-run"]')
@@ -1281,7 +1286,7 @@ validex-cli lint --file openapi.yaml</code></pre>
   const lintOpenAPI = async () => {
     state.notice = null;
     state.lintPending = true;
-    setWorkspaceBusy("automation", true);
+    const activity = activityScope.begin();
     render();
     try {
       const result = await backend.lintOpenAPI();
@@ -1304,9 +1309,9 @@ validex-cli lint --file openapi.yaml</code></pre>
     } catch (error) {
       state.notice = errorNotice(error, t("automation.lint.failedFallback"));
     } finally {
+      activity.dispose();
       if (!disposed) {
         state.lintPending = false;
-        setWorkspaceBusy("automation", false);
         render();
         root.querySelector<HTMLElement>('[data-focus="lint"]')?.focus();
       }
@@ -1337,7 +1342,6 @@ validex-cli lint --file openapi.yaml</code></pre>
   render();
   return {
     dispose() {
-      setWorkspaceBusy("automation", false);
       disposed = true;
       lifecycle.dispose();
       root.replaceChildren();

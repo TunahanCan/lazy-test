@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http/httptrace"
 	neturl "net/url"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -19,22 +18,23 @@ import (
 	"validex/internal/core"
 	"validex/internal/httpexec"
 	"validex/internal/mockserver"
+	"validex/internal/requesttemplate"
 )
-
-var variablePattern = regexp.MustCompile(`\{\{\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*\}\}`)
 
 var errInvalidToolOperation = errors.New("invalid tool operation")
 
 const (
-	maxHTTPRequestBodyBytes      = int64(16 << 20)
-	maxHTTPResponseBodyBytes     = int64(16 << 20)
-	maxHTTPResponseHeaderBytes   = int64(1 << 20)
-	maxHTTPContentEncodingLayers = 4
-	minHTTPRequestTimeoutMS      = 1
-	maxHTTPRequestTimeoutMS      = 300_000
-	maxConcurrentHTTPRequests    = 4
-	maxCachedOpenAPISpecs        = 8
-	maxObservedCoverageEntries   = 10_000
+	maxHTTPRequestURLBytes         = int64(16 << 10)
+	maxHTTPRequestBodyBytes        = int64(16 << 20)
+	maxHTTPRequestHeaderValueBytes = int64(64 << 10)
+	maxHTTPResponseBodyBytes       = int64(16 << 20)
+	maxHTTPResponseHeaderBytes     = int64(1 << 20)
+	maxHTTPContentEncodingLayers   = 4
+	minHTTPRequestTimeoutMS        = 1
+	maxHTTPRequestTimeoutMS        = 300_000
+	maxConcurrentHTTPRequests      = 4
+	maxCachedOpenAPISpecs          = 8
+	maxObservedCoverageEntries     = 10_000
 )
 
 type toolOperation struct {
@@ -227,7 +227,15 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 	resolvedURL := input.URL
 	if !input.LiteralValues {
 		var missing []string
-		resolvedURL, missing = resolveVariables(input.URL, input.Variables)
+		var resolveErr error
+		resolvedURL, missing, resolveErr = resolveVariables(
+			input.URL,
+			input.Variables,
+			maxHTTPRequestURLBytes,
+		)
+		if resolveErr != nil {
+			return failed(userErrorRequestURLInvalid, nil, resolveErr)
+		}
 		if len(missing) > 0 {
 			return failed(
 				userErrorRequestURLVariablesMissing,
@@ -235,6 +243,12 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 				nil,
 			)
 		}
+	} else if int64(len(resolvedURL)) > maxHTTPRequestURLBytes {
+		return failed(
+			userErrorRequestURLInvalid,
+			nil,
+			&requesttemplate.LimitError{MaxBytes: maxHTTPRequestURLBytes},
+		)
 	}
 	parsedURL, err := neturl.Parse(resolvedURL)
 	if err != nil || parsedURL.Host == "" || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
@@ -290,7 +304,15 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 		resolvedBody = input.Body
 		if !input.LiteralValues {
 			var bodyMissing []string
-			resolvedBody, bodyMissing = resolveVariables(input.Body, input.Variables)
+			var resolveErr error
+			resolvedBody, bodyMissing, resolveErr = resolveVariables(
+				input.Body,
+				input.Variables,
+				maxHTTPRequestBodyBytes,
+			)
+			if resolveErr != nil {
+				return requestTooLarge()
+			}
 			if len(bodyMissing) > 0 {
 				return failed(
 					userErrorRequestBodyVariablesMissing,
@@ -309,7 +331,19 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 		value := header.Value
 		if !input.LiteralValues {
 			var headerMissing []string
-			value, headerMissing = resolveVariables(header.Value, input.Variables)
+			var resolveErr error
+			value, headerMissing, resolveErr = resolveVariables(
+				header.Value,
+				input.Variables,
+				maxHTTPRequestHeaderValueBytes,
+			)
+			if resolveErr != nil {
+				return failed(
+					userErrorRequestHeaderInvalid,
+					UserErrorParams{"headerName": header.Key},
+					resolveErr,
+				)
+			}
 			if len(headerMissing) > 0 {
 				return failed(
 					userErrorRequestHeaderVariablesMissing,
@@ -320,6 +354,14 @@ func (b *Bridge) SendRequest(input RequestInput) SendResult {
 					nil,
 				)
 			}
+		} else if int64(len(value)) > maxHTTPRequestHeaderValueBytes {
+			return failed(
+				userErrorRequestHeaderInvalid,
+				UserErrorParams{"headerName": header.Key},
+				&requesttemplate.LimitError{
+					MaxBytes: maxHTTPRequestHeaderValueBytes,
+				},
+			)
 		}
 		headers = append(headers, httpexec.HeaderField{
 			Name:  header.Key,
@@ -861,26 +903,23 @@ func requestTimeoutDuration(timeoutMS int) (time.Duration, bool) {
 	return time.Duration(timeoutMS) * time.Millisecond, true
 }
 
-func resolveVariables(value string, variables map[string]string) (string, []string) {
-	missingSet := map[string]struct{}{}
-	resolved := variablePattern.ReplaceAllStringFunc(value, func(match string) string {
-		parts := variablePattern.FindStringSubmatch(match)
-		if len(parts) != 2 {
-			return match
-		}
-		replacement, ok := variables[parts[1]]
-		if !ok || replacement == "" || isMaskedSecretValue(replacement) {
-			missingSet[parts[1]] = struct{}{}
-			return match
-		}
-		return replacement
-	})
-	missing := make([]string, 0, len(missingSet))
-	for key := range missingSet {
-		missing = append(missing, key)
-	}
-	sort.Strings(missing)
-	return resolved, missing
+func resolveVariables(
+	value string,
+	variables map[string]string,
+	maxBytes int64,
+) (string, []string, error) {
+	return requesttemplate.Resolve(
+		value,
+		variables,
+		requesttemplate.Options{
+			MaxBytes:    maxBytes,
+			IsAvailable: interactiveVariableAvailable,
+		},
+	)
+}
+
+func interactiveVariableAvailable(_ string, replacement string, exists bool) bool {
+	return exists && replacement != "" && !isMaskedSecretValue(replacement)
 }
 
 func isMaskedSecretValue(value string) bool {

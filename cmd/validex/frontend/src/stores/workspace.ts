@@ -11,6 +11,7 @@ import type {
   ThemePreference,
   WorkspaceView,
 } from "../lib/types.js";
+import { isWorkspaceView } from "../lib/types.js";
 import {
   isSecretKey,
   isSafeSecretReference,
@@ -693,15 +694,9 @@ export function migratePersistedWorkspaceState(
       ? ""
       : persistedActiveTabID(state.activeTabID, tabs),
     recentlyClosed: persistedTabs(state.recentlyClosed),
-    activeView:
-      state.activeView === "mock" ||
-      state.activeView === "json" ||
-      state.activeView === "diagnostics" ||
-      state.activeView === "performance" ||
-      state.activeView === "protocols" ||
-      state.activeView === "automation"
-        ? state.activeView
-        : "requests",
+    activeView: isWorkspaceView(state.activeView)
+      ? state.activeView
+      : "requests",
     leftVisible: state.leftVisible ?? true,
     rightVisible: resetToWelcome
       ? false

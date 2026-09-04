@@ -4,14 +4,23 @@ export type { HTTPMethod } from "./http.js";
 
 export type ThemePreference = "system" | "light" | "dark";
 export type ResponsePlacement = "vertical" | "horizontal";
-export type WorkspaceView =
-  | "requests"
-  | "mock"
-  | "json"
-  | "diagnostics"
-  | "performance"
-  | "protocols"
-  | "automation";
+export const workspaceViews = [
+  "requests",
+  "mock",
+  "json",
+  "diagnostics",
+  "performance",
+  "protocols",
+  "automation",
+] as const;
+export type WorkspaceView = (typeof workspaceViews)[number];
+
+export function isWorkspaceView(value: unknown): value is WorkspaceView {
+  return (
+    typeof value === "string" &&
+    (workspaceViews as readonly string[]).includes(value)
+  );
+}
 
 export interface KeyValue {
   id: string;

@@ -11,16 +11,6 @@ import type { WorkspaceView } from "../../lib/types.js";
 import { workspaceStore } from "../../stores/workspace.js";
 import { workspaceDefinitions } from "../workspaces.js";
 
-const compactLabelKeys = {
-  requests: "workspace.requests.compactLabel",
-  mock: "workspace.mock.compactLabel",
-  json: "workspace.json.compactLabel",
-  diagnostics: "workspace.diagnostics.compactLabel",
-  performance: "workspace.performance.compactLabel",
-  protocols: "workspace.protocols.compactLabel",
-  automation: "workspace.automation.compactLabel",
-} as const;
-
 export function mountActivityBar(root: HTMLElement): Disposable {
   const lifecycle = new Lifecycle();
 
@@ -34,8 +24,11 @@ export function mountActivityBar(root: HTMLElement): Disposable {
             const active = definition.id === activeView;
             const label = t(definition.labelKey);
             const description = t(definition.descriptionKey);
+            const startsGroup =
+              definition.group === "tools" &&
+              workspaceDefinitions[index - 1]?.group !== "tools";
             return html`
-              ${index === 1
+              ${startsGroup
                 ? html`
                     <span class="activity-section-label" aria-hidden="true">
                       ${t("workspace.toolsLabel")}
@@ -56,7 +49,7 @@ export function mountActivityBar(root: HTMLElement): Disposable {
               >
                 ${icon(definition.icon, 19)}
                 <span
-                  data-compact-label="${t(compactLabelKeys[definition.id])}"
+                  data-compact-label="${t(definition.compactLabelKey)}"
                 >${label}</span>
                 <span
                   id="workspace-description-${definition.id}"

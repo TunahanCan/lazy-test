@@ -3,14 +3,12 @@ package runner
 import (
 	"fmt"
 	"net/url"
-	"regexp"
 	"sort"
 	"strings"
 
 	"validex/internal/httpexec"
+	"validex/internal/requesttemplate"
 )
-
-var variablePattern = regexp.MustCompile(`\{\{\s*([A-Za-z_][A-Za-z0-9_.-]*)\s*\}\}`)
 
 type preparationError struct {
 	failure Failure
@@ -36,10 +34,10 @@ func prepareRequest(request Request, variables map[string]string, limits Limits)
 	var err error
 	if !request.LiteralValues {
 		var urlMissing []string
-		resolvedURL, urlMissing, err = interpolateBounded(
+		resolvedURL, urlMissing, err = requesttemplate.Resolve(
 			request.URL,
 			scopedVariables,
-			maxURLBytes,
+			requesttemplate.Options{MaxBytes: maxURLBytes},
 		)
 		if err != nil {
 			return PreparedRequest{}, invalidRequest("request URL " + err.Error())
@@ -54,10 +52,10 @@ func prepareRequest(request Request, variables map[string]string, limits Limits)
 	resolvedBody := request.Body
 	if !request.LiteralValues {
 		var bodyMissing []string
-		resolvedBody, bodyMissing, err = interpolateBounded(
+		resolvedBody, bodyMissing, err = requesttemplate.Resolve(
 			request.Body,
 			scopedVariables,
-			limits.MaxRequestBodyBytes,
+			requesttemplate.Options{MaxBytes: limits.MaxRequestBodyBytes},
 		)
 		if err != nil {
 			return PreparedRequest{}, &preparationError{failure: Failure{
@@ -87,10 +85,10 @@ func prepareRequest(request Request, variables map[string]string, limits Limits)
 		value := header.Value
 		if !request.LiteralValues {
 			var headerMissing []string
-			value, headerMissing, err = interpolateBounded(
+			value, headerMissing, err = requesttemplate.Resolve(
 				header.Value,
 				scopedVariables,
-				maxHeaderValueBytes,
+				requesttemplate.Options{MaxBytes: maxHeaderValueBytes},
 			)
 			if err != nil {
 				return PreparedRequest{}, invalidRequest(fmt.Sprintf("header %q exceeds %d bytes", name, maxHeaderValueBytes))
@@ -163,10 +161,10 @@ func redactReportURL(templateURL string, variables map[string]string) string {
 		// as potentially sensitive instead of relying on naming heuristics.
 		redactedVariables[name] = "REDACTED"
 	}
-	redacted, missing, err := interpolateBounded(
+	redacted, missing, err := requesttemplate.Resolve(
 		templateURL,
 		redactedVariables,
-		maxURLBytes,
+		requesttemplate.Options{MaxBytes: maxURLBytes},
 	)
 	if err != nil || len(missing) > 0 {
 		redacted = templateURL
@@ -209,51 +207,6 @@ func redactRawQueryValues(rawQuery string) string {
 		parts[index] = part + "=REDACTED"
 	}
 	return strings.Join(parts, "&")
-}
-
-func interpolateBounded(value string, variables map[string]string, maxBytes int64) (string, []string, error) {
-	if maxBytes < 0 {
-		return "", nil, fmt.Errorf("has an invalid size limit")
-	}
-	matches := variablePattern.FindAllStringSubmatchIndex(value, -1)
-	if len(matches) == 0 {
-		if int64(len(value)) > maxBytes {
-			return "", nil, fmt.Errorf("exceeds %d bytes", maxBytes)
-		}
-		return value, nil, nil
-	}
-
-	var builder strings.Builder
-	if int64(len(value)) < maxBytes {
-		builder.Grow(len(value))
-	}
-	missingSet := make(map[string]struct{})
-	cursor := 0
-	for _, match := range matches {
-		name := value[match[2]:match[3]]
-		replacement, exists := variables[name]
-		if !exists {
-			missingSet[name] = struct{}{}
-			replacement = value[match[0]:match[1]]
-		}
-		if int64(builder.Len())+int64(match[0]-cursor)+int64(len(replacement)) > maxBytes {
-			return "", nil, fmt.Errorf("exceeds %d bytes after variable interpolation", maxBytes)
-		}
-		builder.WriteString(value[cursor:match[0]])
-		builder.WriteString(replacement)
-		cursor = match[1]
-	}
-	if int64(builder.Len())+int64(len(value)-cursor) > maxBytes {
-		return "", nil, fmt.Errorf("exceeds %d bytes after variable interpolation", maxBytes)
-	}
-	builder.WriteString(value[cursor:])
-
-	missing := make([]string, 0, len(missingSet))
-	for name := range missingSet {
-		missing = append(missing, name)
-	}
-	sort.Strings(missing)
-	return builder.String(), missing, nil
 }
 
 func mergeVariables(scopes ...map[string]string) map[string]string {

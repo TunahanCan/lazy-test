@@ -45,7 +45,7 @@ export class Lifecycle implements Disposable {
     return this.add(() => target.removeEventListener(type, listener, options));
   }
 
-  child(disposable: Disposable): Disposable {
+  child<T extends Disposable>(disposable: T): T {
     this.add(() => disposable.dispose());
     return disposable;
   }

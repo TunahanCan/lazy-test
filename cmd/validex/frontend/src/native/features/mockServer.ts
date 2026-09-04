@@ -20,6 +20,7 @@ import type {
   MockServerState,
 } from "../../lib/types.js";
 import { workspaceStore } from "../../stores/workspace.js";
+import { subscribeWhenWorkspaceActive } from "../workspaceSubscriptions.js";
 import {
   bridgeIssue,
   createRouteDraft,
@@ -36,7 +37,7 @@ import {
   type ToolNotice,
 } from "../../features/mock-server/model.js";
 import { copyText } from "../clipboard.js";
-import { setWorkspaceBusy } from "../chrome/workspaceActivity.js";
+import { createWorkspaceActivityScope } from "../chrome/workspaceActivity.js";
 
 const mockPollIntervalMs = 1_500;
 const mockPollTimeoutMs = 5_000;
@@ -95,6 +96,7 @@ function noticeMarkup(notice: ToolNotice | null): TrustedHTMLFragment {
  */
 export function mountMockServerLab(root: HTMLElement): Disposable {
   const lifecycle = new Lifecycle();
+  const activityScope = lifecycle.child(createWorkspaceActivityScope("mock"));
   let disposed = false;
   let server: MockServerState | null = null;
   let routes: EditableRoute[] = [];
@@ -105,7 +107,6 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
   let enableCors = false;
   let dirty = false;
   let busy = "refresh";
-  setWorkspaceBusy("mock", true);
   let notice: ToolNotice | null = null;
   let routeRevision = 0;
   let snapshotRequest = 0;
@@ -943,7 +944,7 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
     const expectedRouteRevision = routeRevision;
     const expectedSnapshotRequest = ++snapshotRequest;
     busy = "refresh";
-    setWorkspaceBusy("mock", true);
+    const activity = activityScope.begin();
     render();
     try {
       const snapshot = await backend.getMockServer();
@@ -964,9 +965,9 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
       }
       return undefined;
     } finally {
+      activity.dispose();
       if (!disposed) {
         busy = "";
-        setWorkspaceBusy("mock", false);
         render();
       }
     }
@@ -993,7 +994,7 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
     const expectedRouteRevision = routeRevision;
     const expectedSnapshotRequest = ++snapshotRequest;
     busy = operation;
-    setWorkspaceBusy("mock", true);
+    const activity = activityScope.begin();
     notice = null;
     render();
     try {
@@ -1031,9 +1032,9 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
         };
       }
     } finally {
+      activity.dispose();
       if (!disposed) {
         busy = "";
-        setWorkspaceBusy("mock", false);
         syncPolling();
         render();
       }
@@ -1455,9 +1456,8 @@ export function mountMockServerLab(root: HTMLElement): Disposable {
       render();
     }),
   );
-  lifecycle.add(workspaceStore.subscribe(render));
+  lifecycle.add(subscribeWhenWorkspaceActive("mock", render));
   lifecycle.add(() => {
-    setWorkspaceBusy("mock", false);
     disposed = true;
     invalidateSilentRefresh();
     clearPolling();

@@ -37,6 +37,7 @@ import type {
   ThreadDumpResult,
 } from "../../lib/types.js";
 import { workspaceStore } from "../../stores/workspace.js";
+import { subscribeWhenWorkspaceActive } from "../workspaceSubscriptions.js";
 import {
   appendURLPerformanceReport,
   bridgeIssue,
@@ -73,7 +74,7 @@ import {
   emptyToolResult,
   toolPageHeader,
 } from "../tool.js";
-import { setWorkspaceBusy } from "../chrome/workspaceActivity.js";
+import { createWorkspaceActivityScope } from "../chrome/workspaceActivity.js";
 
 type ThreadLogMode = "thread" | "logs";
 
@@ -2595,6 +2596,9 @@ function mountDiagnosticsWorkspace(
   const activityView = initialMode === "performance"
     ? "performance"
     : "diagnostics";
+  const activityScope = lifecycle.child(
+    createWorkspaceActivityScope(activityView),
+  );
   const initialTab = activeRequest();
   const initialResponse = initialTab?.response;
   const state: DiagnosticsState = {
@@ -2655,6 +2659,10 @@ function mountDiagnosticsWorkspace(
   );
   let disposed = false;
   let operationSequence = 0;
+  const operationActivities = new Map<
+    number,
+    ReturnType<typeof activityScope.begin>
+  >();
   let performanceOperationSequence = 0;
   let activePerformanceOperationID: string | undefined;
   let pendingPerformanceCancellationID: string | undefined;
@@ -2803,13 +2811,14 @@ function mountDiagnosticsWorkspace(
       };
     }
     operationSequence += 1;
+    for (const activity of operationActivities.values()) activity.dispose();
+    operationActivities.clear();
     cancelActivePerformanceOperation();
     pendingPerformanceCancellationID = undefined;
     state.performanceCanceling = false;
     if (invalidatedPerformance) performanceRunStartedAt = undefined;
     if (!state.busy) return false;
     state.busy = "";
-    setWorkspaceBusy(activityView, false);
     state.notice = {
       tone: "info",
       text: t("diagnostics.operation.stale"),
@@ -2824,7 +2833,10 @@ function mountDiagnosticsWorkspace(
       inputSignature: asyncInputSignature(state),
     };
     state.busy = name;
-    setWorkspaceBusy(activityView, true);
+    operationActivities.set(
+      operation.id,
+      activityScope.begin(),
+    );
     state.notice = null;
     render();
     return operation;
@@ -2836,9 +2848,10 @@ function mountDiagnosticsWorkspace(
     operation.inputSignature === asyncInputSignature(state);
 
   const finishOperation = (operation: PendingOperation) => {
+    operationActivities.get(operation.id)?.dispose();
+    operationActivities.delete(operation.id);
     if (!isCurrentOperation(operation)) return;
     state.busy = "";
-    setWorkspaceBusy(activityView, false);
     render();
   };
 
@@ -3956,12 +3969,13 @@ function mountDiagnosticsWorkspace(
     }),
   );
   lifecycle.add(
-    workspaceStore.subscribe(() => {
+    subscribeWhenWorkspaceActive(activityView, () => {
       render();
     }),
   );
   lifecycle.add(() => {
-    setWorkspaceBusy(activityView, false);
+    for (const activity of operationActivities.values()) activity.dispose();
+    operationActivities.clear();
     performanceConfirmationDialog?.dispose();
     performanceConfirmationDialog = undefined;
     cancelActivePerformanceOperation();

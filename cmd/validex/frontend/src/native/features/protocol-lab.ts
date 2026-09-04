@@ -26,7 +26,7 @@ import {
   validateURL,
   type ProtocolIssue,
 } from "../../features/protocols/model.js";
-import { setWorkspaceBusy } from "../chrome/workspaceActivity.js";
+import { createWorkspaceActivityScope } from "../chrome/workspaceActivity.js";
 
 interface SSEFormState {
   url: string;
@@ -406,6 +406,9 @@ function renderPage(root: HTMLElement, state: ProtocolLabState): void {
 
 export function mountProtocolLab(root: HTMLElement): Disposable {
   const lifecycle = new Lifecycle();
+  const activityScope = lifecycle.child(
+    createWorkspaceActivityScope("protocols"),
+  );
   const state: ProtocolLabState = {
     loading: false,
     activeOperationID: "",
@@ -464,6 +467,7 @@ export function mountProtocolLab(root: HTMLElement): Disposable {
     state.result = null;
     let operationID = "";
     let backendStarted = false;
+    let activity: ReturnType<typeof activityScope.begin> | undefined;
 
     try {
       operationID = createOperationID();
@@ -487,7 +491,7 @@ export function mountProtocolLab(root: HTMLElement): Disposable {
       };
       state.loading = true;
       state.activeOperationID = operationID;
-      setWorkspaceBusy("protocols", true);
+      activity = activityScope.begin();
       backendStarted = true;
       renderPage(root, state);
       optionalElement<HTMLButtonElement>(
@@ -507,9 +511,9 @@ export function mountProtocolLab(root: HTMLElement): Disposable {
       if (disposed) return;
       state.issue = issueFrom(error, t, backendStarted);
     } finally {
+      activity?.dispose();
       if (!disposed) {
         state.loading = false;
-        setWorkspaceBusy("protocols", false);
         if (state.activeOperationID === operationID) {
           state.activeOperationID = "";
         }
@@ -580,7 +584,6 @@ export function mountProtocolLab(root: HTMLElement): Disposable {
     }),
   );
   lifecycle.add(() => {
-    setWorkspaceBusy("protocols", false);
     disposed = true;
     root.replaceChildren();
   });

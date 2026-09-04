@@ -165,6 +165,7 @@ internal/
   cli/                  CLI komut adaptörleri
   httpmedia/            media type sınıflandırma kuralları
   jsonnumber/           sınırlı ve kesin JSON sayı işlemleri
+  requesttemplate/      ortak, byte sınırını aşmayan değişken çözümleme
 
 tests/e2e/               Godog + gerçek Chrome kabul testleri
 ```
@@ -440,6 +441,15 @@ Projede desen isimleri amaç değil, somut tekrarları azaltan araçlardır:
   fonksiyonlarla event ve async akışı yöneten controller ayrıdır.
 - **Disposable lifecycle:** Event listener, timer ve observer’ı oluşturan
   controller kapanırken temizler.
+- **Workspace registry + lazy factory:** Workspace kimliği, metni, grubu,
+  ikonu ve dinamik mount factory’si tek katalogda tutulur. Shell ve activity
+  bar ayrı allowlist veya loader tablosu taşımaz.
+- **Seçici observer:** Mount edilmiş fakat görünmeyen tool controller’ları
+  global workspace state’ini yeniden çizmez; aktif hale geçişte güncel state
+  ile tek kez yakalar.
+- **Activity lease/scope:** Bir workspace içindeki paralel işler bağımsız lease
+  alır. Status yalnız son lease bırakıldığında hazır olur; controller dispose
+  edilirse scope yarım kalan lease’leri topluca bırakır.
 - **Registry/catalog:** Kapalı bir metot ya da kural kümesinin adı, handler’ı
   ve politikası birlikte değişiyorsa ayrı switch’ler yerine tek kayıt kullanılır.
 
@@ -487,6 +497,13 @@ Request motoru yalnız açık `http` ve `https` URL kabul eder. URL userinfo ve
 fragment’i reddedilir; `{{variable}}` değerleri Go tarafında çözülür.
 Redirect otomatik izlenmez, ilk 3xx yanıt kullanıcıya gösterilir. Request ID
 üzerinden iptal desteklenir.
+
+Desktop request adaptörü ile collection runner değişken çözümleme algoritmasını
+`internal/requesttemplate` paketinden kullanır. Çağıran katman bir
+erişilebilirlik politikası vererek boş veya maskeli etkileşimli secret
+davranışını seçebilir; resolver her yazmadan önce çağıranın URL/body/header byte
+bütçesini denetler. Böylece küçük bir template’in büyük değişkenlerle IPC
+sınırından sonra kontrolsüz büyümesi engellenir.
 
 Normal IPC hattı en fazla 16 kabul edilmiş çağrı taşırken HTTP motoru aynı anda
 en fazla 4 request’i ağa çıkarır. Kalan kabul edilmiş request’ler kendi timeout
@@ -669,6 +686,8 @@ Kaynak sahipliği için kullanılan pratik kural:
   ettiği client örtük olarak kapatılmaz.
 - Frontend controller’ı mount sırasında eklediği listener ve observer’ları
   `dispose` sırasında temizler.
+- Workspace controller’ının başlattığı işler activity scope’a aittir; paralel
+  işlerin lease’leri birbirini erken bitiremez ve dispose kalanları bırakır.
 - Shutdown sonsuza kadar beklemez; graceful süre dolduğunda üst katman daha
   sert process sonlandırmaya geçer.
 
@@ -714,6 +733,7 @@ Bu tablo kullanıcı davranışını ve process sınırını etkileyen ana değe
 | Collection IPC sırası | 128 çağrı, toplam 64 MiB argument |
 | File picker helper stdout | 64 KiB |
 | Desktop HTTP request / response body | 16 MiB / 16 MiB decoded |
+| Desktop HTTP URL / tek header değeri | 16 KiB / 64 KiB |
 | Aktif desktop HTTP request | 4; kalan kabul edilmiş çağrılar iptal edilebilir biçimde bekler |
 | Response auto-format / DOM önizleme | 1 MiB / 524.288 karakter |
 | Desktop HTTP timeout | 1 ms–5 dakika |
@@ -848,7 +868,7 @@ Uzun bir kontrol listesi yerine değişikliğin türünden başlayın:
 | --- | --- | --- |
 | Yeni domain aracı | `internal/<domain>` | Limitler, cancellation, unit test; gerekiyorsa canbridge/CLI adaptörü |
 | Yeni bridge metodu | `internal/canbridge/invoke.go` | Electron allowlist, preload, frontend API/DTO, lane kararı ve contract testleri |
-| Yeni workspace | `frontend/src/features` | DOM controller, shell kaydı, i18n, dar ekran ve E2E |
+| Yeni workspace | `frontend/src/features` + `native/workspaces.ts` | DOM controller, registry kaydı, i18n, dar ekran ve E2E |
 | Persistence şeması | Collection service/repository | Schema version, migration, redaction, conflict/corrupt/partial-write testleri |
 | Yeni CLI komutu | `internal/cli` | Ortak domain API, help/exit code/cancellation testleri |
 | Yeni assertion | `internal/assertions` | Target/operator registry, validation ve wire sonucu |

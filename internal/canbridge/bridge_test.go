@@ -27,7 +27,14 @@ import (
 )
 
 func TestResolveVariablesReportsMissingKeys(t *testing.T) {
-	got, missing := resolveVariables("{{baseUrl}}/users/{{id}}", map[string]string{"baseUrl": "https://example.test"})
+	got, missing, err := resolveVariables(
+		"{{baseUrl}}/users/{{id}}",
+		map[string]string{"baseUrl": "https://example.test"},
+		1_024,
+	)
+	if err != nil {
+		t.Fatalf("resolveVariables() error = %v", err)
+	}
 	if got != "https://example.test/users/{{id}}" {
 		t.Fatalf("unexpected resolved value: %s", got)
 	}
@@ -37,11 +44,32 @@ func TestResolveVariablesReportsMissingKeys(t *testing.T) {
 }
 
 func TestResolveVariablesTreatsMaskedValuesAsMissing(t *testing.T) {
-	_, missing := resolveVariables("Bearer {{token}}", map[string]string{
-		"token": "••••••••••••",
-	})
+	_, missing, err := resolveVariables(
+		"Bearer {{token}}",
+		map[string]string{"token": "••••••••••••"},
+		1_024,
+	)
+	if err != nil {
+		t.Fatalf("resolveVariables() error = %v", err)
+	}
 	if len(missing) != 1 || missing[0] != "token" {
 		t.Fatalf("expected masked token to be missing, got %#v", missing)
+	}
+}
+
+func TestResolveVariablesEnforcesExpandedByteLimit(t *testing.T) {
+	t.Parallel()
+
+	resolved, missing, err := resolveVariables(
+		"prefix-{{value}}",
+		map[string]string{"value": strings.Repeat("x", 20)},
+		16,
+	)
+	if resolved != "" || missing != nil {
+		t.Fatalf("resolveVariables() = (%q, %#v), want empty result", resolved, missing)
+	}
+	if err == nil || err.Error() != "exceeds 16 bytes after variable interpolation" {
+		t.Fatalf("resolveVariables() error = %v", err)
 	}
 }
 
@@ -137,6 +165,111 @@ func TestSendRequestAcceptsResolvedExplicitHTTPURL(t *testing.T) {
 	}
 	if result.Response == nil || result.Response.StatusCode != http.StatusNoContent {
 		t.Fatalf("unexpected response: %#v", result.Response)
+	}
+}
+
+func TestSendRequestBoundsRequestValuesBeforeNetwork(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	tests := []struct {
+		name              string
+		input             RequestInput
+		wantMessageKey    string
+		wantTechnicalText string
+	}{
+		{
+			name: "url",
+			input: RequestInput{
+				ID: "expanded-url-limit", Method: http.MethodGet,
+				URL:       "{{target}}",
+				Variables: map[string]string{"target": server.URL + "/" + strings.Repeat("u", int(maxHTTPRequestURLBytes))},
+				TimeoutMS: 2_000,
+			},
+			wantMessageKey:    "backend.error.request.urlInvalid",
+			wantTechnicalText: "exceeds 16384 bytes after variable interpolation",
+		},
+		{
+			name: "literal-url",
+			input: RequestInput{
+				ID: "literal-url-limit", Method: http.MethodGet,
+				URL:           server.URL + "/" + strings.Repeat("u", int(maxHTTPRequestURLBytes)),
+				LiteralValues: true,
+				TimeoutMS:     2_000,
+			},
+			wantMessageKey:    "backend.error.request.urlInvalid",
+			wantTechnicalText: "exceeds 16384 bytes",
+		},
+		{
+			name: "body",
+			input: RequestInput{
+				ID: "expanded-body-limit", Method: http.MethodPost,
+				URL:       server.URL,
+				Body:      "{{payload}}",
+				Variables: map[string]string{"payload": strings.Repeat("b", int(maxHTTPRequestBodyBytes)+1)},
+				TimeoutMS: 2_000,
+			},
+			wantMessageKey: "backend.error.request.bodyTooLarge",
+		},
+		{
+			name: "header",
+			input: RequestInput{
+				ID: "expanded-header-limit", Method: http.MethodGet,
+				URL: server.URL,
+				Headers: []KeyValue{
+					{Enabled: true, Key: "X-Large", Value: "{{headerValue}}"},
+				},
+				Variables: map[string]string{"headerValue": strings.Repeat("h", int(maxHTTPRequestHeaderValueBytes)+1)},
+				TimeoutMS: 2_000,
+			},
+			wantMessageKey:    "backend.error.request.headerInvalid",
+			wantTechnicalText: "exceeds 65536 bytes after variable interpolation",
+		},
+		{
+			name: "literal-header",
+			input: RequestInput{
+				ID: "literal-header-limit", Method: http.MethodGet,
+				URL: server.URL,
+				Headers: []KeyValue{
+					{Enabled: true, Key: "X-Large", Value: strings.Repeat("h", int(maxHTTPRequestHeaderValueBytes)+1)},
+				},
+				LiteralValues: true,
+				TimeoutMS:     2_000,
+			},
+			wantMessageKey:    "backend.error.request.headerInvalid",
+			wantTechnicalText: "exceeds 65536 bytes",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := NewBridge().SendRequest(test.input)
+			if result.Response != nil {
+				t.Fatalf("SendRequest() response = %#v, want nil", result.Response)
+			}
+			if result.Error == nil ||
+				result.Error.Code != UserErrorInvalidRequest ||
+				result.Error.MessageKey != test.wantMessageKey {
+				t.Fatalf("SendRequest() error = %#v", result.Error)
+			}
+			if test.wantTechnicalText == "" {
+				if result.Error.Technical != "" {
+					t.Fatalf("SendRequest() technical = %q, want empty", result.Error.Technical)
+				}
+			} else if !strings.Contains(result.Error.Technical, test.wantTechnicalText) {
+				t.Fatalf(
+					"SendRequest() technical = %q, want text %q",
+					result.Error.Technical,
+					test.wantTechnicalText,
+				)
+			}
+		})
+	}
+	if got := requests.Load(); got != 0 {
+		t.Fatalf("oversized expansions reached the network %d times", got)
 	}
 }
 

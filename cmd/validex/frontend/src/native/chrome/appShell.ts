@@ -22,11 +22,14 @@ import {
   subscribeCollectionLibraryPersistence,
 } from "../../stores/collectionLibraryStorage.js";
 import { workspaceStore } from "../../stores/workspace.js";
-import { mountAutomationLab } from "../features/automation.js";
-import { mountJSONLab } from "../features/json-lab.js";
-import { mountProtocolLab } from "../features/protocol-lab.js";
 import { mountRequestWorkspace } from "../requests/workspace.js";
-import { workspaceDefinition } from "../workspaces.js";
+import {
+  isToolWorkspaceView,
+  toolWorkspaceDefinition,
+  toolWorkspaceDefinitions,
+  workspaceDefinition,
+  type ToolWorkspaceView,
+} from "../workspaces.js";
 import { mountActivityBar } from "./activityBar.js";
 import { mountCommandPalette } from "./commandPalette.js";
 import { mountContextPanel } from "./contextPanel.js";
@@ -50,9 +53,6 @@ import type {
   WorkspacePanelSide,
 } from "./workspaceLayoutCommands.js";
 
-type ToolView = Exclude<WorkspaceView, "requests">;
-type ToolMount = (root: HTMLElement) => Disposable;
-
 const compactPanelFocusableSelector = [
   "a[href]",
   "button:not([disabled])",
@@ -63,24 +63,6 @@ const compactPanelFocusableSelector = [
   '[contenteditable="true"]',
   '[tabindex]:not([tabindex="-1"])',
 ].join(",");
-
-const toolMounts: Record<ToolView, () => Promise<ToolMount>> = {
-  mock: async () => {
-    const module = await import("../features/mockServer.js");
-    return module.mountMockServerLab;
-  },
-  json: async () => mountJSONLab,
-  diagnostics: async () => {
-    const module = await import("../features/diagnostics.js");
-    return module.mountDiagnosticsLab;
-  },
-  performance: async () => {
-    const module = await import("../features/performance.js");
-    return module.mountPerformanceLab;
-  },
-  protocols: async () => mountProtocolLab,
-  automation: async () => mountAutomationLab,
-};
 
 function savedLinks() {
   return collectionLibraryStore.getState().requests.map(
@@ -111,8 +93,8 @@ export function mountAppShell(
   bootstrap: BootstrapData,
 ): Disposable {
   const lifecycle = new Lifecycle();
-  const toolControllers = new Map<ToolView, Disposable>();
-  const mountingTools = new Map<ToolView, Promise<void>>();
+  const toolControllers = new Map<ToolWorkspaceView, Disposable>();
+  const mountingTools = new Map<ToolWorkspaceView, Promise<void>>();
   let disposed = false;
   let compactPanel: WorkspacePanelSide | null = null;
   let compactPanelTrigger: HTMLElement | undefined;
@@ -128,14 +110,9 @@ export function mountAppShell(
         <div data-topbar></div>
         <div class="application-body">
           <div data-activity></div>
-          ${([
-            "mock",
-            "json",
-            "diagnostics",
-            "performance",
-            "protocols",
-            "automation",
-          ] as const).map((view) => html`
+          ${toolWorkspaceDefinitions.map((definition) => {
+            const view = definition.id;
+            return html`
               <main
                 id="workspace-view-${view}"
                 class="tool-workspace"
@@ -153,7 +130,8 @@ export function mountAppShell(
                   <span>${t("shell.workspacePreparing")}</span>
                 </div>
               </main>
-            `)}
+            `;
+          })}
           <main
             id="workspace-view-requests"
             class="workspace-layout"
@@ -642,7 +620,7 @@ export function mountAppShell(
     );
   };
 
-  const ensureTool = (view: ToolView): Promise<void> => {
+  const ensureTool = (view: ToolWorkspaceView): Promise<void> => {
     if (toolControllers.has(view)) return Promise.resolve();
     const pending = mountingTools.get(view);
     if (pending) return pending;
@@ -652,7 +630,7 @@ export function mountAppShell(
         `[data-tool-view="${view}"]`,
       );
       try {
-        const mount = await toolMounts[view]();
+        const mount = await toolWorkspaceDefinition(view).load();
         if (disposed) return;
         host.replaceChildren();
         toolControllers.set(view, mount(host));
@@ -695,7 +673,7 @@ export function mountAppShell(
       host.hidden = !active;
       host.setAttribute("aria-hidden", String(!active));
     }
-    if (view !== "requests" && changed) {
+    if (isToolWorkspaceView(view) && changed) {
       void ensureTool(view).then(() => focusViewHeading(view));
     }
     if (changed) {
@@ -738,8 +716,8 @@ export function mountAppShell(
 
   lifecycle.listen(root, "click", (event) => {
     const retry = eventElement<HTMLElement>(event, "[data-retry-tool]");
-    const view = retry?.dataset.retryTool as ToolView | undefined;
-    if (!view || !(view in toolMounts)) return;
+    const view = retry?.dataset.retryTool;
+    if (!isToolWorkspaceView(view)) return;
     const host = requiredElement<HTMLElement>(
       root,
       `[data-tool-view="${view}"]`,
@@ -879,9 +857,18 @@ export function mountAppShell(
     workspaceStore.getState().reconcileSavedRequestLinks(savedLinks());
   };
   lifecycle.add(
-    workspaceStore.subscribe(() => {
-      updateView();
-      updateLayout();
+    workspaceStore.subscribe((state, previous) => {
+      if (state.activeView !== previous.activeView) updateView();
+      if (
+        state.activeView !== previous.activeView ||
+        state.leftVisible !== previous.leftVisible ||
+        state.rightVisible !== previous.rightVisible ||
+        state.leftWidth !== previous.leftWidth ||
+        state.rightWidth !== previous.rightWidth ||
+        state.responsePlacement !== previous.responsePlacement
+      ) {
+        updateLayout();
+      }
     }),
   );
   lifecycle.add(collectionLibraryStore.subscribe(reconcile));
@@ -951,8 +938,8 @@ export function mountAppShell(
       for (const host of root.querySelectorAll<HTMLElement>(
         "[data-tool-view]",
       )) {
-        const view = host.dataset.toolView as ToolView | undefined;
-        if (view && view in toolMounts) {
+        const view = host.dataset.toolView;
+        if (isToolWorkspaceView(view)) {
           host.setAttribute(
             "aria-label",
             t(workspaceDefinition(view).labelKey),
