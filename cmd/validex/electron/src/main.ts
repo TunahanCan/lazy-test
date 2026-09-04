@@ -26,6 +26,7 @@ import {
   clipboardText,
   clipboardWriteChannel,
 } from "./clipboard";
+import { configureGraphicsCompatibility } from "./graphics";
 import {
   applicationIconPath,
   applicationID,
@@ -38,6 +39,7 @@ import {
 import { SidecarClient } from "./sidecar";
 
 applyApplicationProcessIdentity(process);
+configureGraphicsCompatibility(app);
 
 const applicationScheme = "app";
 const applicationHost = "validex";
